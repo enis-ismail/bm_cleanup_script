@@ -1,0 +1,61 @@
+{
+  "request": {
+    "groupId": "2C2P",
+    "instanceType": "sandbox",
+    "endpoint": "/s/-/dw/data/v25_6/site_preferences/preference_groups/2C2P/sandbox/preference_search"
+  },
+  "response": {
+    "_v": "25.6",
+    "_type": "preference_value_search_result",
+    "count": 10,
+    "hits": [
+      {
+        "_type": "preference_value",
+        "id": "2c2pMerchantID"
+      },
+      {
+        "_type": "preference_value",
+        "id": "2c2pSecretKey"
+      },
+      {
+        "_type": "preference_value",
+        "id": "2c2pPaymentChannelCodes"
+      },
+      {
+        "_type": "preference_value",
+        "id": "2c2pAllowedResponseCodes"
+      },
+      {
+        "_type": "preference_value",
+        "id": "savePendingPaymentsOrder"
+      },
+      {
+        "_type": "preference_value",
+        "id": "2c2pScript"
+      },
+      {
+        "_type": "preference_value",
+        "id": "doPaymentCode"
+      },
+      {
+        "_type": "preference_value",
+        "id": "cardRegex"
+      },
+      {
+        "_type": "preference_value",
+        "id": "cardLength"
+      },
+      {
+        "_type": "preference_value",
+        "id": "triggerPickUpDateD2OrD3"
+      }
+    ],
+    "query": {
+      "match_all_query": {
+        "_type": "match_all_query"
+      }
+    },
+    "start": 0,
+    "total": 10
+  }
+}

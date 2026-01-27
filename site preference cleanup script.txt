@@ -1,0 +1,40 @@
+create script that checks preferences and mention in code.
+
+* script must use ocapi to make connection with the different realms and have access to cartridge paths|site preferences| site preference values
+  => lets do this dynamically by giving it a list with host and access keys in a .env file to connect to the sites this way we can retrieve the info in one call for all realms [let me know what you think Josep]
+  => lets set up a cartridge path file that keeps tracks of all different realms their cartridge paths -> filename example: <realm-cartridgePath> -> file structure: "BM path" /n <bm path> /n <site 1> /n <site 1 path> /n ... 
+
+* script must have acces to the repository (github|bitbucket|local code)
+
+
+* use cartridge path of all realms to determine which are still being used, if cartridge is not being used flag it as unused in the repo (mark it as legacy code in the code?)
+  => if a cartridge isn't being used adjust to readme to mark it as legacy code by adjusting the top line to be <LEGACY CODE>
+
+
+* create a csv per realm/ folder structure / sites / => export prefs per site in a csv
+  => retrieve the preferences per preference group and document them in a CSV so we can remember to which group each preference belongs.
+
+* the CSV's will be created per site => this way we know what is on each realm/site
+  => CSV file name <realmID>_<siteID>_preferenceList.csv
+
+
+* lets have the CSV note down: preference ID | current preference value | default value | preference descriptions | where it is used in the code (get filled in the next step)
+  => most of this information can be retrieved using the ocapi call
+
+
+* looks through these prefs and detect the dead prefs (unused)
+  => check if the preference ID is being used in the code
+  => check if the preference has a value in the BM and if not confirm that the default value doesn't activate it.
+  => if the preference is used in the code check if the cartridge it is being used in still exists in any of the cartridge paths.
+  => (check if the code it is used in is legacy code, to be honest I have no clue how to test this)
+
+
+create a second script to interprit the result of the first one.
+
+* this script should read the result if the first one and prepare deletions to the connected BM
+
+* document which preferences are being deleted and ask for confirmation to delete these
+
+* if an entire preference group is deleted remove the group itself as well to avoid clutter on the BM
+  => this can be check in the CSV no new call needs to be made for this to check it.
+
