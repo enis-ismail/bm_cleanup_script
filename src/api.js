@@ -3,6 +3,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+/* eslint-disable no-undef */
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -34,7 +36,7 @@ export async function getOAuthToken(sandbox) {
     try {
         const tokenUrl = 'https://account.demandware.com/dwsso/oauth2/access_token';
         const credentials = Buffer.from(`${sandbox.clientId}:${sandbox.clientSecret}`).toString('base64');
-        
+
         const response = await axios.post(
             tokenUrl,
             new URLSearchParams({
@@ -61,14 +63,14 @@ export async function getAllSites(sandbox) {
     try {
         const token = await getOAuthToken(sandbox);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v19_5/sites`;
-    
+
         const response = await axios.get(url, {
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
             }
         });
-        
+
         const sites = response.data.data || [];
         console.log(`Found ${sites.length} sites`);
 
@@ -109,7 +111,7 @@ export async function getSitePreferences(objectType, sandbox) {
         let start = 0;
         const count = 200;
         let total = 0;
-        
+
         do {
             const url = `https://${sandbox.hostname}/s/-/dw/data/v19_5/system_object_definitions/${objectType}/attribute_definitions?start=${start}&count=${count}`;
             const response = await axios.get(url, {
@@ -120,17 +122,16 @@ export async function getSitePreferences(objectType, sandbox) {
             });
             const attributes = response.data.data || [];
             total = response.data.total || attributes.length;
-            
+
             allAttributes = allAttributes.concat(attributes);
             start += attributes.length;
-            
+
             console.log(`Fetched ${allAttributes.length} of ${total} attributes...`);
-            
             if (attributes.length === 0 || allAttributes.length >= total) {
                 break;
             }
-        } while (true);
-        
+        } while (allAttributes.length < total);
+
         console.log(`Found ${allAttributes.length} total attributes for ${objectType}`);
         return allAttributes;
     } catch (error) {
@@ -149,7 +150,7 @@ export async function getAttributeGroups(objectType, sandbox) {
         let start = 0;
         const count = 200;
         let total = 0;
-        
+
         do {
             const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_groups?start=${start}&count=${count}`;
             const response = await axios.get(url, {
@@ -158,20 +159,20 @@ export async function getAttributeGroups(objectType, sandbox) {
                     'Content-Type': 'application/json'
                 }
             });
-            
+
             const groups = response.data.data || [];
             total = response.data.total || groups.length;
-            
+
             allGroups = allGroups.concat(groups);
             start += groups.length;
-            
+
             console.log(`Fetched ${allGroups.length} of ${total} attribute groups...`);
-            
+
             if (groups.length === 0 || allGroups.length >= total) {
                 break;
             }
-        } while (true);
-        
+        } while (allGroups.length < total);
+
         console.log(`Found ${allGroups.length} total attribute groups for ${objectType}`);
         return allGroups;
     } catch (error) {
@@ -187,14 +188,14 @@ export async function getAttributeGroupById(objectType, attributeGroupId, sandbo
     try {
         const token = await getOAuthToken(sandbox);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_groups/${encodeURIComponent(attributeGroupId)}`;
-        
+
         const response = await axios.get(url, {
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
             }
         });
-        
+
         // Log full response to file
         const logData = {
             request: {
@@ -215,7 +216,7 @@ export async function getAttributeGroupById(objectType, attributeGroupId, sandbo
         const filename = `${attributeGroupId}_response.json`;
         fs.writeFileSync(filename, JSON.stringify(logData, null, 2));
         console.log(`Full response logged to: ${filename}`);
-        
+
         return response.data;
     } catch (error) {
         console.error(`Error fetching attribute group ${attributeGroupId}:`, error.response?.data || error.message);
@@ -230,14 +231,14 @@ export async function getSitePreferencesGroup(siteId, groupId, instanceType, san
     try {
         const token = await getOAuthToken(sandbox);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/sites/${encodeURIComponent(siteId)}/site_preferences/preference_groups/${encodeURIComponent(groupId)}/${encodeURIComponent(instanceType)}`;
-        
+
         const response = await axios.get(url, {
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
             }
         });
-        
+
         return response.data;
     } catch (error) {
         console.error(`Error fetching site preferences for group ${groupId}:`, error.response?.data || error.message);

@@ -4,6 +4,7 @@ package-lock.json
 
 # Configuration files with sensitive data
 config.json
+!config.example.json
 
 # Generated realm folders with outputs
 */

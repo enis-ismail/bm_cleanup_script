@@ -1,0 +1,16 @@
+{
+  "realms": [
+    {
+      "name": "staging",
+      "hostname": "staging-realm-123.sandbox.example.com",
+      "clientId": "your-client-id-here",
+      "clientSecret": "your-client-secret-here"
+    },
+    {
+      "name": "production",
+      "hostname": "production-realm-456.example.com",
+      "clientId": "your-client-id-here",
+      "clientSecret": "your-client-secret-here"
+    }
+  ]
+}

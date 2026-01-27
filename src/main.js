@@ -1,10 +1,10 @@
 ﻿import inquirer from 'inquirer';
 import { Command } from 'commander';
-import { addRealmToConfig, removeRealmFromConfig, ensureRealmDir } from './helpers.js';
+import { addRealmToConfig, removeRealmFromConfig, ensureRealmDir, writeTestOutput } from './helpers.js';
 import { exportSitesCartridgesToCSV, exportAttributesToCSV, writeUsageCSV, writeMatrixCSV } from './csvHelper.js';
-import { getSandboxConfig, getAvailableRealms, getSitePreferencesGroup, getAttributeGroups, getAttributeGroupById, getAllSites, getSiteById, getSitePreferences, getPreferencesInGroup, getPreferenceById } from './api.js';
+import { getSandboxConfig, getAvailableRealms, getSitePreferencesGroup, getAttributeGroups, getAttributeGroupById, getAllSites, getSitePreferences, getPreferencesInGroup, getPreferenceById } from './api.js';
 import { realmPrompt, objectTypePrompt, instanceTypePrompt, preferenceGroupPrompt, preferenceIdPrompt, addRealmPrompts, selectRealmToRemovePrompt, confirmRealmRemovalPrompt, attributeGroupSelectionPrompt, siteIdPrompt, scopePrompts } from './prompts.js';
-import fs from 'fs';
+import { buildPreferenceMeta, processSitesAndGroups, buildPreferenceMatrix } from './summarizeHelper.js';
 
 const program = new Command();
 
@@ -51,10 +51,10 @@ program
             console.log('No realms available to remove.');
             return;
         }
-        
+
         const selectAnswer = await inquirer.prompt(selectRealmToRemovePrompt(realms));
         const confirmAnswer = await inquirer.prompt(confirmRealmRemovalPrompt(selectAnswer.realmToRemove));
-        
+
         if (confirmAnswer.confirm) {
             await removeRealmFromConfig(selectAnswer.realmToRemove);
         } else {
@@ -69,16 +69,17 @@ program
         const realmAnswers = await inquirer.prompt(realmPrompt());
         const sandbox = getSandboxConfig(realmAnswers.realm);
         const answers = await inquirer.prompt(objectTypePrompt());
-        
+
         console.log(`\nFetching attribute groups for ${answers.objectType}...`);
         const groups = await getAttributeGroups(answers.objectType, sandbox);
-        
-        // Write full response to file
+
         const filename = `${realmAnswers.realm}_attribute_groups_response.json`;
-        fs.writeFileSync(filename, JSON.stringify(groups, null, 2));
-        
+        writeTestOutput(filename, groups, {
+            preview: groups[0],
+            consoleOutput: true
+        });
+
         console.log(`\nResult: Found ${groups.length} attribute groups`);
-        console.log(`Full response written to ${filename}`);
         console.log('\nFirst group sample:');
         console.log(JSON.stringify(groups[0], null, 2));
     });
@@ -90,17 +91,17 @@ program
         const realmAnswers = await inquirer.prompt(realmPrompt());
         const sandbox = getSandboxConfig(realmAnswers.realm);
         const answers = await inquirer.prompt(objectTypePrompt());
-        
+
         // First fetch all groups to let user pick one
         console.log(`\nFetching attribute groups for ${answers.objectType}...`);
         const groups = await getAttributeGroups(answers.objectType, sandbox);
-        
+
         const groupAnswer = await inquirer.prompt(attributeGroupSelectionPrompt(groups));
-        
+
         console.log(`\nFetching details for attribute group: ${groupAnswer.groupId}...`);
         const group = await getAttributeGroupById(answers.objectType, groupAnswer.groupId, sandbox);
-        
-        console.log(`\nResult:`);
+
+        console.log('\nResult:');
         console.log(JSON.stringify(group, null, 2));
     });
 
@@ -114,24 +115,24 @@ program
             ...preferenceGroupPrompt('2C2P'),
             ...instanceTypePrompt('sandbox')
         ]);
-        
+
         console.log(`\nFetching preferences for group: ${answers.groupId}...`);
         const preferences = await getPreferencesInGroup(answers.groupId, answers.instanceType, sandbox);
-        
-        // Log full response to file
+
         const logData = {
             request: {
                 groupId: answers.groupId,
                 instanceType: answers.instanceType,
-                endpoint: `/s/-/dw/data/v25_6/site_preferences/preference_groups/${answers.groupId}/${answers.instanceType}/preference_search`
+                endpoint: `/s/-/dw/data/v25_6/site_preferences/preference_groups/${answers.groupId}/${
+                    answers.instanceType
+                }/preference_search`
             },
             response: preferences
         };
         const filename = `${answers.groupId}_preferences_response.json`;
-        fs.writeFileSync(filename, JSON.stringify(logData, null, 2));
-        
-        console.log(`\nResult: Found preferences in group`);
-        console.log(`Full response logged to: ${filename}`);
+        writeTestOutput(filename, logData);
+
+        console.log('\nResult: Found preferences in group');
         console.log(JSON.stringify(preferences, null, 2));
     });
 
@@ -158,8 +159,7 @@ program
             response: preference
         };
         const filename = `${answers.preferenceId}_preference_response.json`;
-        fs.writeFileSync(filename, JSON.stringify(logData, null, 2));
-        console.log(`\nResult written to ${filename}`);
+        writeTestOutput(filename, logData);
         console.log(JSON.stringify(preference, null, 2));
     });
 
@@ -169,31 +169,38 @@ program
     .action(async () => {
         const realmAnswers = await inquirer.prompt(realmPrompt());
         const sandbox = getSandboxConfig(realmAnswers.realm);
-        
+
         const answers = await inquirer.prompt([
             ...siteIdPrompt(),
             ...preferenceGroupPrompt('2C2P'),
             ...instanceTypePrompt('sandbox')
         ]);
-        
-        console.log(`\nFetching preferences for site: ${answers.siteId}, group: ${answers.groupId}...`);
-        const preferences = await getSitePreferencesGroup(answers.siteId, answers.groupId, answers.instanceType, sandbox);
-        
-        // Log full response to file
+
+        console.log(
+            `\nFetching preferences for site: ${answers.siteId}, group: ${answers.groupId}...`
+        );
+        const preferences = await getSitePreferencesGroup(
+            answers.siteId,
+            answers.groupId,
+            answers.instanceType,
+            sandbox
+        );
+
         const logData = {
             request: {
                 siteId: answers.siteId,
                 groupId: answers.groupId,
                 instanceType: answers.instanceType,
-                endpoint: `/s/-/dw/data/v25_6/sites/${answers.siteId}/site_preferences/preference_groups/${answers.groupId}/${answers.instanceType}`
+                endpoint: `/s/-/dw/data/v25_6/sites/${answers.siteId}/site_preferences/preference_groups/${
+                    answers.groupId
+                }/${answers.instanceType}`
             },
             response: preferences
         };
         const filename = `${answers.siteId}_${answers.groupId}_site_preferences_response.json`;
-        fs.writeFileSync(filename, JSON.stringify(logData, null, 2));
-        
-        console.log(`\nResult: Retrieved site preferences`);
-        console.log(`Full response logged to: ${filename}`);
+        writeTestOutput(filename, logData);
+
+        console.log('\nResult: Retrieved site preferences');
         console.log(JSON.stringify(preferences, null, 2));
     });
 
@@ -235,100 +242,28 @@ program
 
         const siteSummaries = [];
 
-        const preferenceMeta = preferenceDefinitions.reduce((acc, def) => {
-            const id = def.id || def.attribute_id || def.attributeId;
-            acc[id] = {
-                id,
-                type: def.value_type || def.type,
-                description: def.description || def.name || null,
-                group: def.group_id || def.groupId || null,
-                defaultValue: def.default_value || def.default || null
-            };
-            return acc;
-        }, {});
-
-        const isValueKey = (key) => !['_v', '_type', 'link', 'site'].includes(key);
-
-        // Helper to normalize preference IDs (remove 'c_' prefix if present)
-        const normalizeId = (id) => id?.startsWith('c_') ? id.substring(2) : id;
-
+        const preferenceMeta = buildPreferenceMeta(preferenceDefinitions);
         const usageRows = [];
 
         console.log(`\nProcessing ${sitesToProcess.length} site(s)...`);
-        let siteIndex = 0;
 
-        for (const site of sitesToProcess) {
-            const siteId = site.id || site.site_id || site.siteId;
-            if (!siteId) continue;
+        const { usageRows: processedRows, siteSummaries: processedSummaries } = await processSitesAndGroups(
+            sitesToProcess,
+            groupSummaries,
+            sandbox,
+            answers,
+            preferenceMeta
+        );
 
-            siteIndex++;
-            console.log(`\n[${siteIndex}/${sitesToProcess.length}] Processing site: ${siteId}`);
-
-            const siteDetail = await getSiteById(siteId, sandbox);
-            const cartridges = siteDetail?.cartridges || siteDetail?.cartridgesPath || siteDetail?.cartridges_path || '';
-
-            console.log(`  - Fetching preference values across ${groupSummaries.length} group(s)...`);
-            const groupValues = [];
-            let groupIndex = 0;
-            for (const group of groupSummaries) {
-                groupIndex++;
-                console.log(`    [${groupIndex}/${groupSummaries.length}] Group: ${group.groupId}`);
-                const sitePrefs = await getSitePreferencesGroup(siteId, group.groupId, answers.instanceType, sandbox);
-                const usedPreferenceIds = Object.keys(sitePrefs || {}).filter(isValueKey);
-                // Capture rows for any preferences that have values on this site
-                for (const prefId of usedPreferenceIds) {
-                    const rawVal = sitePrefs[prefId];
-                    // Only include if value is not null, undefined, or empty string
-                    if (rawVal === null || rawVal === undefined || rawVal === '') continue;
-                    
-                    const normalizedPrefId = normalizeId(prefId);
-                    const safeVal = typeof rawVal === 'object' ? JSON.stringify(rawVal) : String(rawVal);
-                    const meta = preferenceMeta[normalizedPrefId] || {};
-                    usageRows.push({
-                        siteId,
-                        cartridges,
-                        groupId: group.groupId,
-                        preferenceId: normalizedPrefId,
-                        hasValue: true,
-                        value: safeVal,
-                        defaultValue: meta.defaultValue ?? '',
-                        description: meta.description ?? ''
-                    });
-                }
-
-                groupValues.push({
-                    groupId: group.groupId,
-                    usedPreferenceIds,
-                    values: sitePrefs
-                });
-            }
-
-            console.log(`  ✓ Site ${siteId} complete (${usageRows.filter(r => r.siteId === siteId).length} preferences found)`);
-            siteSummaries.push({ siteId, cartridges, groups: groupValues });
-        }
+        usageRows.push(...processedRows);
+        siteSummaries.push(...processedSummaries);
 
         const realmDir = ensureRealmDir(realmAnswers.realm);
 
         // Build complete preference matrix: all preferences vs all sites
         const allSiteIds = sitesToProcess.map(s => s.id || s.site_id || s.siteId).filter(Boolean).sort();
         const allPrefIds = Object.keys(preferenceMeta).sort();
-
-        // Initialize matrix with all preferences having false for all sites
-        const preferenceMatrix = allPrefIds.map(prefId => {
-            const siteValues = {};
-            allSiteIds.forEach(siteId => {
-                siteValues[siteId] = false;
-            });
-            return { preferenceId: prefId, sites: siteValues };
-        });
-        
-        // Mark hasValue=true for preferences that have explicit values
-        for (const row of usageRows) {
-            const prefEntry = preferenceMatrix.find(p => p.preferenceId === row.preferenceId);
-            if (prefEntry) {
-                prefEntry.sites[row.siteId] = true;
-            }
-        }
+        const preferenceMatrix = buildPreferenceMatrix(allPrefIds, allSiteIds, usageRows);
 
         // Write CSV with dynamic site-specific value columns
         writeUsageCSV(realmDir, realmAnswers.realm, answers.instanceType, usageRows, preferenceMeta);

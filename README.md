@@ -62,7 +62,7 @@ You must add your sandbox realm to the `config.json` file before running command
 
 **Option 1: Using the CLI (Recommended)**
 ```bash
-node src/ocapi.js add-realm
+node src/main.js add-realm
 ```
 This will prompt you to enter:
 - Realm name (e.g., `staging`, `production`)
@@ -85,6 +85,13 @@ Edit `config.json` directly and add your realm to the `realms` array:
 }
 ```
 
+**Example Configuration File**
+A sample configuration with dummy data is provided in `config.example.json`. You can use it as a template:
+```bash
+cp config.example.json config.json
+```
+Then edit `config.json` with your actual realm credentials.
+
 ### Authentication
 
 OAuth credentials (Client ID and Client Secret) must be configured for each realm. The scripts automatically handle OAuth token retrieval using your configured credentials. Tokens are obtained on demand for each API request.
@@ -93,18 +100,19 @@ OAuth credentials (Client ID and Client Secret) must be configured for each real
 
 ## Output Files
 
-When running commands that export data, files are organized by realm:
+When running commands that export data, files are organized in a `results` folder by realm:
 
 ```
-your-realm-name/
-├── active_site_cartridges_list.csv       # Site IDs and their cartridge paths
-├── sandbox_preferences_summary.json      # Summary of all preference groups
-├── sandbox_preferences_usage.csv         # Preferences × Sites matrix (X marks explicit values)
-├── sandbox_preferences_matrix.csv        # All preferences with their attributes
-└── site_preferences.csv                  # Detailed site preference values
+results/
+└── your-realm-name/
+    ├── active_site_cartridges_list.csv       # Site IDs and their cartridge paths
+    ├── sandbox_preferences_summary.json      # Summary of all preference groups
+    ├── sandbox_preferences_usage.csv         # Preferences × Sites matrix (X marks explicit values)
+    ├── sandbox_preferences_matrix.csv        # All preferences with their attributes
+    └── site_preferences.csv                  # Detailed site preference values
 ```
 
-Each realm creates its own folder, allowing you to work with multiple sandboxes simultaneously.
+Each realm creates its own folder within `results/`, allowing you to work with multiple sandboxes simultaneously. The `results` folder is created automatically when you run export commands.
 
 ## API Capabilities
 
@@ -153,38 +161,38 @@ Once your realm is configured, you can use the following commands:
 
 ### Realm Management
 ```bash
-node src/ocapi.js add-realm
+node src/main.js add-realm
 ```
 Add a new realm to config.json.
 
 ```bash
-node src/ocapi.js remove-realm
+node src/main.js remove-realm
 ```
 Remove a realm from config.json.
 
 ### Core Commands
 ```bash
-node src/ocapi.js list-sites
+node src/main.js list-sites
 ```
 Lists all sites and exports cartridge paths to CSV.
 
 ```bash
-node src/ocapi.js get-preferences
+node src/main.js get-preferences
 ```
 Retrieves site preferences from OCAPI.
 
 ```bash
-node src/ocapi.js summarize-preferences
+node src/main.js summarize-preferences
 ```
 Builds a comprehensive export of preference groups, preferences across all sites, and site-specific preference values into CSV files.
 
 ### Testing Commands
 ```bash
-node src/ocapi.js test-preference-search
+node src/main.js test-preference-search
 ```
 Tests the preference search endpoint with a specific preference group.
 
 ```bash
-node src/ocapi.js test-site-preferences-group
+node src/main.js test-site-preferences-group
 ```
 Tests retrieving site-specific preference values for a group.
