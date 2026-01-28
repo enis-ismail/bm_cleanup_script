@@ -1,10 +1,58 @@
 ﻿import inquirer from 'inquirer';
 import { Command } from 'commander';
-import { addRealmToConfig, removeRealmFromConfig, ensureRealmDir, writeTestOutput } from './helpers.js';
+import path from 'path';
+import {
+    addRealmToConfig,
+    removeRealmFromConfig,
+    ensureRealmDir,
+    writeTestOutput,
+    findAllMatrixFiles,
+    parseCSVToNestedArray,
+    findUnusedPreferences,
+    writeUnusedPreferencesFile,
+    getSandboxConfig,
+    getAvailableRealms
+} from './helpers.js';
 import { exportSitesCartridgesToCSV, exportAttributesToCSV, writeUsageCSV, writeMatrixCSV } from './csvHelper.js';
-import { getSandboxConfig, getAvailableRealms, getSitePreferencesGroup, getAttributeGroups, getAttributeGroupById, getAllSites, getSitePreferences, getPreferencesInGroup, getPreferenceById } from './api.js';
-import { realmPrompt, objectTypePrompt, instanceTypePrompt, preferenceGroupPrompt, preferenceIdPrompt, addRealmPrompts, selectRealmToRemovePrompt, confirmRealmRemovalPrompt, attributeGroupSelectionPrompt, siteIdPrompt, scopePrompts } from './prompts.js';
+import {
+    getSitePreferencesGroup,
+    getAttributeGroups,
+    getAttributeGroupById,
+    getAllSites,
+    getSitePreferences,
+    getPreferencesInGroup,
+    getPreferenceById
+} from './api.js';
+import {
+    realmPrompt,
+    objectTypePrompt,
+    instanceTypePrompt,
+    preferenceGroupPrompt,
+    preferenceIdPrompt,
+    addRealmPrompts,
+    selectRealmToRemovePrompt,
+    confirmRealmRemovalPrompt,
+    attributeGroupSelectionPrompt,
+    siteIdPrompt,
+    scopePrompts
+} from './prompts.js';
 import { buildPreferenceMeta, processSitesAndGroups, buildPreferenceMatrix } from './summarizeHelper.js';
+import {
+    logCheckPreferencesStart,
+    logNoMatrixFiles,
+    logMatrixFilesFound,
+    logProcessingRealm,
+    logEmptyCSV,
+    logRealmResults,
+    logSummaryHeader,
+    logRealmSummary,
+    logSummaryFooter
+} from './logger.js';
+
+// ============================================================================
+// CLI ENTRYPOINT
+// Central command registry for OCAPI tooling
+// ============================================================================
 
 const program = new Command();
 
@@ -13,6 +61,11 @@ program
     .name('OCAPI Tools')
     .description('Tools for working with SFCC OCAPI')
     .version('1.0.0');
+
+// ============================================================================
+// CORE COMMANDS
+// Primary workflows intended for regular use
+// ============================================================================
 
 program
     .command('list-sites')
@@ -61,6 +114,142 @@ program
             console.log('Realm removal cancelled.');
         }
     });
+
+program
+    .command('summarize-preferences')
+    .description('Summarize preference definitions, groups, sites, and filled values across all sites')
+    .action(async () => {
+        const startTime = Date.now();
+        const realmAnswers = await inquirer.prompt(realmPrompt());
+        const sandbox = getSandboxConfig(realmAnswers.realm);
+
+        const answers = await inquirer.prompt([
+            ...objectTypePrompt('SitePreferences'),
+            ...instanceTypePrompt('sandbox'),
+            ...scopePrompts()
+        ]);
+
+        console.log('\nFetching all preference definitions (attribute definitions)...');
+        const preferenceDefinitions = await getSitePreferences(answers.objectType, sandbox);
+
+        console.log('\nFetching preference groups (no assignments, just IDs)...');
+        const groups = await getAttributeGroups(answers.objectType, sandbox);
+        const groupSummaries = groups.map(g => ({
+            groupId: g.id,
+            groupName: g.name || g.id,
+            displayName: g.display_name || g.displayname || g.id
+        }));
+
+        console.log('\nFetching sites and cartridge paths...');
+        const sites = await getAllSites(sandbox);
+        const sitesToProcess = answers.scope === 'single'
+            ? sites.filter(s => (s.id || s.site_id || s.siteId) === answers.siteId)
+            : sites;
+
+        if (answers.scope === 'single' && sitesToProcess.length === 0) {
+            console.log(`No site found matching '${answers.siteId}'. Aborting.`);
+            return;
+        }
+
+        const siteSummaries = [];
+
+        const preferenceMeta = buildPreferenceMeta(preferenceDefinitions);
+        const usageRows = [];
+
+        console.log(`\nProcessing ${sitesToProcess.length} site(s)...`);
+
+        const { usageRows: processedRows, siteSummaries: processedSummaries } = await processSitesAndGroups(
+            sitesToProcess,
+            groupSummaries,
+            sandbox,
+            answers,
+            preferenceMeta
+        );
+
+        usageRows.push(...processedRows);
+        siteSummaries.push(...processedSummaries);
+
+        const realmDir = ensureRealmDir(realmAnswers.realm);
+
+        // Build complete preference matrix: all preferences vs all sites
+        const allSiteIds = sitesToProcess.map(s => s.id || s.site_id || s.siteId).filter(Boolean).sort();
+        const allPrefIds = Object.keys(preferenceMeta).sort();
+        const preferenceMatrix = buildPreferenceMatrix(allPrefIds, allSiteIds, usageRows);
+
+        // Write CSV with dynamic site-specific value columns
+        writeUsageCSV(realmDir, realmAnswers.realm, answers.instanceType, usageRows, preferenceMeta);
+
+        // Write matrix CSV: preferenceId vs sites (X marks usage)
+        writeMatrixCSV(realmDir, realmAnswers.realm, answers.instanceType, preferenceMatrix, allSiteIds);
+
+        // Display total runtime
+        const endTime = Date.now();
+        const totalSeconds = Math.round((endTime - startTime) / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        const timeDisplay = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+        console.log(`\n✓ Total runtime: ${timeDisplay}`);
+    });
+
+program
+    .command('check-preferences')
+    .description('Check preference usage from matrix files')
+    .action(async () => {
+        logCheckPreferencesStart();
+
+        const matrixFiles = findAllMatrixFiles();
+
+        if (matrixFiles.length === 0) {
+            logNoMatrixFiles();
+            return;
+        }
+
+        logMatrixFilesFound(matrixFiles.length);
+
+        const summary = [];
+
+        for (const { realm, matrixFile } of matrixFiles) {
+            logProcessingRealm(realm);
+
+            const csvData = parseCSVToNestedArray(matrixFile);
+
+            if (csvData.length === 0) {
+                logEmptyCSV();
+                continue;
+            }
+
+            // Find unused preferences
+            const unusedPreferences = findUnusedPreferences(csvData);
+
+            // Write unused preferences to file
+            const realmDir = path.dirname(matrixFile);
+            const outputFile = writeUnusedPreferencesFile(realmDir, realm, unusedPreferences);
+
+            const total = csvData.length - 1; // -1 for header
+            logRealmResults(total, unusedPreferences.length, outputFile);
+
+            summary.push({
+                realm,
+                total,
+                unused: unusedPreferences.length,
+                used: total - unusedPreferences.length
+            });
+        }
+
+        // Print summary
+        logSummaryHeader();
+
+        for (const stats of summary) {
+            logRealmSummary(stats);
+        }
+
+        logSummaryFooter();
+    });
+
+// ============================================================================
+// TESTING COMMANDS
+// Diagnostic utilities and temporary exploratory commands
+// ============================================================================
 
 program
     .command('test-attribute-groups')
@@ -202,82 +391,6 @@ program
 
         console.log('\nResult: Retrieved site preferences');
         console.log(JSON.stringify(preferences, null, 2));
-    });
-
-program
-    .command('summarize-preferences')
-    .description('Summarize preference definitions, groups, sites, and filled values across all sites')
-    .action(async () => {
-        const startTime = Date.now();
-        const realmAnswers = await inquirer.prompt(realmPrompt());
-        const sandbox = getSandboxConfig(realmAnswers.realm);
-
-        const answers = await inquirer.prompt([
-            ...objectTypePrompt('SitePreferences'),
-            ...instanceTypePrompt('sandbox'),
-            ...scopePrompts()
-        ]);
-
-        console.log('\nFetching all preference definitions (attribute definitions)...');
-        const preferenceDefinitions = await getSitePreferences(answers.objectType, sandbox);
-
-        console.log('\nFetching preference groups (no assignments, just IDs)...');
-        const groups = await getAttributeGroups(answers.objectType, sandbox);
-        const groupSummaries = groups.map(g => ({
-            groupId: g.id,
-            groupName: g.name || g.id,
-            displayName: g.display_name || g.displayname || g.id
-        }));
-
-        console.log('\nFetching sites and cartridge paths...');
-        const sites = await getAllSites(sandbox);
-        const sitesToProcess = answers.scope === 'single'
-            ? sites.filter(s => (s.id || s.site_id || s.siteId) === answers.siteId)
-            : sites;
-
-        if (answers.scope === 'single' && sitesToProcess.length === 0) {
-            console.log(`No site found matching '${answers.siteId}'. Aborting.`);
-            return;
-        }
-
-        const siteSummaries = [];
-
-        const preferenceMeta = buildPreferenceMeta(preferenceDefinitions);
-        const usageRows = [];
-
-        console.log(`\nProcessing ${sitesToProcess.length} site(s)...`);
-
-        const { usageRows: processedRows, siteSummaries: processedSummaries } = await processSitesAndGroups(
-            sitesToProcess,
-            groupSummaries,
-            sandbox,
-            answers,
-            preferenceMeta
-        );
-
-        usageRows.push(...processedRows);
-        siteSummaries.push(...processedSummaries);
-
-        const realmDir = ensureRealmDir(realmAnswers.realm);
-
-        // Build complete preference matrix: all preferences vs all sites
-        const allSiteIds = sitesToProcess.map(s => s.id || s.site_id || s.siteId).filter(Boolean).sort();
-        const allPrefIds = Object.keys(preferenceMeta).sort();
-        const preferenceMatrix = buildPreferenceMatrix(allPrefIds, allSiteIds, usageRows);
-
-        // Write CSV with dynamic site-specific value columns
-        writeUsageCSV(realmDir, realmAnswers.realm, answers.instanceType, usageRows, preferenceMeta);
-
-        // Write matrix CSV: preferenceId vs sites (X marks usage)
-        writeMatrixCSV(realmDir, realmAnswers.realm, answers.instanceType, preferenceMatrix, allSiteIds);
-
-        // Display total runtime
-        const endTime = Date.now();
-        const totalSeconds = Math.round((endTime - startTime) / 1000);
-        const minutes = Math.floor(totalSeconds / 60);
-        const seconds = totalSeconds % 60;
-        const timeDisplay = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-        console.log(`\n✓ Total runtime: ${timeDisplay}`);
     });
 
 program.parse();

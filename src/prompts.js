@@ -1,4 +1,4 @@
-import { getAvailableRealms } from './api.js';
+import { getAvailableRealms } from './helpers.js';
 
 export const realmPrompt = () => ([
     {

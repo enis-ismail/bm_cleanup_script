@@ -1,36 +1,35 @@
 import axios from 'axios';
 import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 
 /* eslint-disable no-undef */
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Load configuration
-const config = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../config.json'), 'utf-8'));
-
-/**
- * Get sandbox config by name
- */
-export function getSandboxConfig(realmName) {
-    const realm = config.realms.find(r => r.name === realmName);
-    if (!realm) {
-        throw new Error(`Realm '${realmName}' not found in config.json`);
-    }
-    return realm;
-}
+// ============================================================================
+// OAUTH AUTHENTICATION
+// Handle OAuth token generation for OCAPI access
+// ============================================================================
 
 /**
- * Get all available realm names
- */
-export function getAvailableRealms() {
-    return config.realms.map(r => r.name);
-}
-
-/**
- * Get OAuth access token for OCAPI
+ * Obtain OAuth 2.0 access token for OCAPI requests
+ *
+ * Purpose: Authenticates with SFCC Account Manager using client credentials
+ * grant flow to obtain a bearer token for subsequent OCAPI calls.
+ *
+ * Process:
+ * 1. Encode client credentials as Base64 for Basic auth
+ * 2. POST to Account Manager OAuth endpoint with grant_type=client_credentials
+ * 3. Extract access_token from response
+ *
+ * @param {Object} sandbox - Sandbox configuration object from getSandboxConfig()
+ * @returns {Promise<string>} OAuth bearer token (valid for ~30 minutes)
+ * @throws {Error} If authentication fails or credentials are invalid
+ *
+ * @example
+ * const sandbox = getSandboxConfig("bcwr-080")
+ * const token = await getOAuthToken(sandbox)
+ * // Returns: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *
+ * Data Flow: Used by all data retrieval functions (getAllSites, getSitePreferences, etc.)
+ * as the first step to authorize API access.
  */
 export async function getOAuthToken(sandbox) {
     try {
@@ -56,8 +55,35 @@ export async function getOAuthToken(sandbox) {
     }
 }
 
+// ============================================================================
+// SITE MANAGEMENT
+// Retrieve and manage SFCC site configurations
+// ============================================================================
+
 /**
- * Get all sites from OCAPI
+ * Fetch all sites configured in the SFCC instance
+ *
+ * Purpose: Retrieves complete list of sites (both storefront and business manager)
+ * from OCAPI. Used to discover available sites before fetching their preferences.
+ *
+ * Process:
+ * 1. Authenticate with getOAuthToken()
+ * 2. Call OCAPI /sites endpoint
+ * 3. Extract site array from response.data.data
+ *
+ * @param {Object} sandbox - Sandbox configuration object
+ * @returns {Promise<Array>} Array of site objects, each containing:
+ *   - id: Site identifier (e.g., "RefArch", "SiteGenesis")
+ *   - _type: Object type ("site")
+ *   - Various site metadata fields
+ * @returns {Promise<Array>} Empty array if request fails
+ *
+ * @example
+ * const sites = await getAllSites(sandbox)
+ * // Returns: [{id: "RefArch", _type: "site", ...}, {id: "SiteGenesis", ...}]
+ *
+ * Data Flow: Site IDs are used to fetch site-specific preferences via getSiteById()
+ * or getSitePreferencesGroup().
  */
 export async function getAllSites(sandbox) {
     try {
@@ -82,7 +108,18 @@ export async function getAllSites(sandbox) {
 }
 
 /**
- * Get a specific site by ID
+ * Retrieve detailed configuration for a specific site
+ *
+ * Purpose: Fetches complete site object including metadata, settings, and
+ * configuration for a single site by its ID.
+ *
+ * @param {string} siteId - Site identifier (e.g., "RefArch")
+ * @param {Object} sandbox - Sandbox configuration object
+ * @returns {Promise<Object|null>} Site object with full configuration, or null if not found
+ *
+ * @example
+ * const site = await getSiteById("RefArch", sandbox)
+ * // Returns: {id: "RefArch", _type: "site", allowed_currencies: [...], ...}
  */
 export async function getSiteById(siteId, sandbox) {
     try {
@@ -101,8 +138,43 @@ export async function getSiteById(siteId, sandbox) {
     }
 }
 
+// ============================================================================
+// PREFERENCE ATTRIBUTES
+// Retrieve system object attribute definitions
+// ============================================================================
+
 /**
- * Get site preferences/attributes for a given object type with pagination
+ * Fetch all attribute definitions for a system object type with pagination
+ *
+ * Purpose: Retrieves complete list of attributes (both system and custom) for
+ * a given SFCC object type. Custom attributes start with "c_" prefix. This is
+ * the primary method to discover all available site preferences.
+ *
+ * Process:
+ * 1. Authenticate with OAuth token
+ * 2. Paginate through /attribute_definitions endpoint (200 per page)
+ * 3. Accumulate all attributes until reaching total count
+ * 4. Return complete list of attribute definitions
+ *
+ * @param {string} objectType - SFCC system object type (e.g., "SitePreferences")
+ * @param {Object} sandbox - Sandbox configuration object
+ * @returns {Promise<Array>} Array of attribute definition objects, each containing:
+ *   - id: Attribute identifier (e.g., "c_enableApplePay")
+ *   - display_name: Human-readable name
+ *   - value_type: Data type (string, boolean, number, etc.)
+ *   - default_value: Default value if set
+ *   - field_length: Max length for string types
+ * @returns {Promise<Array>} Empty array if request fails
+ *
+ * @example
+ * const attrs = await getSitePreferences("SitePreferences", sandbox)
+ * // Returns: [
+ * //   {id: "c_enableApplePay", value_type: "boolean", default_value: {value: false}},
+ * //   {id: "c_paymentGateway", value_type: "string", field_length: 256}
+ * // ]
+ *
+ * Data Flow: Used by summarize command to get all preference definitions before
+ * checking their values across sites.
  */
 export async function getSitePreferences(objectType, sandbox) {
     try {
@@ -140,8 +212,38 @@ export async function getSitePreferences(objectType, sandbox) {
     }
 }
 
+// ============================================================================
+// ATTRIBUTE GROUPS
+// Manage attribute group definitions and membership
+// ============================================================================
+
 /**
- * Get attribute groups for a given object type with pagination
+ * Fetch all attribute groups for a system object type with pagination
+ *
+ * Purpose: Retrieves the complete list of attribute groups that organize
+ * related preferences together in Business Manager. Each group can contain
+ * multiple preference attributes.
+ *
+ * Process:
+ * 1. Authenticate with OAuth token
+ * 2. Paginate through /attribute_groups endpoint (200 per page)
+ * 3. Accumulate all groups until reaching total count
+ *
+ * @param {string} objectType - SFCC system object type (e.g., "SitePreferences")
+ * @param {Object} sandbox - Sandbox configuration object
+ * @returns {Promise<Array>} Array of attribute group objects, each containing:
+ *   - id: Group identifier (e.g., "PaymentSettings")
+ *   - display_name: Human-readable group name
+ *   - description: Group description
+ *   - attribute_definitions: Array of attribute IDs in this group
+ * @returns {Promise<Array>} Empty array if request fails
+ *
+ * @example
+ * const groups = await getAttributeGroups("SitePreferences", sandbox)
+ * // Returns: [
+ * //   {id: "PaymentSettings", display_name: "Payment Settings",
+ * //    attribute_definitions: ["c_enableApplePay", "c_paymentGateway"]}
+ * // ]
  */
 export async function getAttributeGroups(objectType, sandbox) {
     try {
@@ -182,7 +284,25 @@ export async function getAttributeGroups(objectType, sandbox) {
 }
 
 /**
- * Get a specific attribute group by ID
+ * Retrieve detailed information for a specific attribute group
+ *
+ * Purpose: Fetches complete attribute group definition including all member
+ * attributes. Also logs full response to JSON file for debugging.
+ *
+ * Process:
+ * 1. Authenticate with OAuth token
+ * 2. Call /attribute_groups/{id} endpoint
+ * 3. Write full response to {groupId}_response.json for inspection
+ *
+ * @param {string} objectType - SFCC system object type (e.g., "SitePreferences")
+ * @param {string} attributeGroupId - Group identifier
+ * @param {Object} sandbox - Sandbox configuration object
+ * @returns {Promise<Object|null>} Attribute group object with complete metadata, or null if not found
+ *
+ * @example
+ * const group = await getAttributeGroupById("SitePreferences", "PaymentSettings", sandbox)
+ * // Returns: {id: "PaymentSettings", attribute_definitions: [...], ...}
+ * // Creates file: PaymentSettings_response.json
  */
 export async function getAttributeGroupById(objectType, attributeGroupId, sandbox) {
     try {
@@ -224,8 +344,27 @@ export async function getAttributeGroupById(objectType, attributeGroupId, sandbo
     }
 }
 
+// ============================================================================
+// PREFERENCE SEARCH
+// Query and retrieve actual preference values from sites
+// ============================================================================
+
 /**
- * Get site preferences list for a specific preference group and site
+ * Get site preference values for a specific group on a specific site
+ *
+ * Purpose: Retrieves the actual configured values (not just definitions) for
+ * all preferences within a group for a given site. This shows what's actually
+ * set in that site's configuration.
+ *
+ * @param {string} siteId - Site identifier (e.g., "RefArch")
+ * @param {string} groupId - Attribute group identifier (e.g., "PaymentSettings")
+ * @param {string} instanceType - Instance type ("site_preference_default_instance" for site-level)
+ * @param {Object} sandbox - Sandbox configuration object
+ * @returns {Promise<Object|null>} Preference group object with values, or null if not found
+ *
+ * @example
+ * const prefs = await getSitePreferencesGroup("RefArch", "PaymentSettings", "site_preference_default_instance", sandbox)
+ * // Returns: {c_enableApplePay: {value: true}, c_paymentGateway: {value: "stripe"}}
  */
 export async function getSitePreferencesGroup(siteId, groupId, instanceType, sandbox) {
     try {
@@ -247,7 +386,25 @@ export async function getSitePreferencesGroup(siteId, groupId, instanceType, san
 }
 
 /**
- * Search preferences within a group for the given instance type
+ * Search all preferences within a group using preference_search endpoint
+ *
+ * Purpose: Uses SFCC's search API to retrieve all preferences in a group
+ * regardless of site. This returns preference values for the specified
+ * instance type (site vs organization level).
+ *
+ * Process:
+ * 1. Authenticate with OAuth token
+ * 2. POST to /preference_search with match_all_query
+ * 3. Return full preference records
+ *
+ * @param {string} groupId - Attribute group identifier
+ * @param {string} instanceType - Instance type ("site_preference_default_instance" or "organization")
+ * @param {Object} sandbox - Sandbox configuration object
+ * @returns {Promise<Object|null>} Search results with hits array containing preference objects
+ *
+ * @example
+ * const result = await getPreferencesInGroup("PaymentSettings", "site_preference_default_instance", sandbox)
+ * // Returns: {hits: [{id: "c_enableApplePay", value: true}, ...]}
  */
 export async function getPreferencesInGroup(groupId, instanceType, sandbox) {
     try {
@@ -274,7 +431,28 @@ export async function getPreferencesInGroup(groupId, instanceType, sandbox) {
 }
 
 /**
- * Search a single preference by ID across all groups using preference_search
+ * Search for a single preference by ID across all groups
+ *
+ * Purpose: Locates a specific preference using SFCC's search API without
+ * needing to know which group it belongs to. Returns the preference's
+ * current value and metadata.
+ *
+ * Process:
+ * 1. Authenticate with OAuth token
+ * 2. POST to /preference_search with term_query filtering on ID field
+ * 3. Return search results (should contain 0 or 1 match)
+ *
+ * @param {string} preferenceId - Preference identifier (e.g., "c_enableApplePay")
+ * @param {string} instanceType - Instance type ("site_preference_default_instance" or "organization")
+ * @param {Object} sandbox - Sandbox configuration object
+ * @returns {Promise<Object|null>} Search result with hits array, or null if request fails
+ *
+ * @example
+ * const result = await getPreferenceById("c_enableApplePay", "site_preference_default_instance", sandbox)
+ * // Returns: {hits: [{id: "c_enableApplePay", value: true, group: "PaymentSettings"}], total: 1}
+ *
+ * Data Flow: Used when checking specific preference values without iterating
+ * through groups. Faster than fetching all groups when you know the preference ID.
  */
 export async function getPreferenceById(preferenceId, instanceType, sandbox) {
     try {
@@ -304,5 +482,3 @@ export async function getPreferenceById(preferenceId, instanceType, sandbox) {
         return null;
     }
 }
-
-export { config };
