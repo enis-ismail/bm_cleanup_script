@@ -33,3 +33,7 @@ npm-debug.log*
 # Temporary files
 *.tmp
 *.bak
+
+# github files
+!.github/instructions
+!.github

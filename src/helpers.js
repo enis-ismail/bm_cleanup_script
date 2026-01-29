@@ -15,22 +15,9 @@ const config = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../config.jso
 
 /**
  * Retrieve sandbox configuration for a specific realm
- *
- * Purpose: Gets the full configuration object (hostname, credentials) for
- * a named realm from config.json. This is used to establish connections
- * to SFCC instances.
- *
- * @param {string} realmName - Name of the realm to retrieve (e.g., "bcwr-080")
- * @returns {Object} Sandbox configuration object containing:
- *   - name: Realm identifier
- *   - hostname: SFCC sandbox hostname
- *   - clientId: OCAPI client ID
- *   - clientSecret: OCAPI client secret
- * @throws {Error} If realm is not found in config.json
- *
- * @example
- * const sandbox = getSandboxConfig("bcwr-080")
- * // Returns: { name: "bcwr-080", hostname: "bcwr-080.sandbox.com", clientId: "...", clientSecret: "..." }
+ * See .github/instructions/function-reference.md for detailed documentation
+ * @param {string} realmName - Name of the realm to retrieve
+ * @returns {Object} Sandbox configuration object
  */
 export function getSandboxConfig(realmName) {
     const realm = config.realms.find(r => r.name === realmName);
@@ -42,14 +29,8 @@ export function getSandboxConfig(realmName) {
 
 /**
  * Get list of all configured realm names
- *
- * Purpose: Returns an array of available realm identifiers from config.json.
- * Used for presenting selection menus and validating realm names.
- *
- * @returns {string[]} Array of realm names (e.g., ["bcwr-080", "prod-realm"])
- *
- * @example
- * getAvailableRealms() // Returns: ["bcwr-080", "staging-realm"]
+ * See .github/instructions/function-reference.md for detailed documentation
+ * @returns {string[]} Array of realm names
  */
 export function getAvailableRealms() {
     return config.realms.map(r => r.name);
@@ -57,17 +38,9 @@ export function getAvailableRealms() {
 
 /**
  * Extract realm name from a hostname URL
- *
- * Purpose: Converts a hostname like "bcwr-080.sandbox.com" to just "bcwr-080"
- * This is used to derive simple identifiers from full hostnames.
- *
- * @param {string} hostname - Full hostname URL (e.g., "bcwr-080.sandbox.com")
- * @returns {string} Extracted realm name (e.g., "bcwr-080") or "realm" as fallback
- *
- * @example
- * deriveRealm("bcwr-080.sandbox.com") // Returns: "bcwr-080"
- * deriveRealm("my-realm.demandware.net") // Returns: "my-realm"
- * deriveRealm("") // Returns: "realm"
+ * See .github/instructions/function-reference.md for detailed documentation
+ * @param {string} hostname - Full hostname URL
+ * @returns {string} Extracted realm name or "realm" as fallback
  */
 export function deriveRealm(hostname) {
     return String(hostname || '').split('.')[0] || 'realm';
@@ -75,18 +48,12 @@ export function deriveRealm(hostname) {
 
 /**
  * Add a new realm configuration to config.json
- *
- * Purpose: Registers a new SFCC sandbox realm with its credentials
- * Creates config.json if it doesn't exist. Prevents duplicate realm names.
- *
- * @param {string} name - Unique identifier for the realm (e.g., "bcwr-080")
- * @param {string} hostname - Full hostname of the sandbox (e.g., "bcwr-080.sandbox.com")
- * @param {string} clientId - OCAPI client ID for authentication
- * @param {string} clientSecret - OCAPI client secret for authentication
- * @returns {boolean} true if realm was added successfully, false otherwise
- *
- * @example
- * addRealmToConfig("prod-realm", "prod.example.com", "client123", "secret456")
+ * See .github/instructions/function-reference.md for detailed documentation
+ * @param {string} name - Unique identifier for the realm
+ * @param {string} hostname - Full hostname of the sandbox
+ * @param {string} clientId - OCAPI client ID
+ * @param {string} clientSecret - OCAPI client secret
+ * @returns {boolean} true if realm was added successfully
  */
 export function addRealmToConfig(name, hostname, clientId, clientSecret) {
     try {
@@ -127,15 +94,9 @@ export function addRealmToConfig(name, hostname, clientId, clientSecret) {
 
 /**
  * Remove a realm configuration from config.json
- *
- * Purpose: Deletes a realm entry from the configuration file
- * Validates that the realm exists before attempting removal.
- *
+ * See .github/instructions/function-reference.md for detailed documentation
  * @param {string} realmName - Name of the realm to remove
- * @returns {Promise<boolean>} true if realm was removed successfully, false otherwise
- *
- * @example
- * await removeRealmFromConfig("old-realm")
+ * @returns {Promise<boolean>} true if realm was removed successfully
  */
 export async function removeRealmFromConfig(realmName) {
     try {
@@ -169,17 +130,9 @@ export async function removeRealmFromConfig(realmName) {
 
 /**
  * Ensure a realm-specific directory exists in the results folder
- *
- * Purpose: Creates the directory structure for storing realm-specific output files
- * Creates all parent directories if they don't exist (recursive).
- *
+ * See .github/instructions/function-reference.md for detailed documentation
  * @param {string} realm - Realm name to create directory for
  * @returns {string} Absolute path to the created/verified directory
- *
- * @example
- * ensureRealmDir("bcwr-080")
- * // Returns: "C:/path/to/project/results/bcwr-080"
- * // Creates: results/bcwr-080/ if it doesn't exist
  */
 export function ensureRealmDir(realm) {
     const dir = path.resolve(__dirname, '..', 'results', realm);
@@ -189,18 +142,11 @@ export function ensureRealmDir(realm) {
 
 /**
  * Write test data to a JSON file with optional console output
- *
- * Purpose: Saves test/debug data to a JSON file for inspection
- * Used during development to capture API responses and intermediate data.
- *
+ * See .github/instructions/function-reference.md for detailed documentation
  * @param {string} filename - Name/path of the file to write
- * @param {*} data - Data to serialize as JSON (any serializable type)
+ * @param {*} data - Data to serialize as JSON
  * @param {Object} options - Configuration options
- * @param {boolean} [options.consoleOutput=true] - Whether to log to console
- * @param {*} [options.preview] - Optional data preview to display in console
- *
- * @example
- * writeTestOutput("test.json", { users: [...] }, { preview: { count: 10 } })
+ * @returns {void}
  */
 export function writeTestOutput(filename, data, options = {}) {
     fs.writeFileSync(filename, JSON.stringify(data, null, 2));
@@ -220,17 +166,9 @@ export function writeTestOutput(filename, data, options = {}) {
 
 /**
  * Normalize a preference ID by removing SFCC custom attribute prefix
- *
- * Purpose: SFCC custom attributes are prefixed with "c_" in the API.
- * This function removes that prefix to get the actual attribute name.
- *
+ * See .github/instructions/function-reference.md for detailed documentation
  * @param {string} id - Preference ID that may have "c_" prefix
  * @returns {string} Normalized ID without "c_" prefix
- *
- * @example
- * normalizeId("c_enableApplePay") // Returns: "enableApplePay"
- * normalizeId("enableApplePay") // Returns: "enableApplePay"
- * normalizeId(null) // Returns: undefined
  */
 export function normalizeId(id) {
     return id?.startsWith('c_') ? id.substring(2) : id;
@@ -238,17 +176,9 @@ export function normalizeId(id) {
 
 /**
  * Check if an object key represents actual preference data
- *
- * Purpose: SFCC API responses include metadata keys like "_v", "_type", "link"
- * This function filters out those metadata keys to identify actual preference values.
- *
+ * See .github/instructions/function-reference.md for detailed documentation
  * @param {string} key - Object key to check
- * @returns {boolean} true if the key represents preference data, false if metadata
- *
- * @example
- * isValueKey("siteName") // Returns: true
- * isValueKey("_v") // Returns: false
- * isValueKey("link") // Returns: false
+ * @returns {boolean} true if key represents preference data, false if metadata
  */
 export function isValueKey(key) {
     return !['_v', '_type', 'link', 'site'].includes(key);
@@ -261,22 +191,9 @@ export function isValueKey(key) {
 
 /**
  * Find all preference matrix CSV files in the results directory
- *
- * Purpose: Scans the results folder for realm-specific subdirectories and
- * locates their corresponding matrix files. The matrix file shows which
- * preferences have values set across different sites.
- *
+ * See .github/instructions/function-reference.md for detailed documentation
  * Expected file pattern: results/{realm}/{realm}_sandbox_preferences_matrix.csv
- *
- * @returns {Array<{realm: string, matrixFile: string}>} Array of objects containing:
- *   - realm: Name of the realm
- *   - matrixFile: Absolute path to the matrix CSV file
- *
- * @example
- * findAllMatrixFiles()
- * // Returns: [
- * //   { realm: "bcwr-080", matrixFile: "/path/to/results/bcwr-080/bcwr-080_sandbox_preferences_matrix.csv" }
- * // ]
+ * @returns {Array<{realm: string, matrixFile: string}>} Array of realm and matrix file paths
  */
 export function findAllMatrixFiles() {
     const resultsDir = path.resolve(__dirname, '..', 'results');
@@ -319,30 +236,10 @@ export function findAllMatrixFiles() {
 
 /**
  * Parse a CSV file into a 2D array structure
- *
- * Purpose: Reads a preference matrix CSV file and converts it into a nested array
- * where each row is an array of cell values. Handles quoted values and removes
- * surrounding quotes from CSV cells.
- *
- * CSV Structure:
- * - Row 0: Header row (preferenceId, site1, site2, ...)
- * - Row 1+: Data rows (preferenceId, "X" or "", "X" or "", ...)
- *
- * The "X" marker indicates a preference has a value set for that site.
- *
- * @param {string} filePath - Absolute path to the CSV file to parse
- * @returns {Array<Array<string>>} 2D array where:
- *   - First dimension: rows (index 0 = header, 1+ = data)
- *   - Second dimension: columns (index 0 = preferenceId, 1+ = site values)
- *
- * @example
- * parseCSVToNestedArray("/path/to/matrix.csv")
- * // Returns:
- * // [
- * //   ["preferenceId", "SiteA", "SiteB", "SiteC"],
- * //   ["enableApplePay", "X", "", "X"],
- * //   ["enablePayPal", "", "X", "X"]
- * // ]
+ * See .github/instructions/function-reference.md for detailed documentation
+ * CSV Structure: header row + data rows with preferenceId and site values
+ * @param {string} filePath - Absolute path to the CSV file
+ * @returns {Array<Array<string>>} 2D array of CSV data
  */
 export function parseCSVToNestedArray(filePath) {
     try {
@@ -379,26 +276,10 @@ export function parseCSVToNestedArray(filePath) {
 
 /**
  * Identify unused preferences from parsed CSV matrix data
- *
- * Purpose: Analyzes the preference matrix to find preferences that have no
- * values set across any site. A preference is considered "unused" if all
- * site columns are empty (no "X" markers).
- *
- * Analysis Logic:
- * - Skip header row (index 0)
- * - For each data row, check columns 1+ for "X" or "x"
- * - If no "X" found in any column, preference is unused
- *
- * @param {Array<Array<string>>} csvData - Parsed CSV data from parseCSVToNestedArray
+ * See .github/instructions/function-reference.md for detailed documentation
+ * Finds preferences with no "X" values across all sites
+ * @param {Array<Array<string>>} csvData - Parsed CSV data
  * @returns {string[]} Array of unused preference IDs
- *
- * @example
- * const csvData = [
- *   ["preferenceId", "SiteA", "SiteB"],
- *   ["usedPref", "X", ""],
- *   ["unusedPref", "", ""]
- * ]
- * findUnusedPreferences(csvData) // Returns: ["unusedPref"]
  */
 export function findUnusedPreferences(csvData) {
     if (csvData.length <= 1) {
@@ -426,27 +307,12 @@ export function findUnusedPreferences(csvData) {
 
 /**
  * Write unused preferences list to a text file
- *
- * Purpose: Creates a human-readable report of unused preferences for a realm.
- * The file includes metadata (timestamp, count) and the full list of unused IDs.
- *
- * File Format:
- * - Header with realm name and generation timestamp
- * - Total count of unused preferences
- * - List of all unused preference IDs (one per line)
- *
+ * See .github/instructions/function-reference.md for detailed documentation
+ * Output: {realmDir}/{realm}_unused_preferences.txt
  * @param {string} realmDir - Absolute path to the realm's output directory
- * @param {string} realm - Realm name for the file naming and header
+ * @param {string} realm - Realm name for file naming
  * @param {string[]} unusedPreferences - Array of unused preference IDs
  * @returns {string} Absolute path to the created file
- *
- * @example
- * writeUnusedPreferencesFile(
- *   "/path/to/results/bcwr-080",
- *   "bcwr-080",
- *   ["unusedPref1", "unusedPref2"]
- * )
- * // Creates: /path/to/results/bcwr-080/bcwr-080_unused_preferences.txt
  */
 export function writeUnusedPreferencesFile(realmDir, realm, unusedPreferences) {
     const filename = path.join(realmDir, `${realm}_unused_preferences.txt`);
