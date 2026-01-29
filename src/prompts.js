@@ -30,22 +30,6 @@ export const instanceTypePrompt = (defaultValue = 'sandbox') => ([
     }
 ]);
 
-export const preferenceGroupPrompt = (defaultValue = '2C2P') => ([
-    {
-        name: 'groupId',
-        message: 'Enter preference group ID?',
-        default: defaultValue
-    }
-]);
-
-export const preferenceIdPrompt = () => ([
-    {
-        name: 'preferenceId',
-        message: 'Enter preference ID?',
-        validate: (input) => input && input.trim().length > 0 ? true : 'Preference ID is required'
-    }
-]);
-
 export const addRealmPrompts = () => ([
     {
         name: 'name',
@@ -87,23 +71,6 @@ export const confirmRealmRemovalPrompt = (realmName) => ([
     }
 ]);
 
-export const attributeGroupSelectionPrompt = (groups) => ([
-    {
-        name: 'groupId',
-        message: 'Choose an attribute group:',
-        type: 'list',
-        choices: groups.map(g => ({ name: g.id, value: g.id }))
-    }
-]);
-
-export const siteIdPrompt = () => ([
-    {
-        name: 'siteId',
-        message: 'Enter site ID?',
-        validate: (input) => input.length > 0 || 'Site ID is required'
-    }
-]);
-
 export const scopePrompts = () => ([
     {
         name: 'scope',
@@ -117,5 +84,14 @@ export const scopePrompts = () => ([
         message: 'Enter site ID to process',
         when: (a) => a.scope === 'single',
         validate: (input) => input && input.trim().length > 0 ? true : 'Site ID is required'
+    }
+]);
+
+export const repositoryPrompt = async (siblings) => ([
+    {
+        type: 'rawlist',
+        name: 'repository',
+        message: 'Select repository to validate cartridges for:',
+        choices: siblings
     }
 ]);

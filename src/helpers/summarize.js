@@ -41,21 +41,21 @@ export function buildPreferenceMeta(preferenceDefinitions) {
  */
 function extractDefaultValue(def) {
     let val = def.default_value !== undefined ? def.default_value : (def.default ?? null);
-    
+
     if (val === null) return null;
-    
+
     // If it's already a primitive, return it
     if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
         // Filter out type descriptors and placeholder strings
         const strVal = String(val).toLowerCase();
-        if (strVal === 'object_attribute_value_definition' || 
-            strVal === 'null' || 
+        if (strVal === 'object_attribute_value_definition' ||
+            strVal === 'null' ||
             strVal === '[object object]') {
             return null;
         }
         return String(val);
     }
-    
+
     // If it's an object, try to extract meaningful value
     if (typeof val === 'object' && val !== null) {
         // Check for value property explicitly (don't use || for falsy values like false or 0)
@@ -76,7 +76,7 @@ function extractDefaultValue(def) {
         }
         // Try first non-empty value in object (skipping metadata)
         for (const key in val) {
-            if (key !== '_type' && key !== '_resource_state' && key !== 'value' && key !== 'id' && 
+            if (key !== '_type' && key !== '_resource_state' && key !== 'value' && key !== 'id' &&
                 key !== 'position' && val[key] !== undefined && val[key] !== null) {
                 const strVal = String(val[key]).toLowerCase();
                 if (strVal !== 'object_attribute_value_definition' && strVal !== 'null' && strVal !== '[object object]') {
@@ -85,7 +85,7 @@ function extractDefaultValue(def) {
             }
         }
     }
-    
+
     return null;
 }
 

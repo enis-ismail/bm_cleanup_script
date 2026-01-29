@@ -5,7 +5,6 @@ import {
     addRealmToConfig,
     removeRealmFromConfig,
     ensureRealmDir,
-    writeTestOutput,
     findAllMatrixFiles,
     parseCSVToNestedArray,
     findUnusedPreferences,
@@ -14,29 +13,23 @@ import {
     getAvailableRealms
 } from './helpers.js';
 import { startTimer } from './helpers/timer.js';
+import { getSiblingRepositories, findCartridgeFolders } from './helpers/util.js';
 import { exportSitesCartridgesToCSV, exportAttributesToCSV, writeUsageCSV, writeMatrixCSV } from './helpers/csv.js';
 import {
-    getSitePreferencesGroup,
     getAttributeGroups,
-    getAttributeGroupById,
     getAllSites,
     getSitePreferences,
-    getPreferencesInGroup,
-    getPreferenceById,
-    getAttributeDefinitionById
+    getSiteById
 } from './api.js';
 import {
     realmPrompt,
     objectTypePrompt,
     instanceTypePrompt,
-    preferenceGroupPrompt,
-    preferenceIdPrompt,
     addRealmPrompts,
     selectRealmToRemovePrompt,
     confirmRealmRemovalPrompt,
-    attributeGroupSelectionPrompt,
-    siteIdPrompt,
-    scopePrompts
+    scopePrompts,
+    repositoryPrompt
 } from './prompts.js';
 import { buildPreferenceMeta, processSitesAndGroups, buildPreferenceMatrix } from './helpers/summarize.js';
 import {
@@ -50,6 +43,7 @@ import {
     logRealmSummary,
     logSummaryFooter
 } from './helpers/log.js';
+import { compareCartridges, exportComparisonToFile } from './helpers/cartridgeComparison.js';
 
 // ============================================================================
 // CLI ENTRYPOINT
@@ -267,187 +261,100 @@ program
     });
 
 // ============================================================================
-// TESTING COMMANDS
-// Diagnostic utilities and temporary exploratory commands
+// WIP COMMANDS (Work In Progress)
+// Experimental commands being developed
 // ============================================================================
 
 program
-    .command('test-attribute-groups')
-    .description('[TEMP] Test the attribute groups endpoint')
+    .command('validate-cartridges')
+    .description('[WIP] Validate cartridge path settings for all sites')
     .action(async () => {
+        console.log('\n[WIP] Validating cartridge paths...\n');
+
+        // Get sibling repositories
+        const siblings = await getSiblingRepositories();
+
+        if (siblings.length === 0) {
+            console.log('No sibling repositories found.');
+            return;
+        }
+
+        const siblingAnswers = await inquirer.prompt(await repositoryPrompt(siblings));
+
+        const targetPath = path.join(
+            path.dirname(process.cwd()),
+            siblingAnswers.repository
+        );
+
+        const selectedRepo = path.basename(targetPath);
+        console.log(`\n✓ Selected: ${selectedRepo}\n`);
+        console.log(`Validating cartridges in: ${selectedRepo}\n`);
+
+        // Find cartridge folders in the selected repository
+        console.log('Searching for cartridge folders (full depth)...\n');
+        const cartridges = findCartridgeFolders(targetPath);
+
+        if (cartridges.length === 0) {
+            console.log('No cartridges found in the selected repository.');
+            return;
+        }
+
+        console.log(`Found ${cartridges.length} unique cartridge(s):\n`);
+        for (const cartridge of cartridges) {
+            console.log(`  → ${cartridge}`);
+        }
+        console.log();
+
         const realmAnswers = await inquirer.prompt(realmPrompt());
         const sandbox = getSandboxConfig(realmAnswers.realm);
-        const answers = await inquirer.prompt(objectTypePrompt());
 
-        console.log(`\nFetching attribute groups for ${answers.objectType}...`);
-        const groups = await getAttributeGroups(answers.objectType, sandbox);
+        console.log('Fetching sites...');
+        const sites = await getAllSites(sandbox);
 
-        const filename = `${realmAnswers.realm}_attribute_groups_response.json`;
-        writeTestOutput(filename, groups, {
-            preview: groups[0],
-            consoleOutput: true
+        if (sites.length === 0) {
+            console.log('No sites found.');
+            return;
+        }
+
+        console.log(`Fetching detailed cartridge paths for ${sites.length} site(s)...`);
+
+        // Fetch detailed info for each site to get cartridges
+        const siteDetails = await Promise.all(
+            sites.map((s) => getSiteById(s.id || s.site_id || s.siteId, sandbox))
+        );
+
+        const validSites = siteDetails.filter(Boolean).map((site) => {
+            const siteId = site.id || site.site_id || site.siteId || 'N/A';
+            const cartridges =
+                site.cartridges || site.cartridgesPath || site.cartridges_path || 'N/A';
+            const cartridgeArray = (typeof cartridges === 'string'
+                ? cartridges
+                : cartridges?.join(':') || 'N/A'
+            ).split(':').filter(Boolean);
+
+            return {
+                name: siteId,
+                id: siteId,
+                cartridges: cartridgeArray
+            };
         });
 
-        console.log(`\nResult: Found ${groups.length} attribute groups`);
-        console.log('\nFirst group sample:');
-        console.log(JSON.stringify(groups[0], null, 2));
-    });
+        console.log(`\nCartridge Paths for ${validSites.length} site(s):\n`);
 
-program
-    .command('test-attribute-group-by-id')
-    .description('[TEMP] Test getting a specific attribute group by ID')
-    .action(async () => {
-        const realmAnswers = await inquirer.prompt(realmPrompt());
-        const sandbox = getSandboxConfig(realmAnswers.realm);
-        const answers = await inquirer.prompt(objectTypePrompt());
-
-        // First fetch all groups to let user pick one
-        console.log(`\nFetching attribute groups for ${answers.objectType}...`);
-        const groups = await getAttributeGroups(answers.objectType, sandbox);
-
-        const groupAnswer = await inquirer.prompt(attributeGroupSelectionPrompt(groups));
-
-        console.log(`\nFetching details for attribute group: ${groupAnswer.groupId}...`);
-        const group = await getAttributeGroupById(answers.objectType, groupAnswer.groupId, sandbox);
-
-        console.log('\nResult:');
-        console.log(JSON.stringify(group, null, 2));
-    });
-
-program
-    .command('test-preference-search')
-    .description('[TEMP] Test the preference search endpoint with 2C2P group')
-    .action(async () => {
-        const realmAnswers = await inquirer.prompt(realmPrompt());
-        const sandbox = getSandboxConfig(realmAnswers.realm);
-        const answers = await inquirer.prompt([
-            ...preferenceGroupPrompt('2C2P'),
-            ...instanceTypePrompt('sandbox')
-        ]);
-
-        console.log(`\nFetching preferences for group: ${answers.groupId}...`);
-        const preferences = await getPreferencesInGroup(answers.groupId, answers.instanceType, sandbox);
-
-        const logData = {
-            request: {
-                groupId: answers.groupId,
-                instanceType: answers.instanceType,
-                endpoint: `/s/-/dw/data/v25_6/site_preferences/preference_groups/${answers.groupId}/${
-                    answers.instanceType
-                }/preference_search`
-            },
-            response: preferences
-        };
-        const filename = `${answers.groupId}_preferences_response.json`;
-        writeTestOutput(filename, logData);
-
-        console.log('\nResult: Found preferences in group');
-        console.log(JSON.stringify(preferences, null, 2));
-    });
-
-program
-    .command('test-preference-by-id')
-    .description('[TEMP] Fetch a single preference by ID')
-    .action(async () => {
-        const realmAnswers = await inquirer.prompt(realmPrompt());
-        const sandbox = getSandboxConfig(realmAnswers.realm);
-        const answers = await inquirer.prompt([
-            ...preferenceIdPrompt(),
-            ...instanceTypePrompt('sandbox')
-        ]);
-
-        console.log(`\nSearching preference ID: ${answers.preferenceId}...`);
-        const preference = await getPreferenceById(answers.preferenceId, answers.instanceType, sandbox);
-
-        const logData = {
-            request: {
-                preferenceId: answers.preferenceId,
-                instanceType: answers.instanceType,
-                endpoint: `/s/-/dw/data/v25_6/site_preferences/preference_search/${answers.instanceType}`
-            },
-            response: preference
-        };
-        const filename = `${answers.preferenceId}_preference_response.json`;
-        writeTestOutput(filename, logData);
-        console.log(JSON.stringify(preference, null, 2));
-    });
-
-program
-    .command('test-attribute-definition')
-    .description('[TEMP] Fetch a single attribute definition by ID to check for default_value')
-    .action(async () => {
-        const realmAnswers = await inquirer.prompt(realmPrompt());
-        const sandbox = getSandboxConfig(realmAnswers.realm);
-        const answers = await inquirer.prompt([
-            ...objectTypePrompt(),
-            {
-                type: 'input',
-                name: 'attributeId',
-                message: 'Enter attribute ID:',
-                validate: (input) => input.trim() !== '' || 'Attribute ID is required'
+        for (const site of validSites) {
+            console.log(`${site.name}:`);
+            for (const cartridge of site.cartridges) {
+                console.log(`  - ${cartridge}`);
             }
-        ]);
-
-        console.log(`\nFetching attribute definition: ${answers.attributeId}...`);
-        const attribute = await getAttributeDefinitionById(answers.objectType, answers.attributeId, sandbox);
-
-        if (attribute) {
-            const logData = {
-                request: {
-                    objectType: answers.objectType,
-                    attributeId: answers.attributeId,
-                    endpoint: '/s/-/dw/data/v25_6/system_object_definitions/' +
-                        `${answers.objectType}/attribute_definitions/${answers.attributeId}`
-                },
-                response: attribute
-            };
-            const filename = `${answers.attributeId}_attribute_definition.json`;
-            writeTestOutput(filename, logData);
-            console.log(JSON.stringify(attribute, null, 2));
-        } else {
-            console.log('Failed to retrieve attribute definition.');
+            console.log();
         }
-    });
 
-program
-    .command('test-site-preferences-group')
-    .description('[TEMP] Test the site preferences group endpoint')
-    .action(async () => {
-        const realmAnswers = await inquirer.prompt(realmPrompt());
-        const sandbox = getSandboxConfig(realmAnswers.realm);
+        // Compare discovered cartridges with site cartridges
+        const comparisonResult = compareCartridges(cartridges, validSites);
 
-        const answers = await inquirer.prompt([
-            ...siteIdPrompt(),
-            ...preferenceGroupPrompt('2C2P'),
-            ...instanceTypePrompt('sandbox')
-        ]);
-
-        console.log(
-            `\nFetching preferences for site: ${answers.siteId}, group: ${answers.groupId}...`
-        );
-        const preferences = await getSitePreferencesGroup(
-            answers.siteId,
-            answers.groupId,
-            answers.instanceType,
-            sandbox
-        );
-
-        const logData = {
-            request: {
-                siteId: answers.siteId,
-                groupId: answers.groupId,
-                instanceType: answers.instanceType,
-                endpoint: `/s/-/dw/data/v25_6/sites/${answers.siteId}/site_preferences/preference_groups/${
-                    answers.groupId
-                }/${answers.instanceType}`
-            },
-            response: preferences
-        };
-        const filename = `${answers.siteId}_${answers.groupId}_site_preferences_response.json`;
-        writeTestOutput(filename, logData);
-
-        console.log('\nResult: Retrieved site preferences');
-        console.log(JSON.stringify(preferences, null, 2));
+        // Export results to file
+        const filePath = await exportComparisonToFile(comparisonResult, realmAnswers.realm);
+        console.log(`\n✓ Cartridge comparison saved to: ${filePath}\n`);
     });
 
 program.parse();

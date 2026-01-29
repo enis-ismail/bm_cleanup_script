@@ -1,5 +1,4 @@
 import axios from 'axios';
-import fs from 'fs';
 import { processBatch, withLoadShedding } from './helpers/batch.js';
 
 /* eslint-disable no-undef */
@@ -270,54 +269,6 @@ export async function getAttributeGroups(objectType, sandbox) {
     }
 }
 
-/**
- * Retrieve detailed information for a specific attribute group
- * See .github/instructions/function-reference.md for detailed documentation
- * @param {string} objectType - SFCC system object type
- * @param {string} attributeGroupId - Group identifier
- * @param {Object} sandbox - Sandbox configuration object
- * @returns {Promise<Object|null>} Attribute group object with metadata
- */
-export async function getAttributeGroupById(objectType, attributeGroupId, sandbox) {
-    try {
-        const token = await getOAuthToken(sandbox);
-        const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_groups/${encodeURIComponent(attributeGroupId)}`;
-
-        const response = await axios.get(url, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        // Log full response to file
-        const logData = {
-            request: {
-                url: url,
-                method: 'GET',
-                headers: {
-                    'Authorization': 'Bearer [REDACTED]',
-                    'Content-Type': 'application/json'
-                }
-            },
-            response: {
-                status: response.status,
-                statusText: response.statusText,
-                headers: response.headers,
-                data: response.data
-            }
-        };
-        const filename = `${attributeGroupId}_response.json`;
-        fs.writeFileSync(filename, JSON.stringify(logData, null, 2));
-        console.log(`Full response logged to: ${filename}`);
-
-        return response.data;
-    } catch (error) {
-        console.error(`Error fetching attribute group ${attributeGroupId}:`, error.response?.data || error.message);
-        return null;
-    }
-}
-
 // ============================================================================
 // PREFERENCE SEARCH
 // Query and retrieve actual preference values from sites
@@ -347,75 +298,6 @@ export async function getSitePreferencesGroup(siteId, groupId, instanceType, san
         return response.data;
     } catch (error) {
         console.error(`Error fetching site preferences for group ${groupId}:`, error.response?.data || error.message);
-        return null;
-    }
-}
-
-/**
- * Search all preferences within a group using preference_search endpoint
- * See .github/instructions/function-reference.md for detailed documentation
- * @param {string} groupId - Attribute group identifier
- * @param {string} instanceType - Instance type for preference scope
- * @param {Object} sandbox - Sandbox configuration object
- * @returns {Promise<Object|null>} Search results with preferences array
- */
-export async function getPreferencesInGroup(groupId, instanceType, sandbox) {
-    try {
-        const token = await getOAuthToken(sandbox);
-        const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/site_preferences/preference_groups/${encodeURIComponent(groupId)}/${encodeURIComponent(instanceType)}/preference_search`;
-
-        // Use a match-all query to return every preference in the group; omit select for full records
-        const payload = {
-            query: { match_all_query: {} }
-        };
-
-        const response = await axios.post(url, payload, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        return response.data;
-    } catch (error) {
-        console.error(`Error searching preferences for group ${groupId}:`, error.response?.data || error.message);
-        return null;
-    }
-}
-
-/**
- * Search for a single preference by ID across all groups
- * See .github/instructions/function-reference.md for detailed documentation
- * @param {string} preferenceId - Preference identifier
- * @param {string} instanceType - Instance type for preference scope
- * @param {Object} sandbox - Sandbox configuration object
- * @returns {Promise<Object|null>} Search result with matches, or null if request fails
- */
-export async function getPreferenceById(preferenceId, instanceType, sandbox) {
-    try {
-        const token = await getOAuthToken(sandbox);
-        const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/site_preferences/preference_search/${encodeURIComponent(instanceType)}`;
-
-        const payload = {
-            query: {
-                term_query: {
-                    fields: ['id'],
-                    operator: 'is',
-                    values: [preferenceId]
-                }
-            }
-        };
-
-        const response = await axios.post(url, payload, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        return response.data;
-    } catch (error) {
-        console.error(`Error searching preference ${preferenceId}:`, error.response?.data || error.message);
         return null;
     }
 }
