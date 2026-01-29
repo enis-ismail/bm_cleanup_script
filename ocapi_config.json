@@ -37,6 +37,12 @@
           "write_attributes": "(**)"
         },
         {
+          "resource_id": "/system_object_definitions/*/attribute_definitions/*",
+          "methods": ["get"],
+          "read_attributes": "(**)",
+          "write_attributes": "(**)"
+        },
+        {
           "resource_id": "/sites/*/site_preferences/preference_groups/*/*",
           "methods": ["get"],
           "read_attributes": "(**)",

@@ -140,6 +140,78 @@ export function ensureRealmDir(realm) {
     return dir;
 }
 
+// ============================================================================
+// TIMING AND PERFORMANCE
+// Track command execution time and overhead
+// ============================================================================
+
+/**
+ * Process items in parallel batches with callback
+ * See .github/instructions/function-reference.md for detailed documentation
+ * @param {Array} items - Array of items to process
+ * @param {Function} processFn - Async function to process each item
+ * @param {number} batchSize - Number of items to process in parallel
+ * @param {Function} onProgress - Optional callback(current, total, rate) for progress tracking
+ * @param {number} delayMs - Optional delay in milliseconds between batches (default: 0)
+ * @returns {Promise<Array>} Array of results from processing
+ */
+export async function processBatch(items, processFn, batchSize = 10, onProgress = null, delayMs = 0) {
+    const results = [];
+    const startTime = Date.now();
+
+    for (let i = 0; i < items.length; i += batchSize) {
+        const batch = items.slice(i, i + batchSize);
+        const batchPromises = batch.map(item => processFn(item));
+        const batchResults = await Promise.all(batchPromises);
+        results.push(...batchResults.filter(r => r !== null));
+
+        const progress = Math.min(i + batchSize, items.length);
+        if (onProgress) {
+            const elapsed = Date.now() - startTime;
+            const rate = progress / (elapsed / 1000);
+            onProgress(progress, items.length, rate);
+        }
+
+        // Add delay between batches if specified and not the last batch
+        if (delayMs > 0 && i + batchSize < items.length) {
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+    }
+
+    return results;
+}
+
+/**
+ * Start a timer for tracking command execution time
+ * See .github/instructions/function-reference.md for detailed documentation
+ * @returns {Object} Timer object with startTime and methods
+ */
+export function startTimer() {
+    return {
+        startTime: Date.now(),
+        endTime: null,
+        checkpoints: [],
+        addCheckpoint(label) {
+            const elapsed = Date.now() - this.startTime;
+            this.checkpoints.push({ label, elapsed });
+            return elapsed;
+        },
+        getElapsed() {
+            return (this.endTime || Date.now()) - this.startTime;
+        },
+        formatElapsed() {
+            const totalSeconds = Math.round(this.getElapsed() / 1000);
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+            return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+        },
+        stop() {
+            this.endTime = Date.now();
+            return this.formatElapsed();
+        }
+    };
+}
+
 /**
  * Write test data to a JSON file with optional console output
  * See .github/instructions/function-reference.md for detailed documentation
@@ -192,7 +264,7 @@ export function isValueKey(key) {
 /**
  * Find all preference matrix CSV files in the results directory
  * See .github/instructions/function-reference.md for detailed documentation
- * Expected file pattern: results/{realm}/{realm}_sandbox_preferences_matrix.csv
+ * Expected file pattern: results/{realm}/{realm}_*_preferences_matrix.csv
  * @returns {Array<{realm: string, matrixFile: string}>} Array of realm and matrix file paths
  */
 export function findAllMatrixFiles() {
@@ -209,20 +281,20 @@ export function findAllMatrixFiles() {
     const items = fs.readdirSync(resultsDir, { withFileTypes: true });
     const realmFolders = items.filter(item => item.isDirectory());
 
-    // For each realm folder, look for the matrix file
+    // For each realm folder, look for matrix files
     for (const folder of realmFolders) {
         const realmName = folder.name;
         const realmDir = path.join(resultsDir, realmName);
-        const expectedMatrixFile = path.join(realmDir, `${realmName}_sandbox_preferences_matrix.csv`);
 
-        // Check if the matrix file exists
-        if (fs.existsSync(expectedMatrixFile)) {
+        // Look for any matrix CSV file in this realm
+        const files = fs.readdirSync(realmDir);
+        const matrixFile = files.find(f => f.includes('_preferences_matrix.csv'));
+
+        if (matrixFile) {
             matrixFiles.push({
                 realm: realmName,
-                matrixFile: expectedMatrixFile
+                matrixFile: path.join(realmDir, matrixFile)
             });
-        } else {
-            console.warn(`Matrix file not found for realm '${realmName}': ${expectedMatrixFile}`);
         }
     }
 
@@ -288,16 +360,34 @@ export function findUnusedPreferences(csvData) {
     }
 
     const unusedPreferences = [];
+    const headers = csvData[0];
 
-    // Skip the header row (index 0) and check data rows
+    // Find column indices in matrix format
+    const preferenceIdIndex = headers.indexOf('preferenceId');
+    const defaultValueIndex = headers.indexOf('defaultValue');
+
+    if (preferenceIdIndex === -1) {
+        console.warn('preferenceId column not found in CSV');
+        return [];
+    }
+
+    // Skip the header row and check data rows
     for (let i = 1; i < csvData.length; i++) {
         const row = csvData[i];
-        const preferenceId = row[0];
+        const preferenceId = row[preferenceIdIndex];
 
-        // Check if all site columns (index 1 onwards) are empty
-        const hasValue = row.slice(1).some(value => value === 'X' || value === 'x');
+        if (!preferenceId) continue;
 
-        if (!hasValue && preferenceId) {
+        // Check if preference has values on any site (all columns after defaultValue)
+        const siteDataStart = defaultValueIndex > -1 ? defaultValueIndex + 1 : 1;
+        const hasValue = row.slice(siteDataStart).some(v => v === 'X' || v === 'x');
+
+        // Get defaultValue
+        const defaultValue = defaultValueIndex > -1 ? row[defaultValueIndex] : '';
+        const hasDefault = defaultValue && defaultValue.trim() !== '';
+
+        // Preference is unused if: no values on any site AND no default value
+        if (!hasValue && !hasDefault) {
             unusedPreferences.push(preferenceId);
         }
     }

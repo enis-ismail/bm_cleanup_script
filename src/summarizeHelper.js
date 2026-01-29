@@ -1,5 +1,5 @@
 import { getSiteById, getSitePreferencesGroup } from './api.js';
-import { normalizeId, isValueKey } from './helpers.js';
+import { normalizeId, isValueKey, processBatch, startTimer } from './helpers.js';
 
 
 // ============================================================================
@@ -16,12 +16,20 @@ import { normalizeId, isValueKey } from './helpers.js';
 export function buildPreferenceMeta(preferenceDefinitions) {
     return preferenceDefinitions.reduce((acc, def) => {
         const id = def.id || def.attribute_id || def.attributeId;
+
+        // Extract default_value - handle if it's an object with a value property
+        let defaultValue = def.default_value || def.default || null;
+        if (typeof defaultValue === 'object' && defaultValue !== null) {
+            // If it's an object, try to get the 'value' property or first key's value
+            defaultValue = defaultValue.value || Object.values(defaultValue)[0] || null;
+        }
+
         acc[id] = {
             id,
             type: def.value_type || def.type,
             description: def.description || def.name || null,
             group: def.group_id || def.groupId || null,
-            defaultValue: def.default_value || def.default || null
+            defaultValue
         };
         return acc;
     }, {});
@@ -58,14 +66,30 @@ export async function processSitesAndGroups(sitesToProcess, groupSummaries, sand
         const siteDetail = await getSiteById(siteId, sandbox);
         const cartridges = siteDetail?.cartridges || siteDetail?.cartridgesPath || siteDetail?.cartridges_path || '';
 
-        console.log(`  - Fetching preference values across ${groupSummaries.length} group(s)...`);
-        const groupValues = [];
-        let groupIndex = 0;
+        console.log(`  - Fetching preference values across ${groupSummaries.length} group(s) in batches...`);
+        const groupTimer = startTimer();
 
-        for (const group of groupSummaries) {
-            groupIndex++;
-            console.log(`    [${groupIndex}/${groupSummaries.length}] Group: ${group.groupId}`);
-            const sitePrefs = await getSitePreferencesGroup(siteId, group.groupId, answers.instanceType, sandbox);
+        // Fetch groups in parallel batches
+        const groupResponses = await processBatch(
+            groupSummaries,
+            (group) => getSitePreferencesGroup(siteId, group.groupId, answers.instanceType, sandbox),
+            5, // Process 5 groups in parallel
+            (progress, total, rate) => {
+                console.log(
+                    `    Fetched ${progress} of ${total} groups ` +
+                    `(${rate.toFixed(1)} groups/sec)...`
+                );
+            },
+            500 // 500ms delay between batches
+        );
+
+        console.log(`  - Groups fetched in ${groupTimer.stop()}`);
+        const groupValues = [];
+
+        // Process fetched group data to extract preference values
+        for (let i = 0; i < groupSummaries.length; i++) {
+            const group = groupSummaries[i];
+            const sitePrefs = groupResponses[i];
             const usedPreferenceIds = Object.keys(sitePrefs || {}).filter(isValueKey);
 
             // Capture rows for any preferences that have values on this site
@@ -116,16 +140,26 @@ export async function processSitesAndGroups(sitesToProcess, groupSummaries, sand
  * @param {Array<string>} allPrefIds - Complete list of all preference IDs
  * @param {Array<string>} allSiteIds - Complete list of all site IDs
  * @param {Array} usageRows - Usage rows containing actual values
+ * @param {Object} preferenceMeta - Preference metadata including default values
  * @returns {Array} Array of preference matrix objects with sites mapping
  */
-export function buildPreferenceMatrix(allPrefIds, allSiteIds, usageRows) {
+export function buildPreferenceMatrix(
+    allPrefIds,
+    allSiteIds,
+    usageRows,
+    preferenceMeta
+) {
     // Initialize matrix with all preferences having false for all sites
     const preferenceMatrix = allPrefIds.map(prefId => {
         const siteValues = {};
         allSiteIds.forEach(siteId => {
             siteValues[siteId] = false;
         });
-        return { preferenceId: prefId, sites: siteValues };
+        return {
+            preferenceId: prefId,
+            defaultValue: preferenceMeta[prefId]?.defaultValue || '',
+            sites: siteValues
+        };
     });
 
     // Mark hasValue=true for preferences that have explicit values

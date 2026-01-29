@@ -1,0 +1,1210 @@
+{
+  "_v": "19.5",
+  "_type": "object_attribute_definitions",
+  "count": 200,
+  "data": [
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "0f46e4cfa6e8e6cf63c2e3168479ea6015aea46339696e898e98f3c5c6a3573c",
+      "id": "2c2pAllowedResponseCodes",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/2c2pAllowedResponseCodes"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "e50acfdcef49a48217eea816cd98d5f75c2d8ca66f2d852131d63423858b81f2",
+      "id": "2c2pMerchantID",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/2c2pMerchantID"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "6e8650f2969fa609ef6a2d693070bc785087f7a4f969462d84fe2a9e9dcc21ae",
+      "id": "2c2pPaymentChannelCodes",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/2c2pPaymentChannelCodes"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "9d226f73d7c3c9b67b4c1b52fbb2699af30b5b99a20928b94c4c34f3a873cf7a",
+      "id": "2c2pScript",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/2c2pScript"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "e813fc08b73cb00eaccf398d014d573ff339a505bee26579dac898277d02b2c1",
+      "id": "2c2pSecretKey",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/2c2pSecretKey"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "dcb0d7736b318887733e0af6d444633eb2b5ba1069d187c9d99d89a1c9fb6fe8",
+      "id": "AccountGetModelFlag",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AccountGetModelFlag"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "7ce8ff4e800898acc7980119b0ecbfaaa8fb1f438cdaa40d200b933f7bc797a8",
+      "id": "AddressReorderStreetNumber",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AddressReorderStreetNumber"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "dc1c532b2c7fe6272e127aac65955213a8508d7736b9b493719b70476d05d94b",
+      "id": "AddressReorderZip",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AddressReorderZip"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "e61925d06cc2adf866c8607d0f38973394d55b9b8224a855dddccba86a0c987a",
+      "id": "AdmitadEnabled",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdmitadEnabled"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "904f6ec33e03bd9d1d0cbbbc12de9c61b419621bc08c754630e138c10430839f",
+      "id": "AdobeIframeURL",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdobeIframeURL"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "7df6b45b0d709174474f25eb898c94e96c95756c3604894cd087cbc7f453abfb",
+      "id": "Adyen3DS2Enabled",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen3DS2Enabled"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "b78e1ca5544d9700b1cc77be383b54628324fe3e56684ff0fc9652115b4d0ba8",
+      "id": "AdyenBasketFieldsEnabled",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdyenBasketFieldsEnabled"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "5c2dc410e62234151c0eb542d8a7583d900822028e890667d942d9609380e5ca",
+      "id": "AdyenCardHolderName_enabled",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdyenCardHolderName_enabled"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "6a3c995f92b73d53cbf29fae70c84b42a0fc5f734bd48aa3dca718b37e8ee541",
+      "id": "AdyenClickToPayEnabled",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdyenClickToPayEnabled"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "51522e1df3d099ad267bc10e18cf9610f84875c8f9c800c4baeec007c7c10db7",
+      "id": "AdyenCreditCardInstallments",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdyenCreditCardInstallments"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "11169cf7e2dc9f8c8fd875fee481d9650fe154d1f1f65254d34aa9a0f7ecaeeb",
+      "id": "AdyenGiving_backgroundUrl",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdyenGiving_backgroundUrl"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "a09b5d4640a26094d0192d2609c6bdfeb1cdf6456a8982492fc23b9bce85d316",
+      "id": "AdyenGiving_charityAccount",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdyenGiving_charityAccount"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "e0022809c334b60134f71cb44415ff24e6fcd33b2c9a549e0c59917c7e872e57",
+      "id": "AdyenGiving_charityDescription",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdyenGiving_charityDescription"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "ff6d1b00618540c29d4ee3d25bcf4508be022370e53a9b93da874c9d4787e5a0",
+      "id": "AdyenGiving_charityName",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdyenGiving_charityName"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "fcae998abe40c5f2ad1a874d5b1f98d7b2afb9c8b22018922d4f2aca1eb12cdd",
+      "id": "AdyenGiving_charityUrl",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdyenGiving_charityUrl"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "2c446fcfd4f10e2593bd545d166566dbc64b63f2b72585e196479ded0b120327",
+      "id": "AdyenGiving_donationAmounts",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdyenGiving_donationAmounts"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "bc0bb51917edbed535f3af6d0636682350dde3e12bd68dbe8bf8c15798272902",
+      "id": "AdyenGiving_enabled",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdyenGiving_enabled"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "87c8f3ed3de5bc7d3be3a4fab47419c0761463fdc22964c5eb42a1900f6d957a",
+      "id": "AdyenGiving_logoUrl",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdyenGiving_logoUrl"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "5267376643cc9264a3d275cd44c2cbe719b3a6999c1fac708c74226e2086fe12",
+      "id": "AdyenInstallments_enabled",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdyenInstallments_enabled"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "3363d17e677fca7231cdb318bdf6ace46d686933865762583e8ee424a2e5fcdb",
+      "id": "AdyenLevel23DataEnabled",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdyenLevel23DataEnabled"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "d45be39a6aecb484f6c8ecaa6898487f5f89528e3032d5b362e70086fa04652a",
+      "id": "AdyenLevel23_CommodityCode",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdyenLevel23_CommodityCode"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "55ed2bd48ba766e1e5071fb655ea1dc79b40b4ac630e255ced5a0611efddbf43",
+      "id": "AdyenOneClickEnabled",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdyenOneClickEnabled"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "f19c69611c112c4453d8cdf92271f8425d708b459f0a63cec6f43975c257a49b",
+      "id": "AdyenRatePayID",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdyenRatePayID"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "2113855ef01bda4f126f3875ecbcfff2d578ea3bc4d0b1e220fd0627d7c3c995",
+      "id": "AdyenRecurringEnabled",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdyenRecurringEnabled"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "e3390f7b6c3fa5cebcd9b7260389b1cde32a7a01d24590c68aef6889f5770c0f",
+      "id": "AdyenSalePaymentMethods",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdyenSalePaymentMethods"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "7ee63defd63d8e844f9c18a903c37df4d63a7cec19c0e01586277c91abf4e27d",
+      "id": "AdyenSecuredFieldsEnabled",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdyenSecuredFieldsEnabled"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "3410132eec3e5feacb58dee0328ee96ef0dfbde3907d4aa9e1ddfee7876e8e2a",
+      "id": "AdyenTokenisationEnabled",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AdyenTokenisationEnabled"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "bef973b2ef86c1d4b7a57cb9aa81d7cc82208d462db8e01baa52367f80eb1ee0",
+      "id": "Adyen_API_Key",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_API_Key"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "6f00a89986c01cecf2ac5c56759bc38c38ed1dcbf86a491ff8a2f3887cc4d98a",
+      "id": "Adyen_ApplePay_DomainAssociation",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_ApplePay_DomainAssociation"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "79b63c9bd7287cd037e55ce067e5ebb25411fa38da8981125fb73d50ed634bd9",
+      "id": "Adyen_ClientKey",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_ClientKey"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "ae6d03d1c6ff886cba7182e39a0aee1f5473f4fa3f4a2d8a8d7e9e9139cc79fa",
+      "id": "Adyen_Debug",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_Debug"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "7f9c4d206e4354dc3a03c5345ff9fcb152b908bb043c70573f638c8940f4b356",
+      "id": "Adyen_ExpressShippingMethods",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_ExpressShippingMethods"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "f828870697833c27f6ed39c18148e5acf84e71157556ee2d0db5e0e104f9ca87",
+      "id": "Adyen_Frontend_Region",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_Frontend_Region"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "e1479eaea10001a9165145ee3ff415012736c507e4bb6a077ea4a09a86e5ea38",
+      "id": "Adyen_GooglePayButtonColor",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_GooglePayButtonColor"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "db94e96752fe68d0f50f1f26f1a2bbfe492f1b03049b1bf277d236ecada97c3a",
+      "id": "Adyen_GooglePayMerchantID",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_GooglePayMerchantID"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "66e4142101a593e32cd0cacc80ab6997149d2dbdb9a987c5c2a2b5c18d80b288",
+      "id": "Adyen_GooglePayMerchantName",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_GooglePayMerchantName"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "58890dbb999cae5d14b30ea03d582971112c2b9ffcd4166f573f8550895f1af7",
+      "id": "Adyen_HMACkey",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_HMACkey"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "68e82d2aaa03a49282b35d639b1a96795207dc6614b9f10c980439b219238521",
+      "id": "Adyen_Hmac_Key",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_Hmac_Key"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "04ed5e2115aa84c808123f21f72499714fa6967d63ec679690a84cf80dda21db",
+      "id": "Adyen_IntegratorName",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_IntegratorName"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "f53afe72a470f93dea8c6afb3e45805b19717e64a5a2986b0781c22914d7a247",
+      "id": "Adyen_Mode",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_Mode"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "40d700e18d3596e1bbcfd1e079fd71595b1fe7ca2fbb98a2e7ca026cd934a374",
+      "id": "Adyen_PayPalIntent",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_PayPalIntent"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "8ba8eb954dc58b0f91eb71c2b2d5707594240d1fac2ed168c837d3567dc8d59c",
+      "id": "Adyen_PaymentSelection",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_PaymentSelection"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "2a1b16335cf48973c6198dceadd770b6ca2c6dbd25e95e0e45d63a35d602e440",
+      "id": "Adyen_PaypalMerchantID",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_PaypalMerchantID"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "b479e133dce89874a15c6814fd42b4d0cbd0dc8a0c25e4478276cf021df3ed06",
+      "id": "Adyen_PaypalMerchantID_IE",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_PaypalMerchantID_IE"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "acb19f3fc2369bcff79662f091eb0cefe3c32d0a09a1c2b252ef00d36ed0b96a",
+      "id": "Adyen_SFRA6_Compatibility",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_SFRA6_Compatibility"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "122b958825b111edf7fa93478f3f5f92ef68b96f39e375812b891f7f78e50a39",
+      "id": "Adyen_StoreId",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_StoreId"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "cad79c7f7ae55818328c654590f80d302c12d643d72c3292cf276f1ae2537674",
+      "id": "Adyen_address1Delimiter",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_address1Delimiter"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "deef8d5ebb82521d385394be141aaf35f6c7a17546af134928ecadb2104b65e6",
+      "id": "Adyen_allowedMethods",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_allowedMethods"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "9e7839e4fef5d1fa96781cf3a07c3cdbc991ae2dc8d543084feb4ff2b6151b67",
+      "id": "Adyen_directoryLookup",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_directoryLookup"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "61673eea7c0cc6ce464e6b857cbd1ad53b2cf58ae1ede38ae81730a5077a3003",
+      "id": "Adyen_enableAVS",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_enableAVS"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "298bf7f62aec7856e7c146c74a95bfccb9726a3fc28d2d9ae5d63ceb23a70f1d",
+      "id": "Adyen_klarnaWidget",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_klarnaWidget"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "31a6d8716c88d9692294b2f426c8bbf9b8b51dfedc91f7cfd518fcf0d9ecee1e",
+      "id": "Adyen_merchantCode",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_merchantCode"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "3a87c00bdc72185260d8f9d6ce0c4b84f87a9a6b2a11ad3c89ae861418a130e0",
+      "id": "Adyen_notification_password",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_notification_password"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "7cf00b752dbbfd8097dd1f56bb2772bfdcb83560280affa07a4612eaaa031535",
+      "id": "Adyen_notification_user",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_notification_user"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "476260282dc85799646045492aa11ab7c1623546e261c11a9255d40744acff20",
+      "id": "Adyen_recurringType",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_recurringType"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "28f7ee9d5fb7e59e8404b4904d9ae9962064ccf68ba4615079acbbcaa2ca7fd2",
+      "id": "Adyen_skinCode",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Adyen_skinCode"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "cdd9d02449030d418feef82fa85216b80acb42591f8abfd209949ac967dae693",
+      "id": "AllowMixedCart",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AllowMixedCart"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "9fc103b0a5fecd861b61985e13f114aff5f0cf8756373cc7b132d87043672036",
+      "id": "AmazonPayExpress_Enabled",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AmazonPayExpress_Enabled"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "5a831d2ae85c95d568a976dcda76396aafcfe874edcbd9d44fd53e845d08accd",
+      "id": "AnnonymizeGoogleAnalytics",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AnnonymizeGoogleAnalytics"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "1fb1c827bc44a9f81b128de1c8d35bb882e2e6222ee5147606e5f6b959931890",
+      "id": "AnnonymousGoogleAnalyticsProperty",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AnnonymousGoogleAnalyticsProperty"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "7fe0217c54bed1dd649f39234bc964430688df3432bb8f4953ae91b35899f772",
+      "id": "ApplePayExpress_Enabled",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/ApplePayExpress_Enabled"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "7db96b0ccf1892faf084062c3b5667ed4651bab182aacd3d7d8870b76fbc7893",
+      "id": "AppliedCustomerGroupOrSourceCode",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AppliedCustomerGroupOrSourceCode"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "e8b748f8f5d6fc9dc530b1bc5aa4adcfbc4a5aaaae80cd3e2c1b698a9e5d8c93",
+      "id": "AttraqtCustomerGroupManagement",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/AttraqtCustomerGroupManagement"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "4759a381d8532a605b9cc221b74d26bdbd27c94bcbdd4588aa067b814133b616",
+      "id": "BingVerificationCode",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/BingVerificationCode"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "b7bcc2e46f039904a98e511de07d6897edd322eb8d046619efbddb5e365c65af",
+      "id": "BingVerificationKey",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/BingVerificationKey"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "ba71de82fdbd2a81c6d46b0f848db34a9feea89ef4cc31955ac1c478fbb61f69",
+      "id": "BingVerificationTag",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/BingVerificationTag"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "3ac04c1a8d7515e72fb6c21d3be6afa36f52adad63584746d45f17ba79d1796e",
+      "id": "BloomreachСharactersMapping",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Bloomreach%D0%A1haractersMapping"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "17b7ad86fd555a3c1cdc6f19148e46b518e9d36c1c18c2023f874b6bdba79968",
+      "id": "CODSurchargeAmounts",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CODSurchargeAmounts"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "b70e8739cd58277ec737636f3a426f4e14743d32c4c83ab527ba67f19c5221bc",
+      "id": "CertonaAppId",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CertonaAppId"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "ff15013b48a0169341c872753450c2da48be03da56feb63ed5626bdbe346378f",
+      "id": "CertonaCartRecommendationMax",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CertonaCartRecommendationMax"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "d8cd74e3617a16578899c1227452bde0789e1743899638a4faa638b572ad7d8c",
+      "id": "CertonaCategoryLandingRecommendationMax",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CertonaCategoryLandingRecommendationMax"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "ec7267bcc00bf1776029005523a8a9a17877195c32fa4a45970ed83658ef25ed",
+      "id": "CertonaEnabled",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CertonaEnabled"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "41a2ff0e4a7ac39d2843be2bf4499fd45d714774b8baed738c5c55bed18de74f",
+      "id": "CertonaFTPFileName",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CertonaFTPFileName"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "117719f0c5e7b74d44d1e0d4c98c7143a635b56529ead32285afb159db1a109b",
+      "id": "CertonaFTPHost",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CertonaFTPHost"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "0431d896a934331f8f7650ce4b630530370e0b1d14533b36609075e95f6aa57f",
+      "id": "CertonaFTPPassword",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CertonaFTPPassword"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "9c3629720cad61c8b3b9019b8cba8a3314cb61ebc494ee504ba823df888ee0a2",
+      "id": "CertonaFTPUser",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CertonaFTPUser"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "6b7079d4af7ba92aca449333c410a1d46908fbd1bc34870b60bfd7bacc341696",
+      "id": "CertonaHomeRecommendationMax",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CertonaHomeRecommendationMax"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "3d4eb9fcb7b39896294107415fcaef2112b64f7edfe07b017788740487874810",
+      "id": "CertonaHost",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CertonaHost"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "0bb060deb92281a1d26063eb76946b75a0718ff30d2c05cd2a78360595b045d4",
+      "id": "CertonaNewDays",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CertonaNewDays"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "847d0dfd6314ff9366e78cb8d39a7009968b82b1482d47897206359519b29381",
+      "id": "CertonaNoSearchRecommendationMax",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CertonaNoSearchRecommendationMax"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "7f5288fdd3a6eef57577317178a20e06a6f5e68691011690cd8ca6e86ea6faef",
+      "id": "CertonaPLPRecommendationMax",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CertonaPLPRecommendationMax"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "b4f9354b086055b63821330a6d21180377602f8f2431537ec3017957c3a67ca1",
+      "id": "CertonaProductDetailsRecommendationMax",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CertonaProductDetailsRecommendationMax"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "6e7807ae52282883919f06346eafb61e5ab4687f7c39b74aef55c00d8c653ff3",
+      "id": "CertonaRecommendationMax",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CertonaRecommendationMax"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "4914e65d86b90b2f3635eab643cdb9c2e3322a73b608a42cf528e78c493d4213",
+      "id": "CertonaRecommendationMinLength",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CertonaRecommendationMinLength"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "f0c2a0296267c38d69530ea0ddba4403aa28eb702b02c59069b90750cef688dd",
+      "id": "CertonaSegment",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CertonaSegment"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "083e1ce4571e1dfc936f0ae7331f1ea620cef3b01968509a6247f45d386940b9",
+      "id": "CertonaTop1",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CertonaTop1"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "e3bcfec689fe1cfad413bf2b841ac6e96cfbc6f76961e043eb2cb38493c96601",
+      "id": "CertonaTop2",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CertonaTop2"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "6e2ba4fe27f36d8825e3e587e3b160ffd7d0dfba9c22fab50154e25560e6ad98",
+      "id": "CheetahMailEnable",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMailEnable"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "be9bcc9288f2dcb791f3949ce562360e1f257295516187af45688213ecffcdd7",
+      "id": "CheetahMail_action",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_action"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "f55f1131b6e66928b4b9bade01eb5a03afe5a1e6224fc686ba87d64c6a2aa0fa",
+      "id": "CheetahMail_addToEmailList_checked",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_addToEmailList_checked"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "f21d3d0bc4ad7e42b76406d602fc03c2420feac698d567cbc303d1c1df37cba4",
+      "id": "CheetahMail_aid",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_aid"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "c557c6c17120067ee8961ed010edc4ee5e92f122787234267b73ec2ce3fd58dc",
+      "id": "CheetahMail_api_url",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_api_url"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "60beed1aef87b7c04d6dc8902c7e818d0b4919551ba4749bc557036d2d3cce00",
+      "id": "CheetahMail_country_code",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_country_code"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "93e335743c8814c04e2afe0c597e220e5df66acd3762ea5f49850c0512ac8f83",
+      "id": "CheetahMail_coupon_id",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_coupon_id"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "fea6ed05083f9301da7f45d96eeafdd9fd4f3f449c6389d6adadfca51e46062e",
+      "id": "CheetahMail_enable_vouchers",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_enable_vouchers"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "097f0ca00aeb6c6d3cd8017815597112049f92c61d8b07fe006dac0c23e93e97",
+      "id": "CheetahMail_global_aid",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_global_aid"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "8a9bd66899da008eb3a2e113341e6c1d0f753f763a85a941c2d69c988ff5cf8b",
+      "id": "CheetahMail_global_confirmationemail_eid",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_global_confirmationemail_eid"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "ad9a67fd282cdd9b1441c36faae13eefa50fe978779a06890e1f53b92207afff",
+      "id": "CheetahMail_global_ebmtrigger1",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_global_ebmtrigger1"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "407884740375639c5b4020e8b2504b327c8101150637e1e06c287cbb5efc87b6",
+      "id": "CheetahMail_global_password",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_global_password"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "d8f4de13045aecaf0d7f1ce5b503c47c4fe8d94b6acf61831fbe1fecb1e58b1d",
+      "id": "CheetahMail_global_setlist1",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_global_setlist1"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "eb1ac82291b0d8b07b5b9061dc8f2046cb68acb876a62d2380c8ded470e1a4ed",
+      "id": "CheetahMail_global_setuser1",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_global_setuser1"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "8a3415ce513df7b71f87968c12ade3252c2f90420c4f849937647e162ffbf888",
+      "id": "CheetahMail_global_sid",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_global_sid"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "b3f885749b4775db67d7c36c63b3ab5c17975ee3038b11490d0bc5aa034ad12e",
+      "id": "CheetahMail_global_timeout",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_global_timeout"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "4c0c1c23cdfa0eda644eb170a9d9bbe8befb381d61a92a6145a114665d3b9964",
+      "id": "CheetahMail_global_username",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_global_username"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "2ecfa35e8c71dc9d495d7c5201bb1e102d262f0886c1023b4561ac95e641f321",
+      "id": "CheetahMail_global_voucheremail_eid",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_global_voucheremail_eid"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "9e9994506aafc298c2aefa9cccb72f4ed992db101737f44c62d7c597dd6b16d2",
+      "id": "CheetahMail_iframe_a",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_iframe_a"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "a0338715cfc83df31bba73d3e3a128e42744ea7236b3f25340e4ae3e7852cb1d",
+      "id": "CheetahMail_iframe_email_n",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_iframe_email_n"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "db7c4ae24e4487a20f7c120e2f3b7059701162a3b735172a3dd32aeb692feac6",
+      "id": "CheetahMail_iframe_idt",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_iframe_idt"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "d3f858a452d9ea01e873ee19cb71170b101b097c2bde89b1d214e4e7ac6088e5",
+      "id": "CheetahMail_iframe_web_n",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_iframe_web_n"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "0886ed9a4bde205ff34c15b665ce93fb8846db9a8b01a88cb541c6428d2c235f",
+      "id": "CheetahMail_language",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_language"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "d96532af33ab06f2638255f005349a77b9cf3259407b62f81eb8d2b5189e3388",
+      "id": "CheetahMail_list_id",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_list_id"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "88c0732fba3ba5d1d95e9e87d5fae9ae5ce5892fc014f6214747f2c3b460cb46",
+      "id": "CheetahMail_misc_checkout_fields",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_misc_checkout_fields"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "4bc0e7cd25aed51c932b55083b5caa5c9b27e00f73cd8fd350ad0a8a23d05aff",
+      "id": "CheetahMail_net_id",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_net_id"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "3761405e937f706dbf28b2bcecd1a38ab7e47c0a99c038736f2a3282b10414bd",
+      "id": "CheetahMail_password",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_password"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "d3e88996625a05bd4a8ff6dcaffe60dbf0603b4593780e46feee58f325b801fd",
+      "id": "CheetahMail_profiletype_name",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_profiletype_name"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "53595ed0a717add0c58d90c7c6b278426404b6fd1d1b619c7e315e08c34fe7ad",
+      "id": "CheetahMail_respond_to_email",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_respond_to_email"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "cf266e7a87ac72cabdfe24af3c6b28bba14eb3c489faa0354f923632e53002ae",
+      "id": "CheetahMail_user_id",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CheetahMail_user_id"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "01ceae11f275a11b76735e1f491345b8b8f7a3d8b7f13cf4db056a7fd262e912",
+      "id": "ClientID",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/ClientID"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "5578bdf4a417db47d9fafa27e50f4ee3441040ef2e800724e5a4d5466cfa7177",
+      "id": "ClientSecret",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/ClientSecret"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "ad13d196fb83f3bbd0e26aa42acaa40df8fb2bc41f117feb4c9138e5cdf0e28d",
+      "id": "CobraGoogleVerificationTag",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CobraGoogleVerificationTag"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "58c84aca68427e26e138094f8cd871e573d3a040b45f7421ec6ad02496baef4d",
+      "id": "CodeType",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CodeType"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "bd843947e7c33b2bf3855637e3ff37c1b90c120d646c3cbd90fed9f174d92643",
+      "id": "CookieMessageEnable",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CookieMessageEnable"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "dc82d0f898a7a7a469e90949937138c8680f852f841238c56262fd90deabc581",
+      "id": "CookieMessageExpiration",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CookieMessageExpiration"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "7956afbba7c487243384f8ceb3d1f724e0723b2df444098c72947f179e2f629e",
+      "id": "CountriesZipCodeNotRequired",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CountriesZipCodeNotRequired"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "fe81c532021c4728440efc3b8265e60f04e948a42fe8680332b87b15cf8a26ea",
+      "id": "CouponLimit",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CouponLimit"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "320f2cd70c4deab51ef0145eaa8c1b02ba950eacdcebc3df07d71b141b6481c7",
+      "id": "CouponLimitEnabled",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CouponLimitEnabled"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "5ea97b2126c9951a5d09cfa1bac8d10c083ee2f582912d8d7d666d809ec4558d",
+      "id": "CreditCardNames",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CreditCardNames"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "dcc17118b99b0e8c75315d7b9a014148253603b04623c275511f87a981bd2a19",
+      "id": "CsAvsDeclineFlags",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsAvsDeclineFlags"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "07ced63f07d2b8e0e91eaba1e75809062500623646ed3a11b3f9b1eac6a216ed",
+      "id": "CsAvsIgnoreResult",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsAvsIgnoreResult"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "1c36db0b5eeb69777f0325a05e1ee47b02272df3035cca0ab2748a7ad099b7ff",
+      "id": "CsCorrectShipAddress",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsCorrectShipAddress"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "f1728854c785fc1c84c06507102b005126966074ad704f36e789f17d1be619e2",
+      "id": "CsCvnDeclineFlags",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsCvnDeclineFlags"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "2c24d55aef617a42f28da467ead9a3256de97c2edbc2f9a75251b92670d843b3",
+      "id": "CsDavEnable",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsDavEnable"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "e37aca28e9afb7f6cac2713d05453a928440b9b17a00a939094277a4093ad35e",
+      "id": "CsDavOnAddressVerificationFailure",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsDavOnAddressVerificationFailure"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "2ed5aa521a6347afb839416f0b6f813de319fd48279e3cbf57f2f4ff5f47cd48",
+      "id": "CsDebugCybersource",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsDebugCybersource"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "da57e6014d5828312168c00eff4ae49d6f2c47ec36117b787e5fbd1ccbf54b43",
+      "id": "CsDefaultProductTaxCode",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsDefaultProductTaxCode"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "56465c347bff573120746d87b7657d497e89e7fe4a69eba20931347e28327416",
+      "id": "CsDeveloperID",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsDeveloperID"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "8d1e8e03bbd2a5d49ea381cb6375b19d7097c8369c106cd73046299adb93fbf2",
+      "id": "CsDeviceFingerprintEnabled",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsDeviceFingerprintEnabled"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "a97123c011365427e4018056e3ff1d038ce7991ebf04a9294ca73b4cafc823b4",
+      "id": "CsDeviceFingerprintJetmetrixLocation",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsDeviceFingerprintJetmetrixLocation"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "f83e24e689d796de67bd562cfbca04f814864cd16717a9cc18fd657499efd323",
+      "id": "CsDeviceFingerprintOrgId",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsDeviceFingerprintOrgId"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "3965cebd2eee568ef8adee030f0f0bbccf312436303661da21aead851d61f883",
+      "id": "CsDeviceFingerprintTTL",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsDeviceFingerprintTTL"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "55ffa45cabce9305dbd482f8b32bbf8fabc754e2855b3ab0e8441d26e45784d4",
+      "id": "CsEnableTaxation",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsEnableTaxation"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "087ff72363e6ed74198b1c81d9c094b0ae4a2eaf21882110ad7fd597ffefa8f8",
+      "id": "CsEndpoint",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsEndpoint"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "ab1452a672c7212391934e739ce2f808416d65a915d85c53a9d2a2fa3f15d8a2",
+      "id": "CsMerchantId",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsMerchantId"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "e8b93009108f52d7896e7125b05e7b3fbdfc43f751e9b160272f1fb0c39874bc",
+      "id": "CsNexus",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsNexus"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "b71d56b62099b24ca2ae652b917324a9e5491c7b2a874b02d871f93885dc7e51",
+      "id": "CsNoNexus",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsNoNexus"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "65f1fa414c9140c9a7ad93526d0949269f6e947293aa169f5147aa27f4a90d62",
+      "id": "CsOrderImportLookBack",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsOrderImportLookBack"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "19070b6a9440fcedf9cba9cc717d6297b14362637967484222d31d739552c5d6",
+      "id": "CsPaEnableProofXML",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsPaEnableProofXML"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "196b2fb6d18b1bb7ed55b121fac71cc0c1c3cb219cca3a2dd72f32ca6d45f1ae",
+      "id": "CsPaMerchantId",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsPaMerchantId"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "2699f325c51d076b9cb97f798dde7b83ccd7a2f23c6b3b6a4f5d151b5fc3fdd3",
+      "id": "CsPaMerchantName",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsPaMerchantName"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "35592223ad7e8729ba10b7bb2f17271354cf2fd4ca1399e34bb1879f2c70760f",
+      "id": "CsPaSaveParesStatus",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsPaSaveParesStatus"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "a1415b5054d81436c6d2bf65eca4d71a25a7601856f998d823aecfa9cb8e072f",
+      "id": "CsPoaCity",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsPoaCity"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "b8a823acec7ec45a5db0fa6164a6f90d8c116e2fb4cebfa7f21bee820d73ed5a",
+      "id": "CsPoaCountryCode",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsPoaCountryCode"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "5a64bbf45656a4ff681388a8a90872d7d852b258f058a13550f6f7337c728ab6",
+      "id": "CsPoaStateCode",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsPoaStateCode"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "6f873225b4c904a1cccb9b73e9dff61c1540b410667d324c47a5e7cb25e82d5c",
+      "id": "CsPoaZipCode",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsPoaZipCode"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "8b7669c7f902b46fe327cef4de6f2980227d128c231a6a32e0cace80fd4628ad",
+      "id": "CsPooCity",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsPooCity"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "4b8c7eec4e3c99f20e1807d717d4e54043f86d554072cee71526f1a175da2790",
+      "id": "CsPooCountryCode",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsPooCountryCode"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "8e077c184148ff45b463e170b1c014508bfe0336e8ab797765ccef3c00421dd8",
+      "id": "CsPooStateCode",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsPooStateCode"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "f076d378b10a7946fa4b80572caf02b6223b42483dc662a2af8870566d124867",
+      "id": "CsPooZipCode",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsPooZipCode"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "b26f1e00c242033b3037448952dcb9d0c850fe2db02691e8a3a97dc0c8bff911",
+      "id": "CsSAIframetFormAction",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsSAIframetFormAction"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "ead1a6f4d36dbe6a65855e4aa8bf922415806e719b234d83f380023615c2888b",
+      "id": "CsSAOverrideBillingAddress",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsSAOverrideBillingAddress"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "f09f1a5e5d939f36d313f3a16c760beb18b28b8a139dacf2f8f99d9b2712410c",
+      "id": "CsSAOverrideShippingAddress",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsSAOverrideShippingAddress"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "c312a43531ebb6828c9b9ed7a5b47168147a30c68eacb0ad322371f05684c3dc",
+      "id": "CsSARedirectFormAction",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsSARedirectFormAction"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "0ba81952e783f3f4e2e5972bc25fe2e5803bec2c0b53f1bbdf4c49d04b54d24a",
+      "id": "CsSAType",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsSAType"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "7e13c6a722df94ff9bd716e5790779b6e334b705ac40ebefc728304e9b6bfc3f",
+      "id": "CsSecurityKey",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsSecurityKey"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "ca44a4576cfaa1bf0768d257e3706aa9fcf07c07207d2e666d517dcc0505d234",
+      "id": "CsShipFromCity",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsShipFromCity"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "a82dc614c13e43b3fb0645b6de83c311d0aa27df759e304a59bfc6863ee02943",
+      "id": "CsShipFromCountryCode",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsShipFromCountryCode"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "bd7b78f53359961178d4ddf68360cd9714a6cbcb85e4c7c4cb9e36c0429a9f5f",
+      "id": "CsShipFromStateCode",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsShipFromStateCode"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "77c8dc4662ef55f3af6f9e9e8d1bc9c01bfd264e44cadbb12b44c715d7d321b1",
+      "id": "CsShipFromZipCode",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsShipFromZipCode"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "f0a8a1302ffa0f5a33853048d4963e1bd8d9091f22858ff7b6c42bd52f1d753b",
+      "id": "CsSubscriptionTokenizationEnable",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsSubscriptionTokenizationEnable"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "a7d9bf7450d18d45406f02ed4a791287d3d407186adc5475ec2282496af39217",
+      "id": "CsTokenizationEnable",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CsTokenizationEnable"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "7eb30f81ff13c5465da2ec2ba9c8976ae4ac5c56edeb17a5e71c5cd069e7b583",
+      "id": "CustCreditPassword",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CustCreditPassword"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "70a352d0562a37be4d4b2b8197657c335096aaa2f048a5a287283e2e47c6baea",
+      "id": "CustCreditUsername",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CustCreditUsername"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "040acb47d64a6ed7b37b63ee3ace459840f2e95bc454c115c26c8ded238cf973",
+      "id": "CustCreditapiEnabled",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/CustCreditapiEnabled"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "fcff0738007929b9fe9a62a04bfc4b523f3e77103b84fc4ad1f1513bcae11640",
+      "id": "Cybercat_Adyen3DS2Enabled",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/Cybercat_Adyen3DS2Enabled"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "fb39561288429fbd0bec81be6eb8d6f0844705929d246b7574381fd0247c334b",
+      "id": "DBDRegisteredScript",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/DBDRegisteredScript"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "7b339df58266a405bdabb2efe9b92c7d360d68aa0fe4996110ea474d5dbe6684",
+      "id": "DECOEnable",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/DECOEnable"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "5ae2e75eb42f945945f9d3f489af67e6b74da17e8cabe3cf8ce5c57cef171019",
+      "id": "DY_AccessKeyID",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/DY_AccessKeyID"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "7dc055379c350ea9bec0ef6c403be0a48d86f16924d81e9d3f69ea1470d3a514",
+      "id": "DY_Enable_CDN_integration",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/DY_Enable_CDN_integration"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "e02b3dd50f9166c7918ee874e6b3698c14517a7b60ac9331c19e7d9eca460188",
+      "id": "DY_EndpointURL",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/DY_EndpointURL"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "0bf5d383675266507a3885a6b7a7147966c4ed5eb251143ae5c34770ada4d7a8",
+      "id": "DY_ProductAttributes",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/DY_ProductAttributes"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "f53d338b9ba6a706bd03998cda1b7827f9ab6c4a7296d7c8803d457f178488e1",
+      "id": "DY_SecretAccessKey",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/DY_SecretAccessKey"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "1f014a52e04abc22a9ffd99708f22d8487635dd48436a4c3237412391b2de33b",
+      "id": "DY_SectionID",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/DY_SectionID"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "e069bb0fafa7824fdee71c69ea43691e7c275957f8a7d9f7e188a48b3756cd3c",
+      "id": "DY_custom_CDN_URL",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/DY_custom_CDN_URL"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "5a4bd51fbaf26327edc2631650dd2065109e8af52940535bd62b786ded446478",
+      "id": "DY_enable_async",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/DY_enable_async"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "9a178fdf444721df2ecacc9695b9779a116f9669ed226c496f9ce9db5dfb15d6",
+      "id": "DY_euroToggle",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/DY_euroToggle"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "7011bb08de1e22ad6b881251d6a2cf54ca2b835234b445fee27e23dce7d071a0",
+      "id": "DY_isCatalogExportEnabled",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/DY_isCatalogExportEnabled"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "b96942ca7cb64eebe20ed2a4e20a0aa65ab78bac3529075806ddd9e1b3dd27e7",
+      "id": "DY_isEnabled",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/DY_isEnabled"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "0d87490572123df25918e562c5fcb6edf5b16386e8e07693ced23283e9c411c4",
+      "id": "DisableBrowserLanguageSetting",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/DisableBrowserLanguageSetting"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "34c067058e4512cb57d0d576aa46d928426c1964eaa6862544ad61f3f0f0dc29",
+      "id": "DisableMegaMenu",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/DisableMegaMenu"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "06afaa2f4d00ef0fa0c9413097499b5260d4d71b03c41e947dd977cd932fc9b4",
+      "id": "DisableSearchSuggestionCount",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/DisableSearchSuggestionCount"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "797d94836141f4d51393c486efa94b2aed9ac47aa8269b5443eb637e0f093434",
+      "id": "DisplayDemandwareRecommendation",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/DisplayDemandwareRecommendation"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "d47325b94746973c9cd6009ffe3228fca952f55d4a8f2363c4950053a87f0679",
+      "id": "DisplayLowInventoryNotif",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/DisplayLowInventoryNotif"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "89fdcc2a517253635ef6be1b1c9697c2bd6285c6e450cec0361a603592ba3bee",
+      "id": "DisplaySimplMsgOnPdp",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/DisplaySimplMsgOnPdp"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "c5e4ea6dd1d559651f8522af7a8fa13ef27a893d841ec060eb02df59139abc47",
+      "id": "DokuAPIsPath",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/DokuAPIsPath"
+    },
+    {
+      "_type": "object_attribute_definition",
+      "_resource_state": "a58d48c9474a5dacb8f0b7c216df7907092e8cb3bdfd860301ac7357ffb68612",
+      "id": "DokuClientId",
+      "link": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions/DokuClientId"
+    }
+  ],
+  "next": "https://bcwr-080.dx.commercecloud.salesforce.com/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions?start=200&count=200",
+  "start": 0,
+  "total": 2562
+}

@@ -11,7 +11,8 @@ import {
     findUnusedPreferences,
     writeUnusedPreferencesFile,
     getSandboxConfig,
-    getAvailableRealms
+    getAvailableRealms,
+    startTimer
 } from './helpers.js';
 import { exportSitesCartridgesToCSV, exportAttributesToCSV, writeUsageCSV, writeMatrixCSV } from './csvHelper.js';
 import {
@@ -21,7 +22,8 @@ import {
     getAllSites,
     getSitePreferences,
     getPreferencesInGroup,
-    getPreferenceById
+    getPreferenceById,
+    getAttributeDefinitionById
 } from './api.js';
 import {
     realmPrompt,
@@ -82,8 +84,16 @@ program
     .action(async () => {
         const realmAnswers = await inquirer.prompt(realmPrompt());
         const sandbox = getSandboxConfig(realmAnswers.realm);
-        const answers = await inquirer.prompt(objectTypePrompt());
-        const allAttributes = await getSitePreferences(answers.objectType, sandbox);
+        const answers = await inquirer.prompt([
+            ...objectTypePrompt(),
+            {
+                type: 'confirm',
+                name: 'includeDefaults',
+                message: 'Include default values? (slower)',
+                default: false
+            }
+        ]);
+        const allAttributes = await getSitePreferences(answers.objectType, sandbox, answers.includeDefaults);
         await exportAttributesToCSV(allAttributes, sandbox.hostname);
     });
 
@@ -119,18 +129,28 @@ program
     .command('summarize-preferences')
     .description('Summarize preference definitions, groups, sites, and filled values across all sites')
     .action(async () => {
-        const startTime = Date.now();
+        const timer = startTimer();
         const realmAnswers = await inquirer.prompt(realmPrompt());
         const sandbox = getSandboxConfig(realmAnswers.realm);
 
         const answers = await inquirer.prompt([
             ...objectTypePrompt('SitePreferences'),
             ...instanceTypePrompt('sandbox'),
-            ...scopePrompts()
+            ...scopePrompts(),
+            {
+                type: 'confirm',
+                name: 'includeDefaults',
+                message: 'Include default values? (slower)',
+                default: false
+            }
         ]);
 
         console.log('\nFetching all preference definitions (attribute definitions)...');
-        const preferenceDefinitions = await getSitePreferences(answers.objectType, sandbox);
+        const preferenceDefinitions = await getSitePreferences(
+            answers.objectType,
+            sandbox,
+            answers.includeDefaults
+        );
 
         console.log('\nFetching preference groups (no assignments, just IDs)...');
         const groups = await getAttributeGroups(answers.objectType, sandbox);
@@ -174,7 +194,12 @@ program
         // Build complete preference matrix: all preferences vs all sites
         const allSiteIds = sitesToProcess.map(s => s.id || s.site_id || s.siteId).filter(Boolean).sort();
         const allPrefIds = Object.keys(preferenceMeta).sort();
-        const preferenceMatrix = buildPreferenceMatrix(allPrefIds, allSiteIds, usageRows);
+        const preferenceMatrix = buildPreferenceMatrix(
+            allPrefIds,
+            allSiteIds,
+            usageRows,
+            preferenceMeta
+        );
 
         // Write CSV with dynamic site-specific value columns
         writeUsageCSV(realmDir, realmAnswers.realm, answers.instanceType, usageRows, preferenceMeta);
@@ -183,12 +208,7 @@ program
         writeMatrixCSV(realmDir, realmAnswers.realm, answers.instanceType, preferenceMatrix, allSiteIds);
 
         // Display total runtime
-        const endTime = Date.now();
-        const totalSeconds = Math.round((endTime - startTime) / 1000);
-        const minutes = Math.floor(totalSeconds / 60);
-        const seconds = totalSeconds % 60;
-        const timeDisplay = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-        console.log(`\n✓ Total runtime: ${timeDisplay}`);
+        console.log(`\n✓ Total runtime: ${timer.stop()}`);
     });
 
 program
@@ -350,6 +370,42 @@ program
         const filename = `${answers.preferenceId}_preference_response.json`;
         writeTestOutput(filename, logData);
         console.log(JSON.stringify(preference, null, 2));
+    });
+
+program
+    .command('test-attribute-definition')
+    .description('[TEMP] Fetch a single attribute definition by ID to check for default_value')
+    .action(async () => {
+        const realmAnswers = await inquirer.prompt(realmPrompt());
+        const sandbox = getSandboxConfig(realmAnswers.realm);
+        const answers = await inquirer.prompt([
+            ...objectTypePrompt(),
+            {
+                type: 'input',
+                name: 'attributeId',
+                message: 'Enter attribute ID:',
+                validate: (input) => input.trim() !== '' || 'Attribute ID is required'
+            }
+        ]);
+
+        console.log(`\nFetching attribute definition: ${answers.attributeId}...`);
+        const attribute = await getAttributeDefinitionById(answers.objectType, answers.attributeId, sandbox);
+
+        if (attribute) {
+            const logData = {
+                request: {
+                    objectType: answers.objectType,
+                    attributeId: answers.attributeId,
+                    endpoint: `/s/-/dw/data/v25_6/system_object_definitions/${answers.objectType}/attribute_definitions/${answers.attributeId}`
+                },
+                response: attribute
+            };
+            const filename = `${answers.attributeId}_attribute_definition.json`;
+            writeTestOutput(filename, logData);
+            console.log(JSON.stringify(attribute, null, 2));
+        } else {
+            console.log('Failed to retrieve attribute definition.');
+        }
     });
 
 program

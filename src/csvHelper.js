@@ -216,26 +216,38 @@ export function writeUsageCSV(realmDir, realm, instanceType, usageRows, preferen
  * Write preference matrix CSV showing usage across sites
  * See .github/instructions/function-reference.md for detailed documentation
  * Output: results/{realm}/{realm}_{instanceType}_preferences_matrix.csv
- * Matrix: preferenceId column + one column per site with "X" for usage
+ * Columns: preferenceId, defaultValue + one column per site with "X" for usage
  * @param {string} realmDir - Absolute path to realm output directory
  * @param {string} realm - Realm name for file naming
  * @param {string} instanceType - Instance type (e.g., "sandbox", "production")
- * @param {Array<Object>} preferenceMatrix - Array with preferenceId and sites mapping
+ * @param {Array<Object>} preferenceMatrix - Array with preferenceId, defaultValue, and sites
  * @param {Array<string>} allSiteIds - Ordered array of all site IDs
  * @returns {void}
  */
 export function writeMatrixCSV(realmDir, realm, instanceType, preferenceMatrix, allSiteIds) {
-    const matrixHeader = ['preferenceId', ...allSiteIds];
+    const matrixHeader = ['preferenceId', 'defaultValue', ...allSiteIds];
     const matrixRows = preferenceMatrix.map(pref => {
-        const cols = [pref.preferenceId];
+        const cols = [
+            pref.preferenceId,
+            pref.defaultValue ? `"${String(pref.defaultValue).replace(/"/g, '""')}"` : ''
+        ];
         for (const siteId of allSiteIds) {
             cols.push(pref.sites[siteId] ? 'X' : '');
         }
-        return cols.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
+        return cols
+            .map((v, idx) => {
+                // First two columns already have quotes if needed
+                if (idx < 2) return v;
+                return `"${String(v).replace(/"/g, '""')}"`;
+            })
+            .join(',');
     });
 
     const matrixCsv = [matrixHeader.join(','), ...matrixRows].join('\n');
-    const matrixFile = path.join(realmDir, `${realm}_${instanceType}_preferences_matrix.csv`);
+    const matrixFile = path.join(
+        realmDir,
+        `${realm}_${instanceType}_preferences_matrix.csv`
+    );
     fs.writeFileSync(matrixFile, matrixCsv);
     console.log(`Matrix CSV written to ${matrixFile}`);
 }

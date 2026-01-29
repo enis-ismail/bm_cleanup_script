@@ -1,5 +1,6 @@
 import axios from 'axios';
 import fs from 'fs';
+import { processBatch } from './helpers.js';
 
 /* eslint-disable no-undef */
 
@@ -12,9 +13,11 @@ import fs from 'fs';
  * Obtain OAuth 2.0 access token for OCAPI requests
  * See .github/instructions/function-reference.md for detailed documentation
  * @param {Object} sandbox - Sandbox configuration object
+ * @param {number} retryCount - Current retry attempt (for internal use)
  * @returns {Promise<string>} OAuth bearer token
  */
-export async function getOAuthToken(sandbox) {
+export async function getOAuthToken(sandbox, retryCount = 0) {
+    const maxRetries = 3;
     try {
         const tokenUrl = 'https://account.demandware.com/dwsso/oauth2/access_token';
         const credentials = Buffer.from(`${sandbox.clientId}:${sandbox.clientSecret}`).toString('base64');
@@ -33,6 +36,12 @@ export async function getOAuthToken(sandbox) {
         );
         return response.data.access_token;
     } catch (error) {
+        if (error.response?.status === 429 && retryCount < maxRetries) {
+            const delay = Math.pow(2, retryCount) * 1000;
+            console.log(`Rate limited. Retrying in ${delay / 1000}s...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return getOAuthToken(sandbox, retryCount + 1);
+        }
         console.error('Error getting OAuth token:', error.response?.data || error.message);
         throw error;
     }
@@ -105,10 +114,12 @@ export async function getSiteById(siteId, sandbox) {
  * See .github/instructions/function-reference.md for detailed documentation
  * @param {string} objectType - SFCC system object type (e.g., "SitePreferences")
  * @param {Object} sandbox - Sandbox configuration object
+ * @param {boolean} includeDefaults - If true, fetch each attribute individually to get default_value
  * @returns {Promise<Array>} Array of attribute definition objects
  */
-export async function getSitePreferences(objectType, sandbox) {
+export async function getSitePreferences(objectType, sandbox, includeDefaults = false) {
     try {
+        const startTime = Date.now();
         const token = await getOAuthToken(sandbox);
         let allAttributes = [];
         let start = 0;
@@ -123,6 +134,7 @@ export async function getSitePreferences(objectType, sandbox) {
                     'Content-Type': 'application/json'
                 }
             });
+
             const attributes = response.data.data || [];
             total = response.data.total || attributes.length;
 
@@ -135,11 +147,77 @@ export async function getSitePreferences(objectType, sandbox) {
             }
         } while (allAttributes.length < total);
 
-        console.log(`Found ${allAttributes.length} total attributes for ${objectType}`);
+        const listTime = Date.now() - startTime;
+        console.log(
+            `Found ${allAttributes.length} total attributes for ${objectType} ` +
+            `(${(listTime / 1000).toFixed(2)}s)`
+        );
+
+        // If includeDefaults is true, fetch each attribute individually to get default_value
+        if (includeDefaults) {
+            console.log('\nFetching full details with default values (parallel batches)...');
+            const detailStartTime = Date.now();
+
+            const detailedAttributes = await processBatch(
+                allAttributes,
+                (attr) => getAttributeDefinitionById(objectType, attr.id, sandbox),
+                50, // Process 50 attributes in parallel
+                (progress, total, rate) => {
+                    console.log(
+                        `Fetched detailed info for ${progress} of ${total} ` +
+                        `attributes (${rate.toFixed(1)} attrs/sec)...`
+                    );
+                },
+                1000 // 1 second delay between batches
+            );
+
+            const detailTime = Date.now() - detailStartTime;
+            console.log(
+                `Completed fetching ${detailedAttributes.length} attributes with ` +
+                `full details (${(detailTime / 1000).toFixed(2)}s)`
+            );
+            return detailedAttributes;
+        }
+
         return allAttributes;
     } catch (error) {
         console.error('Error fetching site preferences:', error.response?.data || error.message);
         return [];
+    }
+}
+
+/**
+ * Fetch a single attribute definition by ID
+ * See .github/instructions/function-reference.md for detailed documentation
+ * @param {string} objectType - SFCC system object type (e.g., "SitePreferences")
+ * @param {string} attributeId - Attribute ID to retrieve
+ * @param {Object} sandbox - Sandbox configuration object
+ * @param {number} retryCount - Current retry attempt (for internal use)
+ * @returns {Promise<Object|null>} Single attribute definition object with full details including default_value
+ */
+export async function getAttributeDefinitionById(objectType, attributeId, sandbox, retryCount = 0) {
+    const maxRetries = 3;
+    try {
+        const token = await getOAuthToken(sandbox);
+        const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_definitions/${encodeURIComponent(attributeId)}`;
+
+        const response = await axios.get(url, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        return response.data;
+    } catch (error) {
+        if (error.response?.status === 429 && retryCount < maxRetries) {
+            const delay = Math.pow(2, retryCount) * 1000;
+            console.log(`Rate limited on ${attributeId}. Retrying in ${delay / 1000}s...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return getAttributeDefinitionById(objectType, attributeId, sandbox, retryCount + 1);
+        }
+        console.error(`Error fetching attribute ${attributeId}:`, error.response?.data || error.message);
+        return null;
     }
 }
 
