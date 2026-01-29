@@ -95,3 +95,12 @@ export const repositoryPrompt = async (siblings) => ([
         choices: siblings
     }
 ]);
+
+export const includeDefaultsPrompt = () => ([
+    {
+        type: 'confirm',
+        name: 'includeDefaults',
+        message: 'Include default values? (slower)',
+        default: false
+    }
+]);

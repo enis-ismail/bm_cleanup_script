@@ -119,9 +119,9 @@ export function logRealmResults(total, unused, outputFile) {
  * Log the summary header
  */
 export function logSummaryHeader() {
-    log('\n' + '='.repeat(60));
+    log('\n' + logSeparator(60));
     log('SUMMARY');
-    log('='.repeat(60));
+    log(logSeparator(60));
 }
 
 /**
@@ -146,5 +146,84 @@ export function logRealmSummary({ realm, total, used, unused }) {
  * Log the summary footer
  */
 export function logSummaryFooter() {
-    log('\n' + '='.repeat(60));
+    log('\n' + logSeparator(60));
+}
+
+/**
+ * Get a separator line for formatting
+ * @param {number} length - Length of separator (default 80)
+ * @returns {string} Separator string
+ */
+export function logSeparator(length = 80) {
+    return '='.repeat(length);
+}
+
+/**
+ * Log cartridge validation summary header
+ */
+export function logCartridgeValidationSummaryHeader() {
+    log(logSeparator(80));
+    log('=== CARTRIDGE VALIDATION SUMMARY (ALL REALMS) ===');
+    log(logSeparator(80) + '\n');
+}
+
+/**
+ * Log realms processed in cartridge validation
+ * @param {Array} realmSummary - Array of realm summary objects
+ */
+export function logRealmsProcessed(realmSummary) {
+    log('Realms Processed:');
+    for (const summary of realmSummary) {
+        log(`  • ${summary.realm}: ${summary.siteCount} site(s)`);
+    }
+}
+
+/**
+ * Log cartridge validation statistics
+ * @param {number} totalSites - Total number of sites
+ * @param {number} totalCartridges - Total discovered cartridges
+ * @param {number} usedCount - Number of used cartridges
+ * @param {number} unusedCount - Number of unused cartridges
+ */
+export function logCartridgeValidationStats(totalSites, totalCartridges, usedCount, unusedCount) {
+    log(`\nTotal Sites: ${totalSites}`);
+    log(`Total Discovered Cartridges: ${totalCartridges}`);
+    log(`Cartridges Used Across All Realms: ${usedCount}`);
+    log(`Cartridges UNUSED in ANY Realm: ${unusedCount}`);
+}
+
+/**
+ * Log cartridge validation warning
+ * @param {number} unusedCount - Number of unused cartridges
+ * @param {string} filePath - Path to the report file
+ */
+export function logCartridgeValidationWarning(unusedCount, filePath) {
+    log(
+        `\n⚠ Warning: ${unusedCount} cartridge(s) ` +
+        'in repo have NO usage across any realm.'
+    );
+    log(`See: ${filePath}`);
+}
+
+/**
+ * Log cartridge validation summary footer
+ */
+export function logCartridgeValidationSummaryFooter() {
+    log('\n' + logSeparator(80) + '\n');
+}
+
+/**
+ * Log site XML validation summary
+ * @param {Object} stats - Statistics object
+ * @param {number} stats.total - Total sites validated
+ * @param {number} stats.matching - Number of matching sites
+ * @param {number} stats.mismatched - Number of mismatched sites
+ */
+export function logSiteXmlValidationSummary(stats) {
+    log(logSeparator(80));
+    log('SUMMARY');
+    log(logSeparator(80));
+    log(`Total Sites Validated: ${stats.total}`);
+    log(`Matching: ${stats.matching}`);
+    log(`Mismatched: ${stats.mismatched}\n`);
 }

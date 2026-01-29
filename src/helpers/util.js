@@ -97,3 +97,68 @@ export function findCartridgeFolders(searchPath) {
 
     return Array.from(cartridgeNames).sort();
 }
+
+/**
+ * Transform a site object into cartridge info format
+ * @param {Object} site - Site object from API
+ * @param {string} realmName - Optional realm name to include
+ * @returns {Object} Transformed site object with id and cartridges array
+ */
+export function transformSiteToCartridgeInfo(site, realmName = null) {
+    const siteId = site.id || site.site_id || site.siteId || 'N/A';
+    const cartridges = site.cartridges || site.cartridgesPath || site.cartridges_path || 'N/A';
+    const cartridgeArray = (typeof cartridges === 'string'
+        ? cartridges
+        : cartridges?.join(':') || 'N/A'
+    ).split(':').filter(Boolean);
+
+    return {
+        name: realmName ? `${siteId} (${realmName})` : siteId,
+        id: siteId,
+        ...(realmName && { realm: realmName }),
+        cartridges: cartridgeArray
+    };
+}
+
+/**
+ * Build attribute group summaries from attribute groups
+ * @param {Array} groups - Array of attribute group objects
+ * @returns {Array} Array of group summary objects
+ */
+export function buildGroupSummaries(groups) {
+    return groups.map(g => ({
+        groupId: g.id,
+        groupName: g.name || g.id,
+        displayName: g.display_name || g.displayname || g.id
+    }));
+}
+
+/**
+ * Filter sites by scope (all or single)
+ * @param {Array} sites - Array of sites
+ * @param {string} scope - 'all' or 'single'
+ * @param {string} siteId - Site ID to filter by (if scope is 'single')
+ * @returns {Array} Filtered sites array
+ */
+export function filterSitesByScope(sites, scope, siteId) {
+    if (scope === 'single') {
+        return sites.filter(s => (s.id || s.site_id || s.siteId) === siteId);
+    }
+    return sites;
+}
+
+/**
+ * Calculate validation statistics from comparisons
+ * @param {Array} comparisons - Array of comparison objects
+ * @returns {Object} Statistics object with counts
+ */
+export function calculateValidationStats(comparisons) {
+    const matchCount = comparisons.filter(c => c.comparison.isMatch).length;
+    const mismatchCount = comparisons.length - matchCount;
+
+    return {
+        total: comparisons.length,
+        matching: matchCount,
+        mismatched: mismatchCount
+    };
+}

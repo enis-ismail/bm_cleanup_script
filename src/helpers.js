@@ -28,6 +28,16 @@ export function getSandboxConfig(realmName) {
 }
 
 /**
+ * Retrieve full realm configuration for a specific realm
+ * See .github/instructions/function-reference.md for detailed documentation
+ * @param {string} realmName - Name of the realm to retrieve
+ * @returns {Object} Full realm configuration object
+ */
+export function getRealmConfig(realmName) {
+    return getSandboxConfig(realmName);
+}
+
+/**
  * Get list of all configured realm names
  * See .github/instructions/function-reference.md for detailed documentation
  * @returns {string[]} Array of realm names

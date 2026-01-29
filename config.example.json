@@ -4,13 +4,15 @@
       "name": "staging",
       "hostname": "staging-realm-123.sandbox.example.com",
       "clientId": "your-client-id-here",
-      "clientSecret": "your-client-secret-here"
+      "clientSecret": "your-client-secret-here",
+      "siteTemplatesPath": "sites/site_template_staging"
     },
     {
       "name": "production",
       "hostname": "production-realm-456.example.com",
       "clientId": "your-client-id-here",
-      "clientSecret": "your-client-secret-here"
+      "clientSecret": "your-client-secret-here",
+      "siteTemplatesPath": "sites/site_template_production"
     }
   ]
 }
