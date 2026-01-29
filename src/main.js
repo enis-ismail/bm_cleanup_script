@@ -4,20 +4,15 @@ import path from 'path';
 import {
     addRealmToConfig,
     removeRealmFromConfig,
-    ensureRealmDir,
     findAllMatrixFiles,
-    parseCSVToNestedArray,
-    findUnusedPreferences,
-    writeUnusedPreferencesFile,
     getSandboxConfig,
     getAvailableRealms,
     getRealmConfig
 } from './helpers.js';
 import { startTimer } from './helpers/timer.js';
-import { getSiblingRepositories, findCartridgeFolders, transformSiteToCartridgeInfo, buildGroupSummaries, filterSitesByScope, calculateValidationStats } from './helpers/util.js';
-import { exportSitesCartridgesToCSV, exportAttributesToCSV, writeUsageCSV, writeMatrixCSV } from './helpers/csv.js';
+import { getSiblingRepositories, findCartridgeFolders, transformSiteToCartridgeInfo, calculateValidationStats } from './helpers/util.js';
+import { exportSitesCartridgesToCSV, exportAttributesToCSV } from './helpers/csv.js';
 import {
-    getAttributeGroups,
     getAllSites,
     getSitePreferences,
     getSiteById
@@ -33,14 +28,10 @@ import {
     repositoryPrompt,
     includeDefaultsPrompt
 } from './prompts.js';
-import { buildPreferenceMeta, processSitesAndGroups, buildPreferenceMatrix } from './helpers/summarize.js';
 import {
     logCheckPreferencesStart,
     logNoMatrixFiles,
     logMatrixFilesFound,
-    logProcessingRealm,
-    logEmptyCSV,
-    logRealmResults,
     logSummaryHeader,
     logRealmSummary,
     logSummaryFooter,
@@ -58,6 +49,7 @@ import {
     compareSiteXmlWithLive,
     exportSiteXmlComparison
 } from './helpers/siteXmlHelper.js';
+import { processPreferenceMatrixFiles, executePreferenceSummarization } from './helpers/preferenceHelper.js';
 
 // ============================================================================
 // CLI ENTRYPOINT
@@ -134,7 +126,6 @@ program
     .action(async () => {
         const timer = startTimer();
         const realmAnswers = await inquirer.prompt(realmPrompt());
-        const sandbox = getSandboxConfig(realmAnswers.realm);
 
         const answers = await inquirer.prompt([
             ...objectTypePrompt('SitePreferences'),
@@ -143,63 +134,15 @@ program
             ...includeDefaultsPrompt()
         ]);
 
-        console.log('\nFetching all preference definitions (attribute definitions)...');
-        const preferenceDefinitions = await getSitePreferences(
-            answers.objectType,
-            sandbox,
-            answers.includeDefaults
-        );
+        await executePreferenceSummarization({
+            realm: realmAnswers.realm,
+            objectType: answers.objectType,
+            instanceType: answers.instanceType,
+            scope: answers.scope,
+            siteId: answers.siteId,
+            includeDefaults: answers.includeDefaults
+        });
 
-        console.log('\nFetching preference groups (no assignments, just IDs)...');
-        const groups = await getAttributeGroups(answers.objectType, sandbox);
-        const groupSummaries = buildGroupSummaries(groups);
-
-        console.log('\nFetching sites and cartridge paths...');
-        const sites = await getAllSites(sandbox);
-        const sitesToProcess = filterSitesByScope(sites, answers.scope, answers.siteId);
-
-        if (answers.scope === 'single' && sitesToProcess.length === 0) {
-            console.log(`No site found matching '${answers.siteId}'. Aborting.`);
-            return;
-        }
-
-        const siteSummaries = [];
-
-        const preferenceMeta = buildPreferenceMeta(preferenceDefinitions);
-        const usageRows = [];
-
-        console.log(`\nProcessing ${sitesToProcess.length} site(s)...`);
-
-        const { usageRows: processedRows, siteSummaries: processedSummaries } = await processSitesAndGroups(
-            sitesToProcess,
-            groupSummaries,
-            sandbox,
-            answers,
-            preferenceMeta
-        );
-
-        usageRows.push(...processedRows);
-        siteSummaries.push(...processedSummaries);
-
-        const realmDir = ensureRealmDir(realmAnswers.realm);
-
-        // Build complete preference matrix: all preferences vs all sites
-        const allSiteIds = sitesToProcess.map(s => s.id || s.site_id || s.siteId).filter(Boolean).sort();
-        const allPrefIds = Object.keys(preferenceMeta).sort();
-        const preferenceMatrix = buildPreferenceMatrix(
-            allPrefIds,
-            allSiteIds,
-            usageRows,
-            preferenceMeta
-        );
-
-        // Write CSV with dynamic site-specific value columns
-        writeUsageCSV(realmDir, realmAnswers.realm, answers.instanceType, usageRows, preferenceMeta);
-
-        // Write matrix CSV: preferenceId vs sites (X marks usage)
-        writeMatrixCSV(realmDir, realmAnswers.realm, answers.instanceType, preferenceMatrix, allSiteIds);
-
-        // Display total runtime
         console.log(`\n✓ Total runtime: ${timer.stop()}`);
     });
 
@@ -218,35 +161,7 @@ program
 
         logMatrixFilesFound(matrixFiles.length);
 
-        const summary = [];
-
-        for (const { realm, matrixFile } of matrixFiles) {
-            logProcessingRealm(realm);
-
-            const csvData = parseCSVToNestedArray(matrixFile);
-
-            if (csvData.length === 0) {
-                logEmptyCSV();
-                continue;
-            }
-
-            // Find unused preferences
-            const unusedPreferences = findUnusedPreferences(csvData);
-
-            // Write unused preferences to file
-            const realmDir = path.dirname(matrixFile);
-            const outputFile = writeUnusedPreferencesFile(realmDir, realm, unusedPreferences);
-
-            const total = csvData.length - 1; // -1 for header
-            logRealmResults(total, unusedPreferences.length, outputFile);
-
-            summary.push({
-                realm,
-                total,
-                unused: unusedPreferences.length,
-                used: total - unusedPreferences.length
-            });
-        }
+        const summary = await processPreferenceMatrixFiles(matrixFiles);
 
         // Print summary
         logSummaryHeader();
