@@ -1,6 +1,6 @@
 import axios from 'axios';
 import fs from 'fs';
-import { processBatch } from './helpers/batch.js';
+import { processBatch, withLoadShedding } from './helpers/batch.js';
 
 /* eslint-disable no-undef */
 
@@ -13,38 +13,35 @@ import { processBatch } from './helpers/batch.js';
  * Obtain OAuth 2.0 access token for OCAPI requests
  * See .github/instructions/function-reference.md for detailed documentation
  * @param {Object} sandbox - Sandbox configuration object
- * @param {number} retryCount - Current retry attempt (for internal use)
  * @returns {Promise<string>} OAuth bearer token
  */
-export async function getOAuthToken(sandbox, retryCount = 0) {
-    const maxRetries = 3;
-    try {
-        const tokenUrl = 'https://account.demandware.com/dwsso/oauth2/access_token';
-        const credentials = Buffer.from(`${sandbox.clientId}:${sandbox.clientSecret}`).toString('base64');
+export async function getOAuthToken(sandbox) {
+    return withLoadShedding(
+        async () => {
+            const tokenUrl = 'https://account.demandware.com/dwsso/oauth2/access_token';
+            const credentials = Buffer.from(`${sandbox.clientId}:${sandbox.clientSecret}`).toString('base64');
 
-        const response = await axios.post(
-            tokenUrl,
-            new URLSearchParams({
-                grant_type: 'client_credentials'
-            }).toString(),
-            {
-                headers: {
-                    'Authorization': `Basic ${credentials}`,
-                    'Content-Type': 'application/x-www-form-urlencoded'
+            const response = await axios.post(
+                tokenUrl,
+                new URLSearchParams({
+                    grant_type: 'client_credentials'
+                }).toString(),
+                {
+                    headers: {
+                        'Authorization': `Basic ${credentials}`,
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    }
                 }
+            );
+            return response.data.access_token;
+        },
+        {
+            maxRetries: 3,
+            onRetry: (attempt, delay) => {
+                console.log(`Rate limited. Retry ${attempt}/3 in ${delay / 1000}s...`);
             }
-        );
-        return response.data.access_token;
-    } catch (error) {
-        if (error.response?.status === 429 && retryCount < maxRetries) {
-            const delay = Math.pow(2, retryCount) * 1000;
-            console.log(`Rate limited. Retrying in ${delay / 1000}s...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            return getOAuthToken(sandbox, retryCount + 1);
         }
-        console.error('Error getting OAuth token:', error.response?.data || error.message);
-        throw error;
-    }
+    );
 }
 
 // ============================================================================
@@ -161,14 +158,14 @@ export async function getSitePreferences(objectType, sandbox, includeDefaults = 
             const detailedAttributes = await processBatch(
                 allAttributes,
                 (attr) => getAttributeDefinitionById(objectType, attr.id, sandbox),
-                50, // Process 50 attributes in parallel
+                100, // Process 100 attributes in parallel
                 (progress, total, rate) => {
                     console.log(
                         `Fetched detailed info for ${progress} of ${total} ` +
                         `attributes (${rate.toFixed(1)} attrs/sec)...`
                     );
                 },
-                1000 // 1 second delay between batches
+                200 // 200ms delay between batches
             );
 
             const detailTime = Date.now() - detailStartTime;
@@ -192,30 +189,32 @@ export async function getSitePreferences(objectType, sandbox, includeDefaults = 
  * @param {string} objectType - SFCC system object type (e.g., "SitePreferences")
  * @param {string} attributeId - Attribute ID to retrieve
  * @param {Object} sandbox - Sandbox configuration object
- * @param {number} retryCount - Current retry attempt (for internal use)
  * @returns {Promise<Object|null>} Single attribute definition object with full details including default_value
  */
-export async function getAttributeDefinitionById(objectType, attributeId, sandbox, retryCount = 0) {
-    const maxRetries = 3;
+export async function getAttributeDefinitionById(objectType, attributeId, sandbox) {
     try {
-        const token = await getOAuthToken(sandbox);
-        const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_definitions/${encodeURIComponent(attributeId)}`;
+        return await withLoadShedding(
+            async () => {
+                const token = await getOAuthToken(sandbox);
+                const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_definitions/${encodeURIComponent(attributeId)}`;
 
-        const response = await axios.get(url, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
+                const response = await axios.get(url, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                return response.data;
+            },
+            {
+                maxRetries: 3,
+                onRetry: (attempt, delay) => {
+                    console.log(`Rate limited on ${attributeId}. Retry ${attempt}/3 in ${delay / 1000}s...`);
+                }
             }
-        });
-
-        return response.data;
+        );
     } catch (error) {
-        if (error.response?.status === 429 && retryCount < maxRetries) {
-            const delay = Math.pow(2, retryCount) * 1000;
-            console.log(`Rate limited on ${attributeId}. Retrying in ${delay / 1000}s...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            return getAttributeDefinitionById(objectType, attributeId, sandbox, retryCount + 1);
-        }
         console.error(`Error fetching attribute ${attributeId}:`, error.response?.data || error.message);
         return null;
     }

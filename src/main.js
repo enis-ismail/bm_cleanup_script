@@ -396,7 +396,8 @@ program
                 request: {
                     objectType: answers.objectType,
                     attributeId: answers.attributeId,
-                    endpoint: `/s/-/dw/data/v25_6/system_object_definitions/${answers.objectType}/attribute_definitions/${answers.attributeId}`
+                    endpoint: '/s/-/dw/data/v25_6/system_object_definitions/' +
+                        `${answers.objectType}/attribute_definitions/${answers.attributeId}`
                 },
                 response: attribute
             };
