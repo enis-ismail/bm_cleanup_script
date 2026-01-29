@@ -1,6 +1,6 @@
 import axios from 'axios';
 import fs from 'fs';
-import { processBatch } from './helpers.js';
+import { processBatch } from './helpers/batch.js';
 
 /* eslint-disable no-undef */
 

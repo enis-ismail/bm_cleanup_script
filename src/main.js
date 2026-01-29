@@ -11,10 +11,10 @@ import {
     findUnusedPreferences,
     writeUnusedPreferencesFile,
     getSandboxConfig,
-    getAvailableRealms,
-    startTimer
+    getAvailableRealms
 } from './helpers.js';
-import { exportSitesCartridgesToCSV, exportAttributesToCSV, writeUsageCSV, writeMatrixCSV } from './csvHelper.js';
+import { startTimer } from './helpers/timer.js';
+import { exportSitesCartridgesToCSV, exportAttributesToCSV, writeUsageCSV, writeMatrixCSV } from './helpers/csv.js';
 import {
     getSitePreferencesGroup,
     getAttributeGroups,
@@ -38,7 +38,7 @@ import {
     siteIdPrompt,
     scopePrompts
 } from './prompts.js';
-import { buildPreferenceMeta, processSitesAndGroups, buildPreferenceMatrix } from './summarizeHelper.js';
+import { buildPreferenceMeta, processSitesAndGroups, buildPreferenceMatrix } from './helpers/summarize.js';
 import {
     logCheckPreferencesStart,
     logNoMatrixFiles,
@@ -49,7 +49,7 @@ import {
     logSummaryHeader,
     logRealmSummary,
     logSummaryFooter
-} from './logger.js';
+} from './helpers/log.js';
 
 // ============================================================================
 // CLI ENTRYPOINT

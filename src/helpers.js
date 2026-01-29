@@ -141,76 +141,9 @@ export function ensureRealmDir(realm) {
 }
 
 // ============================================================================
-// TIMING AND PERFORMANCE
-// Track command execution time and overhead
+// TEST DATA UTILITIES
+// Write test/debug output to files
 // ============================================================================
-
-/**
- * Process items in parallel batches with callback
- * See .github/instructions/function-reference.md for detailed documentation
- * @param {Array} items - Array of items to process
- * @param {Function} processFn - Async function to process each item
- * @param {number} batchSize - Number of items to process in parallel
- * @param {Function} onProgress - Optional callback(current, total, rate) for progress tracking
- * @param {number} delayMs - Optional delay in milliseconds between batches (default: 0)
- * @returns {Promise<Array>} Array of results from processing
- */
-export async function processBatch(items, processFn, batchSize = 10, onProgress = null, delayMs = 0) {
-    const results = [];
-    const startTime = Date.now();
-
-    for (let i = 0; i < items.length; i += batchSize) {
-        const batch = items.slice(i, i + batchSize);
-        const batchPromises = batch.map(item => processFn(item));
-        const batchResults = await Promise.all(batchPromises);
-        results.push(...batchResults.filter(r => r !== null));
-
-        const progress = Math.min(i + batchSize, items.length);
-        if (onProgress) {
-            const elapsed = Date.now() - startTime;
-            const rate = progress / (elapsed / 1000);
-            onProgress(progress, items.length, rate);
-        }
-
-        // Add delay between batches if specified and not the last batch
-        if (delayMs > 0 && i + batchSize < items.length) {
-            await new Promise(resolve => setTimeout(resolve, delayMs));
-        }
-    }
-
-    return results;
-}
-
-/**
- * Start a timer for tracking command execution time
- * See .github/instructions/function-reference.md for detailed documentation
- * @returns {Object} Timer object with startTime and methods
- */
-export function startTimer() {
-    return {
-        startTime: Date.now(),
-        endTime: null,
-        checkpoints: [],
-        addCheckpoint(label) {
-            const elapsed = Date.now() - this.startTime;
-            this.checkpoints.push({ label, elapsed });
-            return elapsed;
-        },
-        getElapsed() {
-            return (this.endTime || Date.now()) - this.startTime;
-        },
-        formatElapsed() {
-            const totalSeconds = Math.round(this.getElapsed() / 1000);
-            const minutes = Math.floor(totalSeconds / 60);
-            const seconds = totalSeconds % 60;
-            return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-        },
-        stop() {
-            this.endTime = Date.now();
-            return this.formatElapsed();
-        }
-    };
-}
 
 /**
  * Write test data to a JSON file with optional console output
