@@ -19,12 +19,8 @@ export function buildPreferenceMeta(preferenceDefinitions) {
     return preferenceDefinitions.reduce((acc, def) => {
         const id = def.id || def.attribute_id || def.attributeId;
 
-        // Extract default_value - handle if it's an object with a value property
-        let defaultValue = def.default_value || def.default || null;
-        if (typeof defaultValue === 'object' && defaultValue !== null) {
-            // If it's an object, try to get the 'value' property or first key's value
-            defaultValue = defaultValue.value || Object.values(defaultValue)[0] || null;
-        }
+        // Extract and normalize default_value
+        let defaultValue = extractDefaultValue(def);
 
         acc[id] = {
             id,
@@ -35,6 +31,62 @@ export function buildPreferenceMeta(preferenceDefinitions) {
         };
         return acc;
     }, {});
+}
+
+/**
+ * Extract and normalize default value from attribute definition
+ * Handles various formats: string, number, boolean, object with value property
+ * @param {Object} def - Attribute definition object
+ * @returns {string|null} Normalized default value or null if none found
+ */
+function extractDefaultValue(def) {
+    let val = def.default_value !== undefined ? def.default_value : (def.default ?? null);
+    
+    if (val === null) return null;
+    
+    // If it's already a primitive, return it
+    if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
+        // Filter out type descriptors and placeholder strings
+        const strVal = String(val).toLowerCase();
+        if (strVal === 'object_attribute_value_definition' || 
+            strVal === 'null' || 
+            strVal === '[object object]') {
+            return null;
+        }
+        return String(val);
+    }
+    
+    // If it's an object, try to extract meaningful value
+    if (typeof val === 'object' && val !== null) {
+        // Check for value property explicitly (don't use || for falsy values like false or 0)
+        if ('value' in val && val.value !== undefined && val.value !== null) {
+            const nested = String(val.value).toLowerCase();
+            if (nested === 'object_attribute_value_definition' || nested === 'null') {
+                return null;
+            }
+            return String(val.value);
+        }
+        // Try id property for enum values
+        if ('id' in val && val.id !== undefined && val.id !== null) {
+            const idStr = String(val.id).toLowerCase();
+            if (idStr === 'object_attribute_value_definition' || idStr === 'null') {
+                return null;
+            }
+            return String(val.id);
+        }
+        // Try first non-empty value in object (skipping metadata)
+        for (const key in val) {
+            if (key !== '_type' && key !== '_resource_state' && key !== 'value' && key !== 'id' && 
+                key !== 'position' && val[key] !== undefined && val[key] !== null) {
+                const strVal = String(val[key]).toLowerCase();
+                if (strVal !== 'object_attribute_value_definition' && strVal !== 'null' && strVal !== '[object object]') {
+                    return String(val[key]);
+                }
+            }
+        }
+    }
+    
+    return null;
 }
 
 

@@ -15,7 +15,7 @@ export function log(message, newline = false) {
  * Log the start of the check-preferences process
  */
 export function logCheckPreferencesStart() {
-    log('Finding matrix files in results folder...', true);
+    log('Checking for unused preferences...', true);
 }
 
 /**
@@ -30,7 +30,7 @@ export function logNoMatrixFiles() {
  * @param {number} count - Number of matrix files
  */
 export function logMatrixFilesFound(count) {
-    log(`Found ${count} matrix file(s)`, true);
+    log(`Found ${count} matrix file(s).`, true);
 }
 
 /**
@@ -111,9 +111,8 @@ export function logError(message) {
  * @param {string} outputFile - Path to output file
  */
 export function logRealmResults(total, unused, outputFile) {
-    log(`  Total preferences: ${total}`);
-    log(`  Unused preferences: ${unused}`);
-    log(`  Output file: ${outputFile}`);
+    const filename = outputFile.split('\\').pop();
+    log(`  Unused: ${unused} of ${total} (saved to ${filename})`);
 }
 
 /**
