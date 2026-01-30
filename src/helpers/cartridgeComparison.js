@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { ensureResultsDir } from './util.js';
 
 /**
  * Compare discovered cartridges from repo structure against cartridges used on sites
@@ -33,7 +34,6 @@ function extractSiteCartridges(sites) {
  */
 export function compareCartridges(discoveredCartridges, sites) {
     const siteCartridges = extractSiteCartridges(sites);
-
     const comparisonResult = {
         total: discoveredCartridges.length,
         used: [],
@@ -108,20 +108,13 @@ export function formatComparisonResults(comparisonResult) {
  * @returns {Promise<string>} Path to the written file
  */
 export async function exportComparisonToFile(comparisonResult, realm) {
+    const resultsDir = ensureResultsDir(realm);
+    const filename = `${realm}_cartridge_comparison.txt`;
+    const filePath = path.join(resultsDir, filename);
+    const content = formatComparisonResults(comparisonResult);
+
     try {
         // Create results directory if it doesn't exist
-        const resultsDir = path.join(process.cwd(), 'results', realm);
-        if (!fs.existsSync(resultsDir)) {
-            fs.mkdirSync(resultsDir, { recursive: true });
-        }
-
-        // Generate filename
-        const filename = `${realm}_cartridge_comparison.txt`;
-        const filePath = path.join(resultsDir, filename);
-
-        // Format content
-        const content = formatComparisonResults(comparisonResult);
-
         // Write file
         fs.writeFileSync(filePath, content, 'utf-8');
 

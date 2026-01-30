@@ -18,9 +18,7 @@ import { startTimer } from './timer.js';
 export function buildPreferenceMeta(preferenceDefinitions) {
     return preferenceDefinitions.reduce((acc, def) => {
         const id = def.id || def.attribute_id || def.attributeId;
-
-        // Extract and normalize default_value
-        let defaultValue = extractDefaultValue(def);
+        const defaultValue = extractDefaultValue(def);
 
         acc[id] = {
             id,
@@ -47,29 +45,29 @@ function extractDefaultValue(def) {
     // If it's already a primitive, return it
     if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
         // Filter out type descriptors and placeholder strings
-        const strVal = String(val).toLowerCase();
-        if (strVal === 'object_attribute_value_definition' ||
-            strVal === 'null' ||
-            strVal === '[object object]') {
+        val = String(val).toLowerCase();
+        if (val === 'object_attribute_value_definition' ||
+            val === 'null' ||
+            val === '[object object]') {
             return null;
         }
-        return String(val);
+        return String(def.default_value !== undefined ? def.default_value : def.default);
     }
 
     // If it's an object, try to extract meaningful value
     if (typeof val === 'object' && val !== null) {
         // Check for value property explicitly (don't use || for falsy values like false or 0)
         if ('value' in val && val.value !== undefined && val.value !== null) {
-            const nested = String(val.value).toLowerCase();
-            if (nested === 'object_attribute_value_definition' || nested === 'null') {
+            const checkVal = String(val.value).toLowerCase();
+            if (checkVal === 'object_attribute_value_definition' || checkVal === 'null') {
                 return null;
             }
             return String(val.value);
         }
         // Try id property for enum values
         if ('id' in val && val.id !== undefined && val.id !== null) {
-            const idStr = String(val.id).toLowerCase();
-            if (idStr === 'object_attribute_value_definition' || idStr === 'null') {
+            const checkVal = String(val.id).toLowerCase();
+            if (checkVal === 'object_attribute_value_definition' || checkVal === 'null') {
                 return null;
             }
             return String(val.id);
@@ -78,8 +76,8 @@ function extractDefaultValue(def) {
         for (const key in val) {
             if (key !== '_type' && key !== '_resource_state' && key !== 'value' && key !== 'id' &&
                 key !== 'position' && val[key] !== undefined && val[key] !== null) {
-                const strVal = String(val[key]).toLowerCase();
-                if (strVal !== 'object_attribute_value_definition' && strVal !== 'null' && strVal !== '[object object]') {
+                const checkVal = String(val[key]).toLowerCase();
+                if (checkVal !== 'object_attribute_value_definition' && checkVal !== 'null' && checkVal !== '[object object]') {
                     return String(val[key]);
                 }
             }
@@ -109,22 +107,29 @@ export async function processSitesAndGroups(sitesToProcess, groupSummaries, sand
     const usageRows = [];
     const siteSummaries = [];
     let siteIndex = 0;
+    let siteId = '';
+    let siteDetail = null;
+    let cartridges = '';
+    let groupTimer = null;
+    let groupResponses = [];
+    let groupValues = [];
+    let sitePrefsCount = 0;
 
     for (const site of sitesToProcess) {
-        const siteId = site.id || site.site_id || site.siteId;
+        siteId = site.id || site.site_id || site.siteId;
         if (!siteId) continue;
 
         siteIndex++;
         console.log(`\n[${siteIndex}/${sitesToProcess.length}] Processing site: ${siteId}`);
 
-        const siteDetail = await getSiteById(siteId, sandbox);
-        const cartridges = siteDetail?.cartridges || siteDetail?.cartridgesPath || siteDetail?.cartridges_path || '';
+        siteDetail = await getSiteById(siteId, sandbox);
+        cartridges = siteDetail?.cartridges || siteDetail?.cartridgesPath || siteDetail?.cartridges_path || '';
 
         console.log(`  - Fetching preference values across ${groupSummaries.length} group(s) in batches...`);
-        const groupTimer = startTimer();
+        groupTimer = startTimer();
 
         // Fetch groups in parallel batches
-        const groupResponses = await processBatch(
+        groupResponses = await processBatch(
             groupSummaries,
             (group) => getSitePreferencesGroup(siteId, group.groupId, answers.instanceType, sandbox),
             20, // Process 20 groups in parallel
@@ -138,7 +143,7 @@ export async function processSitesAndGroups(sitesToProcess, groupSummaries, sand
         );
 
         console.log(`  - Groups fetched in ${groupTimer.stop()}`);
-        const groupValues = [];
+        groupValues = [];
 
         // Process fetched group data to extract preference values
         for (let i = 0; i < groupSummaries.length; i++) {
@@ -174,7 +179,7 @@ export async function processSitesAndGroups(sitesToProcess, groupSummaries, sand
             });
         }
 
-        const sitePrefsCount = usageRows.filter(r => r.siteId === siteId).length;
+        sitePrefsCount = usageRows.filter(r => r.siteId === siteId).length;
         console.log(`  ✓ Site ${siteId} complete (${sitePrefsCount} preferences found)`);
         siteSummaries.push({ siteId, cartridges, groups: groupValues });
     }

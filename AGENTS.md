@@ -123,9 +123,30 @@ results/
 
 ## Development Notes
 
-### Code Quality
+### Code Quality Standards
+
+**Variable Declaration Pattern:**
+- Move ALL variable declarations to the **top of the function**
+- Declare variables with their actual assigned values immediately, not empty
+- Only use `let` for conditionally-assigned variables (no value at declaration time)
+- Example:
+  ```javascript
+  // ✓ CORRECT - declare with immediate value
+  const cartridges = findCartridgeFolders(repositoryPath);
+  const sandbox = getSandboxConfig(realm);
+  
+  // ✓ CORRECT - declare empty only if conditionally assigned later
+  let filePath;
+  if (condition) {
+    filePath = await someAsyncFunction();
+  }
+  ```
+- **Linting:** ESLint enforces 120 character line limit; split declarations across multiple lines if needed
+
+**Related Files:**
 - ESLint configuration: [eslint.config.js](eslint.config.js)
 - Main entry point: [src/main.js](src/main.js)
+- All helper files in [src/helpers/](src/helpers/) follow this pattern
 
 ### Process Documentation
 - User guide: [site preference cleanup script.txt](site%20preference%20cleanup%20script.txt)

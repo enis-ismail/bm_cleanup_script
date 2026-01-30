@@ -2,6 +2,32 @@ import path from 'path';
 import fs from 'fs';
 
 /**
+ * Get the absolute path to the results directory
+ * @param {string} [realm] - Optional realm subdirectory name
+ * @returns {string} Absolute path to results or results/realm directory
+ */
+export function getResultsPath(realm = null) {
+    const resultsDir = path.join(process.cwd(), 'results');
+    if (realm) {
+        return path.join(resultsDir, realm);
+    }
+    return resultsDir;
+}
+
+/**
+ * Ensure results directory exists for a realm
+ * @param {string} realm - Realm name
+ * @returns {string} Absolute path to the created directory
+ */
+export function ensureResultsDir(realm) {
+    const dir = getResultsPath(realm);
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+    return dir;
+}
+
+/**
  * Get sibling directories of the current project
  * Excludes hidden directories and the current project directory
  * @returns {Promise<Array<string>>} Array of sibling directory names sorted alphabetically

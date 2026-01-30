@@ -1,10 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { getAllSites, getSiteById } from '../api.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { ensureResultsDir } from './util.js';
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -54,22 +51,31 @@ export function compactValue(val) {
  * See .github/instructions/function-reference.md for detailed documentation
  * Output: results/{realm}/active_site_cartridges_list.csv
  * @param {Object} sandbox - Sandbox configuration object
+ * @param {string} realm - Realm name for folder/file naming
  * @returns {Promise<void>}
  */
-export async function exportSitesCartridgesToCSV(sandbox) {
+export async function exportSitesCartridgesToCSV(sandbox, realm) {
     const sites = await getAllSites(sandbox);
+    const details = [];
+    let rows = [];
+    const header = 'id,cartridges';
+    let csvRows = [];
+    let csv = '';
+    let realmPath = '';
+    let fileName = '';
+
     if (!sites.length) {
         console.log('No sites returned.');
         return;
     }
 
     // Fetch details for each site (in parallel)
-    const details = await Promise.all(
+    details.push(...await Promise.all(
         sites.map((s) => getSiteById(s.id || s.site_id || s.siteId, sandbox))
-    );
+    ));
 
     // Map to rows of id + cartridges
-    const rows = details
+    rows = details
         .filter(Boolean)
         .map((site) => {
             const id = site.id || site.site_id || site.siteId || '';
@@ -82,20 +88,17 @@ export async function exportSitesCartridgesToCSV(sandbox) {
         return;
     }
 
-    const header = 'id,cartridges';
-    const csvRows = rows.map(({ id, cartridges }) => {
+    csvRows = rows.map(({ id, cartridges }) => {
         const safeCartridges = JSON.stringify(cartridges).replace(/^"|"$/g, '').replace(/,/g, ';');
         return `${id},${safeCartridges}`;
     });
 
-    const csv = [header, ...csvRows].join('\n');
-    const realm = deriveRealm(sandbox.hostname);
+    csv = [header, ...csvRows].join('\n');
 
     // Create results/realm directory if it doesn't exist
-    const realmPath = path.resolve(__dirname, '..', 'results', realm);
-    fs.mkdirSync(realmPath, { recursive: true });
+    realmPath = ensureResultsDir(realm);
 
-    const fileName = path.join(realmPath, 'active_site_cartridges_list.csv');
+    fileName = path.join(realmPath, `${realm}_active_site_cartridges_list.csv`);
     fs.writeFileSync(fileName, csv);
     console.log(`Sites + cartridges written to ${fileName}`);
 }
@@ -109,16 +112,24 @@ export async function exportSitesCartridgesToCSV(sandbox) {
  * @returns {Promise<Array<Object>>} The input attributes (passthrough)
  */
 export async function exportAttributesToCSV(allAttributes, hostname) {
+    const firstKeys = Object.keys(allAttributes[0] || {});
+    const keySet = new Set(firstKeys);
+    let orderedKeys = [];
+    let headers = '';
+    let rows = [];
+    let csv = '';
+    let realm = '';
+    let realmPath = '';
+    let fileName = '';
+
     if (allAttributes.length > 0) {
         // Define column order with 'id' first and exclude 'type'
-        const firstKeys = Object.keys(allAttributes[0] || {});
-        const keySet = new Set(firstKeys);
         // Ensure default_value is included even if missing in the first item
         keySet.add('default_value');
-        const orderedKeys = ['id', ...Array.from(keySet).filter(key => key !== 'id' && key !== 'type')];
+        orderedKeys = ['id', ...Array.from(keySet).filter(key => key !== 'id' && key !== 'type')];
 
-        const headers = orderedKeys.join(',');
-        const rows = allAttributes.map(attr => {
+        headers = orderedKeys.join(',');
+        rows = allAttributes.map(attr => {
             return orderedKeys.map(key => {
                 // For default_value, fall back to 'default' or empty when undefined
                 const rawValue = key === 'default_value' ? (attr['default_value'] ?? attr['default'] ?? '') : (attr[key] ?? '');
@@ -128,15 +139,14 @@ export async function exportAttributesToCSV(allAttributes, hostname) {
             }).join(',');
         });
 
-        const csv = [headers, ...rows].join('\n');
+        csv = [headers, ...rows].join('\n');
 
         // Create realm directory if it doesn't exist
-        const realm = deriveRealm(hostname);
-        const realmPath = path.resolve(__dirname, '..', 'results', realm);
-        fs.mkdirSync(realmPath, { recursive: true });
+        realm = deriveRealm(hostname);
+        realmPath = ensureResultsDir(realm);
 
         // Write to CSV file
-        const fileName = path.join(realmPath, `${realm}_site_preferences.csv`);
+        fileName = path.join(realmPath, `${realm}_site_preferences.csv`);
         fs.writeFileSync(fileName, csv);
         console.log(`Data written to ${fileName}`);
     }
@@ -162,16 +172,16 @@ export async function exportAttributesToCSV(allAttributes, hostname) {
  * @returns {void}
  */
 export function writeUsageCSV(realmDir, realm, instanceType, usageRows, preferenceMeta) {
-    // Get all unique site IDs
     const allSiteIds = [...new Set(usageRows.map(r => r.siteId))].sort();
-
-    // Build header with dynamic value_SiteID columns
     const baseColumns = ['groupId', 'preferenceId', 'defaultValue', 'description', 'type'];
     const valueColumns = allSiteIds.map(siteId => `value_${siteId}`);
     const csvHeader = [...baseColumns, ...valueColumns];
-
-    // Group rows by preferenceId
     const prefMap = {};
+    let csvRows = [];
+    let csv = '';
+    let csvFile = '';
+
+    // Get all unique site IDs
     for (const row of usageRows) {
         const prefId = row.preferenceId;
         if (!prefMap[prefId]) {
@@ -188,7 +198,7 @@ export function writeUsageCSV(realmDir, realm, instanceType, usageRows, preferen
     }
 
     // Build CSV rows with all base columns + site-specific values
-    const csvRows = Object.values(prefMap).map(pref => {
+    csvRows = Object.values(prefMap).map(pref => {
         const baseCols = baseColumns.map(key => {
             const raw = pref[key];
             const asString = compactValue(raw);
@@ -206,8 +216,8 @@ export function writeUsageCSV(realmDir, realm, instanceType, usageRows, preferen
         return [...baseCols, ...valueCols].join(',');
     });
 
-    const csv = [csvHeader.join(','), ...csvRows].join('\n');
-    const csvFile = path.join(realmDir, `${realm}_${instanceType}_preferences_usage.csv`);
+    csv = [csvHeader.join(','), ...csvRows].join('\n');
+    csvFile = path.join(realmDir, `${realm}_${instanceType}_preferences_usage.csv`);
     fs.writeFileSync(csvFile, csv);
     console.log(`CSV written to ${csvFile}`);
 }
@@ -226,7 +236,11 @@ export function writeUsageCSV(realmDir, realm, instanceType, usageRows, preferen
  */
 export function writeMatrixCSV(realmDir, realm, instanceType, preferenceMatrix, allSiteIds) {
     const matrixHeader = ['preferenceId', 'defaultValue', ...allSiteIds];
-    const matrixRows = preferenceMatrix.map(pref => {
+    let matrixRows = [];
+    let matrixCsv = '';
+    let matrixFile = '';
+
+    matrixRows = preferenceMatrix.map(pref => {
         const cols = [
             pref.preferenceId,
             pref.defaultValue ? `"${String(pref.defaultValue).replace(/"/g, '""')}"` : ''
@@ -243,8 +257,8 @@ export function writeMatrixCSV(realmDir, realm, instanceType, preferenceMatrix, 
             .join(',');
     });
 
-    const matrixCsv = [matrixHeader.join(','), ...matrixRows].join('\n');
-    const matrixFile = path.join(
+    matrixCsv = [matrixHeader.join(','), ...matrixRows].join('\n');
+    matrixFile = path.join(
         realmDir,
         `${realm}_${instanceType}_preferences_matrix.csv`
     );

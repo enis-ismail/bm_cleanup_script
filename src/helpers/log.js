@@ -179,13 +179,15 @@ export function logRealmsProcessed(realmSummary) {
 }
 
 /**
- * Log cartridge validation statistics
- * @param {number} totalSites - Total number of sites
- * @param {number} totalCartridges - Total discovered cartridges
- * @param {number} usedCount - Number of used cartridges
- * @param {number} unusedCount - Number of unused cartridges
+ * Log cartridge validation statistics from comparison results
+ * @param {Object} result - Result object from validation containing realmSummary, comparisonResult, etc.
  */
-export function logCartridgeValidationStats(totalSites, totalCartridges, usedCount, unusedCount) {
+export function logCartridgeValidationStats(result) {
+    const totalSites = result.realmSummary.reduce((sum, r) => sum + r.siteCount, 0);
+    const totalCartridges = result.comparisonResult.total;
+    const usedCount = result.comparisonResult.used.length;
+    const unusedCount = result.comparisonResult.unused.length;
+
     log(`\nTotal Sites: ${totalSites}`);
     log(`Total Discovered Cartridges: ${totalCartridges}`);
     log(`Cartridges Used Across All Realms: ${usedCount}`);

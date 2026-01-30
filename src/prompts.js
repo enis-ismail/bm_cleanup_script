@@ -50,6 +50,11 @@ export const addRealmPrompts = () => ([
         name: 'clientSecret',
         message: 'Client Secret?',
         validate: (input) => input.length > 0 || 'Client Secret is required'
+    },
+    {
+        name: 'siteTemplatesPath',
+        message: 'Site templates path (e.g., sites/site_template_bcwr080) [Optional]:',
+        default: ''
     }
 ]);
 

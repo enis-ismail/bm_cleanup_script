@@ -10,8 +10,9 @@ import {
     getRealmConfig
 } from './helpers.js';
 import { startTimer } from './helpers/timer.js';
-import { getSiblingRepositories, findCartridgeFolders, transformSiteToCartridgeInfo, calculateValidationStats } from './helpers/util.js';
-import { exportSitesCartridgesToCSV, exportAttributesToCSV } from './helpers/csv.js';
+import { getSiblingRepositories, transformSiteToCartridgeInfo, calculateValidationStats } from './helpers/util.js';
+import { exportAttributesToCSV } from './helpers/csv.js';
+import { executeListSites, executeValidateCartridges, executeValidateCartridgesAll } from './helpers/cartridgeCommands.js';
 import {
     getAllSites,
     getSitePreferences,
@@ -42,7 +43,6 @@ import {
     logCartridgeValidationSummaryFooter,
     logSiteXmlValidationSummary
 } from './helpers/log.js';
-import { compareCartridges, exportComparisonToFile } from './helpers/cartridgeComparison.js';
 import {
     findSiteXmlFiles,
     parseSiteXml,
@@ -74,8 +74,7 @@ program
     .description('List all sites and export cartridge paths to CSV')
     .action(async () => {
         const realmAnswers = await inquirer.prompt(realmPrompt());
-        const sandbox = getSandboxConfig(realmAnswers.realm);
-        await exportSitesCartridgesToCSV(sandbox);
+        await executeListSites(realmAnswers.realm);
     });
 
 program
@@ -97,7 +96,13 @@ program
     .description('Add a new realm to config.json')
     .action(async () => {
         const answers = await inquirer.prompt(addRealmPrompts());
-        addRealmToConfig(answers.name, answers.hostname, answers.clientId, answers.clientSecret);
+        addRealmToConfig(
+            answers.name,
+            answers.hostname,
+            answers.clientId,
+            answers.clientSecret,
+            answers.siteTemplatesPath
+        );
     });
 
 program
@@ -182,8 +187,6 @@ program
     .command('validate-cartridges')
     .description('[WIP] Validate cartridge path settings for all sites')
     .action(async () => {
-        console.log('\n[WIP] Validating cartridge paths...\n');
-
         // Get sibling repositories
         const siblings = await getSiblingRepositories();
 
@@ -199,71 +202,14 @@ program
             siblingAnswers.repository
         );
 
-        const selectedRepo = path.basename(targetPath);
-        console.log(`\n✓ Selected: ${selectedRepo}\n`);
-        console.log(`Validating cartridges in: ${selectedRepo}\n`);
-
-        // Find cartridge folders in the selected repository
-        console.log('Searching for cartridge folders (full depth)...\n');
-        const cartridges = findCartridgeFolders(targetPath);
-
-        if (cartridges.length === 0) {
-            console.log('No cartridges found in the selected repository.');
-            return;
-        }
-
-        console.log(`Found ${cartridges.length} unique cartridge(s):\n`);
-        for (const cartridge of cartridges) {
-            console.log(`  → ${cartridge}`);
-        }
-        console.log();
-
         const realmAnswers = await inquirer.prompt(realmPrompt());
-        const sandbox = getSandboxConfig(realmAnswers.realm);
-
-        console.log('Fetching sites...');
-        const sites = await getAllSites(sandbox);
-
-        if (sites.length === 0) {
-            console.log('No sites found.');
-            return;
-        }
-
-        console.log(`Fetching detailed cartridge paths for ${sites.length} site(s)...`);
-
-        // Fetch detailed info for each site to get cartridges
-        const siteDetails = await Promise.all(
-            sites.map((s) => getSiteById(s.id || s.site_id || s.siteId, sandbox))
-        );
-
-        const validSites = siteDetails.filter(Boolean).map((site) =>
-            transformSiteToCartridgeInfo(site)
-        );
-
-        console.log(`\nCartridge Paths for ${validSites.length} site(s):\n`);
-
-        for (const site of validSites) {
-            console.log(`${site.name}:`);
-            for (const cartridge of site.cartridges) {
-                console.log(`  - ${cartridge}`);
-            }
-            console.log();
-        }
-
-        // Compare discovered cartridges with site cartridges
-        const comparisonResult = compareCartridges(cartridges, validSites);
-
-        // Export results to file
-        const filePath = await exportComparisonToFile(comparisonResult, realmAnswers.realm);
-        console.log(`\n✓ Cartridge comparison saved to: ${filePath}\n`);
+        await executeValidateCartridges(targetPath, realmAnswers.realm);
     });
 
 program
     .command('validate-cartridges-all')
     .description('[WIP] Validate cartridges across ALL configured realms (parallel)')
     .action(async () => {
-        console.log('\n[WIP] Validating cartridge paths across all realms...\n');
-
         // Get sibling repositories
         const siblings = await getSiblingRepositories();
 
@@ -279,114 +225,19 @@ program
             siblingAnswers.repository
         );
 
-        const selectedRepo = path.basename(targetPath);
-        console.log(`\n✓ Selected: ${selectedRepo}\n`);
-        console.log(`Validating cartridges in: ${selectedRepo}\n`);
+        const result = await executeValidateCartridgesAll(targetPath);
 
-        // Find cartridge folders in the selected repository
-        console.log('Searching for cartridge folders (full depth)...\n');
-        const cartridges = findCartridgeFolders(targetPath);
-
-        if (cartridges.length === 0) {
-            console.log('No cartridges found in the selected repository.');
+        if (!result) {
             return;
         }
-
-        console.log(`Found ${cartridges.length} unique cartridge(s)\n`);
-
-        // Get all available realms
-        const availableRealms = getAvailableRealms();
-
-        if (availableRealms.length === 0) {
-            console.log('No realms configured.');
-            return;
-        }
-
-        console.log(`Fetching sites from ${availableRealms.length} realm(s) in parallel...\n`);
-
-        // Fetch sites from all realms in parallel
-        const realmPromises = availableRealms.map(async (realmName) => {
-            try {
-                console.log(`[${realmName}] Fetching sites...`);
-                const sandbox = getSandboxConfig(realmName);
-                const sites = await getAllSites(sandbox);
-
-                if (sites.length === 0) {
-                    console.log(`[${realmName}] ⚠ No sites found.`);
-                    return { realm: realmName, sites: [], success: false };
-                }
-
-                console.log(`[${realmName}] Fetching detailed data for ${sites.length} site(s)...`);
-
-                const siteDetails = await Promise.all(
-                    sites.map((s) => getSiteById(s.id || s.site_id || s.siteId, sandbox))
-                );
-
-                const validSites = siteDetails.filter(Boolean).map((site) =>
-                    transformSiteToCartridgeInfo(site, realmName)
-                );
-
-                console.log(`[${realmName}] ✓ Processed ${validSites.length} site(s)`);
-
-                return {
-                    realm: realmName,
-                    sites: validSites,
-                    success: true
-                };
-            } catch (error) {
-                console.log(`[${realmName}] ✗ Error: ${error.message}`);
-                return {
-                    realm: realmName,
-                    sites: [],
-                    success: false,
-                    error: error.message
-                };
-            }
-        });
-
-        const realmResults = await Promise.all(realmPromises);
-
-        // Aggregate all sites across all realms
-        const allSitesAcrossRealms = [];
-        const realmSummary = [];
-
-        for (const result of realmResults) {
-            if (result.success && result.sites.length > 0) {
-                allSitesAcrossRealms.push(...result.sites);
-                realmSummary.push({
-                    realm: result.realm,
-                    siteCount: result.sites.length
-                });
-            }
-        }
-
-        if (allSitesAcrossRealms.length === 0) {
-            console.log('\nNo sites found across any realm. Aborting.\n');
-            return;
-        }
-
-        console.log(`\n✓ Aggregated ${allSitesAcrossRealms.length} site(s) across ${realmSummary.length} realm(s)\n`);
-
-        // Perform ONE comparison across ALL realms
-        console.log('Comparing discovered cartridges with cartridges used across ALL realms...\n');
-        const comparisonResult = compareCartridges(cartridges, allSitesAcrossRealms);
-
-        // Export consolidated results
-        const consolidatedFilePath = await exportComparisonToFile(comparisonResult, 'ALL_REALMS');
-        console.log(`✓ Consolidated comparison saved to: ${consolidatedFilePath}\n`);
 
         // Print summary
         logCartridgeValidationSummaryHeader();
-        logRealmsProcessed(realmSummary);
-        logCartridgeValidationStats(
-            allSitesAcrossRealms.length,
-            comparisonResult.total,
-            comparisonResult.used.length,
-            comparisonResult.unused.length
-        );
+        logRealmsProcessed(result.realmSummary);
+        logCartridgeValidationStats(result);
 
-        if (comparisonResult.unused.length > 0) {
-            logCartridgeValidationWarning(comparisonResult.unused.length, consolidatedFilePath);
+        if (result.comparisonResult.unused.length > 0) {
+            logCartridgeValidationWarning(result.comparisonResult.unused.length, result.consolidatedFilePath);
         }
 
         logCartridgeValidationSummaryFooter();

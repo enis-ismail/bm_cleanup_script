@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getResultsPath, ensureResultsDir } from './helpers/util.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -63,9 +64,10 @@ export function deriveRealm(hostname) {
  * @param {string} hostname - Full hostname of the sandbox
  * @param {string} clientId - OCAPI client ID
  * @param {string} clientSecret - OCAPI client secret
+ * @param {string} [siteTemplatesPath] - Optional path to site templates directory
  * @returns {boolean} true if realm was added successfully
  */
-export function addRealmToConfig(name, hostname, clientId, clientSecret) {
+export function addRealmToConfig(name, hostname, clientId, clientSecret, siteTemplatesPath = '') {
     try {
         const configPath = path.resolve(__dirname, '../config.json');
         let config;
@@ -85,12 +87,19 @@ export function addRealmToConfig(name, hostname, clientId, clientSecret) {
         }
 
         // Add new realm
-        config.realms.push({
+        const newRealm = {
             name,
             hostname,
             clientId,
             clientSecret
-        });
+        };
+
+        // Add siteTemplatesPath only if provided
+        if (siteTemplatesPath && siteTemplatesPath.trim() !== '') {
+            newRealm.siteTemplatesPath = siteTemplatesPath.trim();
+        }
+
+        config.realms.push(newRealm);
 
         // Write back to file
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
@@ -145,9 +154,7 @@ export async function removeRealmFromConfig(realmName) {
  * @returns {string} Absolute path to the created/verified directory
  */
 export function ensureRealmDir(realm) {
-    const dir = path.resolve(__dirname, '..', 'results', realm);
-    fs.mkdirSync(dir, { recursive: true });
-    return dir;
+    return ensureResultsDir(realm);
 }
 
 // ============================================================================
@@ -211,7 +218,7 @@ export function isValueKey(key) {
  * @returns {Array<{realm: string, matrixFile: string}>} Array of realm and matrix file paths
  */
 export function findAllMatrixFiles() {
-    const resultsDir = path.resolve(__dirname, '..', 'results');
+    const resultsDir = getResultsPath();
     const matrixFiles = [];
 
     // Check if results directory exists

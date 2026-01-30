@@ -29,9 +29,13 @@ export async function processPreferenceMatrixFiles(matrixFiles) {
     const summary = [];
 
     for (const { realm, matrixFile } of matrixFiles) {
-        logProcessingRealm(realm);
-
         const csvData = parseCSVToNestedArray(matrixFile);
+        const realmDir = path.dirname(matrixFile);
+        let unusedPreferences = [];
+        let outputFile = '';
+        let total = 0;
+
+        logProcessingRealm(realm);
 
         if (csvData.length === 0) {
             logEmptyCSV();
@@ -39,13 +43,12 @@ export async function processPreferenceMatrixFiles(matrixFiles) {
         }
 
         // Find unused preferences
-        const unusedPreferences = findUnusedPreferences(csvData);
+        unusedPreferences = findUnusedPreferences(csvData);
 
         // Write unused preferences to file
-        const realmDir = path.dirname(matrixFile);
-        const outputFile = writeUnusedPreferencesFile(realmDir, realm, unusedPreferences);
+        outputFile = writeUnusedPreferencesFile(realmDir, realm, unusedPreferences);
 
-        const total = csvData.length - 1; // -1 for header
+        total = csvData.length - 1; // -1 for header
         logRealmResults(total, unusedPreferences.length, outputFile);
 
         summary.push({
@@ -72,29 +75,39 @@ export async function processPreferenceMatrixFiles(matrixFiles) {
  */
 export async function executePreferenceSummarization(params) {
     const sandbox = getSandboxConfig(params.realm);
+    let preferenceDefinitions = [];
+    let groups = [];
+    let groupSummaries = [];
+    let sites = [];
+    let sitesToProcess = [];
+    let preferenceMeta = {};
+    const usageRows = [];
+    const realmDir = ensureRealmDir(params.realm);
+    let allSiteIds = [];
+    let allPrefIds = [];
+    let preferenceMatrix = [];
 
     console.log('\nFetching all preference definitions (attribute definitions)...');
-    const preferenceDefinitions = await getSitePreferences(
+    preferenceDefinitions = await getSitePreferences(
         params.objectType,
         sandbox,
         params.includeDefaults
     );
 
     console.log('\nFetching preference groups (no assignments, just IDs)...');
-    const groups = await getAttributeGroups(params.objectType, sandbox);
-    const groupSummaries = buildGroupSummaries(groups);
+    groups = await getAttributeGroups(params.objectType, sandbox);
+    groupSummaries = buildGroupSummaries(groups);
 
     console.log('\nFetching sites and cartridge paths...');
-    const sites = await getAllSites(sandbox);
-    const sitesToProcess = filterSitesByScope(sites, params.scope, params.siteId);
+    sites = await getAllSites(sandbox);
+    sitesToProcess = filterSitesByScope(sites, params.scope, params.siteId);
 
     if (params.scope === 'single' && sitesToProcess.length === 0) {
         console.log(`No site found matching '${params.siteId}'. Aborting.`);
         return null;
     }
 
-    const preferenceMeta = buildPreferenceMeta(preferenceDefinitions);
-    const usageRows = [];
+    preferenceMeta = buildPreferenceMeta(preferenceDefinitions);
 
     console.log(`\nProcessing ${sitesToProcess.length} site(s)...`);
 
@@ -108,12 +121,10 @@ export async function executePreferenceSummarization(params) {
 
     usageRows.push(...processedRows);
 
-    const realmDir = ensureRealmDir(params.realm);
-
     // Build complete preference matrix: all preferences vs all sites
-    const allSiteIds = sitesToProcess.map(s => s.id || s.site_id || s.siteId).filter(Boolean).sort();
-    const allPrefIds = Object.keys(preferenceMeta).sort();
-    const preferenceMatrix = buildPreferenceMatrix(
+    allSiteIds = sitesToProcess.map(s => s.id || s.site_id || s.siteId).filter(Boolean).sort();
+    allPrefIds = Object.keys(preferenceMeta).sort();
+    preferenceMatrix = buildPreferenceMatrix(
         allPrefIds,
         allSiteIds,
         usageRows,

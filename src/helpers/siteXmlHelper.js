@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { parseString } from 'xml2js';
+import { ensureResultsDir } from './util.js';
 
 /**
  * Find all site.xml files in a site templates directory
@@ -11,14 +12,12 @@ import { parseString } from 'xml2js';
 export async function findSiteXmlFiles(repoPath, siteTemplatesPath) {
     const siteXmlFiles = [];
     const fullSiteTemplatesPath = path.join(repoPath, siteTemplatesPath);
+    const sitesDir = path.join(fullSiteTemplatesPath, 'sites');
 
     if (!fs.existsSync(fullSiteTemplatesPath)) {
         console.log(`[!] Site templates path not found: ${fullSiteTemplatesPath}`);
         return siteXmlFiles;
     }
-
-    // Navigate to sites subdirectory: sites/site_template_<realm>/sites
-    const sitesDir = path.join(fullSiteTemplatesPath, 'sites');
 
     if (!fs.existsSync(sitesDir)) {
         console.log(`[!] Sites directory not found: ${sitesDir}`);
@@ -60,17 +59,14 @@ export async function parseSiteXml(siteXmlPath) {
             }
 
             try {
-                // Navigate XML structure to find cartridges
                 const site = result.site;
                 const siteId = site.$?.['site-id'] || 'Unknown';
-                
-                // Find custom-cartridges element
-                let cartridgePath = '';
                 const cartridges = [];
-                
+                let cartridgePath = '';
+
                 if (site['custom-cartridges'] && site['custom-cartridges'][0]) {
                     const customCartridges = site['custom-cartridges'][0];
-                    
+
                     // Check if it's a string (colon-separated list)
                     if (typeof customCartridges === 'string') {
                         cartridgePath = customCartridges;
@@ -85,7 +81,7 @@ export async function parseSiteXml(siteXmlPath) {
                         const cartridgeElements = Array.isArray(customCartridges.cartridge)
                             ? customCartridges.cartridge
                             : [customCartridges.cartridge];
-                        
+
                         cartridgeElements.forEach(cart => {
                             if (typeof cart === 'string') {
                                 cartridges.push(cart.trim());
@@ -93,7 +89,6 @@ export async function parseSiteXml(siteXmlPath) {
                                 cartridges.push(cart._.trim());
                             }
                         });
-                        
                         cartridgePath = cartridges.join(':');
                     }
                 }
@@ -120,16 +115,16 @@ export async function parseSiteXml(siteXmlPath) {
 export function compareSiteXmlWithLive(xmlCartridges, liveCartridges) {
     const xmlSet = new Set(xmlCartridges);
     const liveSet = new Set(liveCartridges);
-
     const matching = xmlCartridges.filter(c => liveSet.has(c));
     const onlyInXml = xmlCartridges.filter(c => !liveSet.has(c));
     const onlyInLive = liveCartridges.filter(c => !xmlSet.has(c));
+    const isMatch = onlyInXml.length === 0 && onlyInLive.length === 0;
 
     return {
         matching,
         onlyInXml,
         onlyInLive,
-        isMatch: onlyInXml.length === 0 && onlyInLive.length === 0,
+        isMatch,
         xmlCount: xmlCartridges.length,
         liveCount: liveCartridges.length
     };
@@ -174,29 +169,24 @@ export function formatSiteXmlComparison(siteId, comparison, xmlFilePath) {
  * @returns {Promise<string>} Path to written file
  */
 export async function exportSiteXmlComparison(comparisons, realm) {
-    const resultsDir = path.join(process.cwd(), 'results', realm);
-    if (!fs.existsSync(resultsDir)) {
-        fs.mkdirSync(resultsDir, { recursive: true });
-    }
-
+    const resultsDir = ensureResultsDir(realm);
     const filename = `${realm}_site_xml_validation.txt`;
     const filePath = path.join(resultsDir, filename);
+    const separator = '='.repeat(80);
+    const matchCount = comparisons.filter(c => c.comparison.isMatch).length;
+    const mismatchCount = comparisons.length - matchCount;
 
-    let content = '='.repeat(80) + '\n';
+    let content = separator + '\n';
     content += 'SITE.XML VALIDATION REPORT\n';
-    content += '='.repeat(80) + '\n';
+    content += separator + '\n';
 
     for (const comp of comparisons) {
         content += formatSiteXmlComparison(comp.siteId, comp.comparison, comp.xmlFile);
     }
 
-    content += '\n' + '='.repeat(80) + '\n';
+    content += '\n' + separator + '\n';
     content += 'SUMMARY\n';
-    content += '='.repeat(80) + '\n';
-
-    const matchCount = comparisons.filter(c => c.comparison.isMatch).length;
-    const mismatchCount = comparisons.length - matchCount;
-
+    content += separator + '\n';
     content += `Total Sites Validated: ${comparisons.length}\n`;
     content += `Matching: ${matchCount}\n`;
     content += `Mismatched: ${mismatchCount}\n`;
