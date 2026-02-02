@@ -1,9 +1,15 @@
 import path from 'path';
-import { getSandboxConfig, getAvailableRealms } from '../helpers.js';
-import { findCartridgeFolders, transformSiteToCartridgeInfo } from './util.js';
+import { getSandboxConfig, getAvailableRealms, getRealmConfig } from '../helpers.js';
+import { findCartridgeFolders, transformSiteToCartridgeInfo, calculateValidationStats } from './util.js';
 import { exportSitesCartridgesToCSV } from './csv.js';
 import { getAllSites, getSiteById } from '../api.js';
 import { compareCartridges, exportComparisonToFile } from './cartridgeComparison.js';
+import {
+    findSiteXmlFiles,
+    parseSiteXml,
+    compareSiteXmlWithLive,
+    exportSiteXmlComparison
+} from './siteXmlHelper.js';
 
 // ============================================================================
 // LIST SITES COMMAND
@@ -32,7 +38,6 @@ export async function executeListSites(realm) {
 export async function executeValidateCartridges(repositoryPath, realm) {
     const selectedRepo = path.basename(repositoryPath);
     const cartridges = findCartridgeFolders(repositoryPath);
-    const sandbox = getSandboxConfig(realm);
 
     console.log('\n[WIP] Validating cartridge paths...\n');
     console.log(`✓ Selected: ${selectedRepo}\n`);
@@ -52,8 +57,18 @@ export async function executeValidateCartridges(repositoryPath, realm) {
     }
     console.log();
 
-    console.log('Fetching sites...');
+    const sandbox = getSandboxConfig(realm);
     const sites = await getAllSites(sandbox);
+    const siteDetails = await Promise.all(
+        sites.map((s) => getSiteById(s.id || s.site_id || s.siteId, sandbox))
+    );
+    const validSites = siteDetails.filter(Boolean).map((site) =>
+        transformSiteToCartridgeInfo(site)
+    );
+    const comparisonResult = compareCartridges(cartridges, validSites);
+    const filePath = await exportComparisonToFile(comparisonResult, realm);
+
+    console.log('Fetching sites...');
 
     if (sites.length === 0) {
         console.log('No sites found.');
@@ -63,13 +78,6 @@ export async function executeValidateCartridges(repositoryPath, realm) {
     console.log(`Fetching detailed cartridge paths for ${sites.length} site(s)...`);
 
     // Fetch detailed info for each site to get cartridges
-    const siteDetails = await Promise.all(
-        sites.map((s) => getSiteById(s.id || s.site_id || s.siteId, sandbox))
-    );
-
-    const validSites = siteDetails.filter(Boolean).map((site) =>
-        transformSiteToCartridgeInfo(site)
-    );
 
     console.log(`\nCartridge Paths for ${validSites.length} site(s):\n`);
 
@@ -82,10 +90,7 @@ export async function executeValidateCartridges(repositoryPath, realm) {
     }
 
     // Compare discovered cartridges with site cartridges
-    const comparisonResult = compareCartridges(cartridges, validSites);
-
     // Export results to file
-    const filePath = await exportComparisonToFile(comparisonResult, realm);
     console.log(`\n✓ Cartridge comparison saved to: ${filePath}\n`);
 
     return filePath;
@@ -201,5 +206,120 @@ export async function executeValidateCartridgesAll(repositoryPath) {
         realmSummary,
         comparisonResult,
         consolidatedFilePath
+    };
+}
+
+// ============================================================================
+// VALIDATE SITE XML COMMAND
+// ============================================================================
+
+/**
+ * Validate that site.xml files match live SFCC cartridge paths
+ * @param {string} repositoryPath - Path to the repository containing site.xml files
+ * @param {string} realm - Realm name to validate against
+ * @returns {Promise<Object>} Validation results including stats and report path
+ */
+export async function executeValidateSiteXml(repositoryPath, realm) {
+    const selectedRepo = path.basename(repositoryPath);
+    const sandbox = getSandboxConfig(realm);
+    const realmConfig = getRealmConfig(realm);
+
+    console.log('\n[WIP] Validating site.xml files against live SFCC...\n');
+    console.log(`✓ Selected: ${selectedRepo}\n`);
+
+    // Check if realm has siteTemplatesPath configured
+    if (!realmConfig.siteTemplatesPath) {
+        console.log(
+            `\n✗ Error: Realm "${realm}" does not have ` +
+            '"siteTemplatesPath" configured in config.json\n'
+        );
+        console.log('Please add "siteTemplatesPath" to the realm configuration.');
+        console.log('Example: "siteTemplatesPath": "sites/site_template_bcwr080"\n');
+        return null;
+    }
+
+    console.log(`Site Templates Path: ${realmConfig.siteTemplatesPath}\n`);
+
+    const siteXmlFiles = await findSiteXmlFiles(repositoryPath, realmConfig.siteTemplatesPath);
+    const sites = await getAllSites(sandbox);
+
+    if (siteXmlFiles.length === 0) {
+        console.log('No site.xml files found.\n');
+        return null;
+    }
+
+    console.log(`Found ${siteXmlFiles.length} site.xml file(s):\n`);
+    siteXmlFiles.forEach(f => {
+        console.log(`  → ${f.siteLocale}: ${f.relativePath}`);
+    });
+    console.log();
+
+    // Fetch live sites from SFCC
+    console.log('Fetching live site data from SFCC...');
+
+    if (sites.length === 0) {
+        console.log('No sites found on SFCC.\n');
+        return null;
+    }
+
+    console.log(`Fetching detailed cartridge paths for ${sites.length} site(s)...\n`);
+
+    const siteDetails = await Promise.all(
+        sites.map((s) => getSiteById(s.id || s.site_id || s.siteId, sandbox))
+    );
+
+    const liveSitesMap = {};
+    siteDetails.filter(Boolean).forEach((site) => {
+        const siteInfo = transformSiteToCartridgeInfo(site);
+        liveSitesMap[siteInfo.id] = siteInfo.cartridges;
+    });
+
+    // Parse and compare each site.xml
+    console.log('Parsing and comparing site.xml files...\n');
+    const comparisons = [];
+
+    for (const xmlFile of siteXmlFiles) {
+        try {
+            const xmlData = await parseSiteXml(xmlFile.filePath);
+            console.log(`[${xmlData.siteId}] Parsed ${xmlFile.relativePath}`);
+
+            if (!liveSitesMap[xmlData.siteId]) {
+                console.log(`  ⚠ Warning: Site "${xmlData.siteId}" not found on live SFCC`);
+                continue;
+            }
+
+            const comparison = compareSiteXmlWithLive(
+                xmlData.cartridges,
+                liveSitesMap[xmlData.siteId]
+            );
+
+            comparisons.push({
+                siteId: xmlData.siteId,
+                xmlFile: xmlFile.relativePath,
+                comparison
+            });
+
+            console.log(`  ${comparison.isMatch ? '✓ Match' : '✗ Mismatch'}`);
+        } catch (error) {
+            console.log(`  ✗ Error parsing ${xmlFile.relativePath}: ${error.message}`);
+        }
+    }
+
+    if (comparisons.length === 0) {
+        console.log('\nNo comparisons to export.\n');
+        return null;
+    }
+
+    // Export results
+    const reportPath = await exportSiteXmlComparison(comparisons, realm);
+    console.log(`\n✓ Validation report saved to: ${reportPath}\n`);
+
+    // Return stats for summary display
+    const stats = calculateValidationStats(comparisons);
+
+    return {
+        stats,
+        reportPath,
+        comparisons
     };
 }

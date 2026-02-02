@@ -48,6 +48,20 @@ export function getAvailableRealms() {
 }
 
 /**
+ * Get the instance type for a specific realm
+ * See .github/instructions/function-reference.md for detailed documentation
+ * @param {string} realmName - Name of the realm
+ * @returns {string} Instance type (sandbox, development, staging, production)
+ */
+export function getInstanceType(realmName) {
+    const realm = config.realms.find(r => r.name === realmName);
+    if (!realm) {
+        throw new Error(`Realm '${realmName}' not found in config.json`);
+    }
+    return realm.instanceType || 'sandbox';
+}
+
+/**
  * Extract realm name from a hostname URL
  * See .github/instructions/function-reference.md for detailed documentation
  * @param {string} hostname - Full hostname URL
@@ -65,9 +79,10 @@ export function deriveRealm(hostname) {
  * @param {string} clientId - OCAPI client ID
  * @param {string} clientSecret - OCAPI client secret
  * @param {string} [siteTemplatesPath] - Optional path to site templates directory
+ * @param {string} [instanceType] - Instance type (sandbox, development, staging, production)
  * @returns {boolean} true if realm was added successfully
  */
-export function addRealmToConfig(name, hostname, clientId, clientSecret, siteTemplatesPath = '') {
+export function addRealmToConfig(name, hostname, clientId, clientSecret, siteTemplatesPath = '', instanceType = 'sandbox') {
     try {
         const configPath = path.resolve(__dirname, '../config.json');
         let config;
@@ -98,6 +113,9 @@ export function addRealmToConfig(name, hostname, clientId, clientSecret, siteTem
         if (siteTemplatesPath && siteTemplatesPath.trim() !== '') {
             newRealm.siteTemplatesPath = siteTemplatesPath.trim();
         }
+
+        // Add instanceType
+        newRealm.instanceType = instanceType;
 
         config.realms.push(newRealm);
 

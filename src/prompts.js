@@ -55,6 +55,13 @@ export const addRealmPrompts = () => ([
         name: 'siteTemplatesPath',
         message: 'Site templates path (e.g., sites/site_template_bcwr080) [Optional]:',
         default: ''
+    },
+    {
+        name: 'instanceType',
+        message: 'Instance type?',
+        type: 'rawlist',
+        choices: ['sandbox', 'development', 'staging', 'production'],
+        default: 'sandbox'
     }
 ]);
 
