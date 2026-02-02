@@ -1,4 +1,7 @@
 {
+  "validation": {
+    "ignoreBmCartridges": true
+  },
   "realms": [
     {
       "name": "staging",

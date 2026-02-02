@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { ensureResultsDir } from './util.js';
+import { getValidationConfig } from '../helpers.js';
 
 /**
  * Compare discovered cartridges from repo structure against cartridges used on sites
@@ -9,16 +10,22 @@ import { ensureResultsDir } from './util.js';
 
 /**
  * Extract unique cartridge names from all sites
+ * Optionally filters out bm_ cartridges based on validation config
  * @param {Array<Object>} sites - Array of site objects containing cartridges array
  * @returns {Set<string>} Set of unique cartridge names used across all sites
  */
 function extractSiteCartridges(sites) {
+    const validationConfig = getValidationConfig();
+    const ignoreBmCartridges = validationConfig.ignoreBmCartridges;
     const siteCartridges = new Set();
 
     sites.forEach((site) => {
         if (Array.isArray(site.cartridges)) {
             site.cartridges.forEach((cartridge) => {
-                siteCartridges.add(cartridge);
+                // Optionally filter out bm_ cartridges based on config
+                if (!(ignoreBmCartridges && cartridge.startsWith('bm_'))) {
+                    siteCartridges.add(cartridge);
+                }
             });
         }
     });
@@ -33,6 +40,8 @@ function extractSiteCartridges(sites) {
  * @returns {Object} Comparison result with discovered cartridges and usage info
  */
 export function compareCartridges(discoveredCartridges, sites) {
+    const validationConfig = getValidationConfig();
+    const ignoreBmCartridges = validationConfig.ignoreBmCartridges;
     const siteCartridges = extractSiteCartridges(sites);
     const comparisonResult = {
         total: discoveredCartridges.length,
@@ -44,7 +53,9 @@ export function compareCartridges(discoveredCartridges, sites) {
     discoveredCartridges.forEach((cartridge) => {
         const isUsed = siteCartridges.has(cartridge);
         const usageCount = sites.filter((site) =>
-            Array.isArray(site.cartridges) && site.cartridges.includes(cartridge)
+            Array.isArray(site.cartridges) &&
+            site.cartridges.includes(cartridge) &&
+            !(ignoreBmCartridges && cartridge.startsWith('bm_'))
         ).length;
 
         const detail = {
@@ -53,7 +64,9 @@ export function compareCartridges(discoveredCartridges, sites) {
             usageCount,
             sites: sites
                 .filter((site) =>
-                    Array.isArray(site.cartridges) && site.cartridges.includes(cartridge)
+                    Array.isArray(site.cartridges) &&
+                    site.cartridges.includes(cartridge) &&
+                    !(ignoreBmCartridges && cartridge.startsWith('bm_'))
                 )
                 .map((site) => site.name)
         };

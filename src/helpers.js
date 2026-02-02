@@ -62,6 +62,15 @@ export function getInstanceType(realmName) {
 }
 
 /**
+ * Get validation configuration settings
+ * See .github/instructions/function-reference.md for detailed documentation
+ * @returns {Object} Validation configuration object
+ */
+export function getValidationConfig() {
+    return config.validation || { ignoreBmCartridges: true };
+}
+
+/**
  * Extract realm name from a hostname URL
  * See .github/instructions/function-reference.md for detailed documentation
  * @param {string} hostname - Full hostname URL

@@ -116,3 +116,11 @@ export const includeDefaultsPrompt = () => ([
         default: false
     }
 ]);
+
+export const preferenceIdPrompt = () => ([
+    {
+        name: 'preferenceId',
+        message: 'Preference ID to search for?',
+        validate: (input) => input && input.trim().length > 0 ? true : 'Preference ID is required'
+    }
+]);

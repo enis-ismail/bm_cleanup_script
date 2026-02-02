@@ -1,5 +1,6 @@
 import path from 'path';
 import fs from 'fs';
+import { getValidationConfig } from '../helpers.js';
 
 /**
  * Get the absolute path to the results directory
@@ -60,10 +61,13 @@ export async function getSiblingRepositories() {
 
 /**
  * Recursively search for cartridge folders in a project
+ * Excludes bm_ cartridges if configured in validation settings
  * @param {string} searchPath - Root path to search from
  * @returns {Array<string>} Array of paths to cartridge folders found
  */
 export function findCartridgeFolders(searchPath) {
+    const validationConfig = getValidationConfig();
+    const ignoreBmCartridges = validationConfig.ignoreBmCartridges;
     const cartridgeNames = new Set();
 
     try {
@@ -87,7 +91,10 @@ export function findCartridgeFolders(searchPath) {
                         });
                         for (const cartridge of cartridges) {
                             // Add only directories (actual cartridges)
-                            if (cartridge.isDirectory() && !cartridge.name.startsWith('.')) {
+                            // Optionally exclude bm_ cartridges based on config
+                            if (cartridge.isDirectory() &&
+                                !cartridge.name.startsWith('.') &&
+                                !(ignoreBmCartridges && cartridge.name.startsWith('bm_'))) {
                                 cartridgeNames.add(cartridge.name);
                             }
                         }
@@ -103,7 +110,10 @@ export function findCartridgeFolders(searchPath) {
                         && fs.statSync(cartridgeDir).isDirectory();
 
                     if (hasCartridgeFolder) {
-                        cartridgeNames.add(entry.name);
+                        // Optionally exclude bm_ cartridges based on config
+                        if (!(ignoreBmCartridges && entry.name.startsWith('bm_'))) {
+                            cartridgeNames.add(entry.name);
+                        }
                     } else {
                         // Recursively search subdirectories
                         const subCartridges = findCartridgeFolders(fullPath);

@@ -24,7 +24,8 @@ import {
     confirmRealmRemovalPrompt,
     scopePrompts,
     repositoryPrompt,
-    includeDefaultsPrompt
+    includeDefaultsPrompt,
+    preferenceIdPrompt
 } from './prompts.js';
 import {
     logCheckPreferencesStart,
@@ -41,6 +42,7 @@ import {
     logSiteXmlValidationSummary
 } from './helpers/log.js';
 import { processPreferenceMatrixFiles, executePreferenceSummarization } from './helpers/preferenceHelper.js';
+import { findPreferenceUsage } from './helpers/preferenceUsage.js';
 
 // ============================================================================
 // CLI ENTRYPOINT
@@ -262,6 +264,45 @@ program
 
         // Print summary
         logSiteXmlValidationSummary(result.stats);
+    });
+
+program
+    .command('find-preference-usage')
+    .description('[WIP] Find preference ID usage in cartridge code')
+    .action(async () => {
+        const timer = startTimer();
+        const siblings = await getSiblingRepositories();
+
+        if (siblings.length === 0) {
+            console.log('No sibling repositories found.');
+            return;
+        }
+
+        const siblingAnswers = await inquirer.prompt(await repositoryPrompt(siblings));
+        const preferenceAnswers = await inquirer.prompt(preferenceIdPrompt());
+
+        const targetPath = path.join(
+            path.dirname(process.cwd()),
+            siblingAnswers.repository
+        );
+
+        const result = await findPreferenceUsage(preferenceAnswers.preferenceId, targetPath);
+
+        console.log(`\nPreference ID: ${result.preferenceId}`);
+        console.log(`Repository: ${result.repositoryPath}`);
+        console.log(`Deprecated cartridges filtered: ${result.deprecatedCartridgesCount}`);
+        console.log(`Matches found: ${result.totalMatches}\n`);
+
+        if (result.matches.length === 0) {
+            console.log('No matches found.');
+            return;
+        }
+
+        result.matches.forEach((match) => {
+            console.log(`${match.filePath}:${match.lineNumber} -> ${match.lineText}`);
+        });
+
+        console.log(`\n✓ Total runtime: ${timer.stop()}`);
     });
 
 program.parse();
