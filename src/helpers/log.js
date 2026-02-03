@@ -1,3 +1,6 @@
+import path from 'path';
+import { LOG_PREFIX, SEPARATOR } from './constants.js';
+
 /**
  * Logger utilities for console output
  */
@@ -9,6 +12,16 @@
  */
 export function log(message, newline = false) {
     console.log(message + (newline ? '\n' : ''));
+}
+
+/**
+ * Log a section title with separator lines
+ * @param {string} title - Title text to display
+ */
+export function logSectionTitle(title) {
+    console.log(`\n${SEPARATOR}`);
+    console.log(title);
+    console.log(SEPARATOR);
 }
 
 /**
@@ -101,7 +114,7 @@ export function logComplete() {
  * @param {string} message - Error message
  */
 export function logError(message) {
-    console.error(`ERROR: ${message}`);
+    console.error(`${LOG_PREFIX.ERROR} ERROR: ${message}`);
 }
 
 /**
@@ -111,7 +124,7 @@ export function logError(message) {
  * @param {string} outputFile - Path to output file
  */
 export function logRealmResults(total, unused, outputFile) {
-    const filename = outputFile.split('\\').pop();
+    const filename = path.basename(outputFile);
     log(`  Unused: ${unused} of ${total} (saved to ${filename})`);
 }
 
@@ -119,9 +132,9 @@ export function logRealmResults(total, unused, outputFile) {
  * Log the summary header
  */
 export function logSummaryHeader() {
-    log('\n' + logSeparator(60));
+    log(`\n${SEPARATOR}`);
     log('SUMMARY');
-    log(logSeparator(60));
+    log(SEPARATOR);
 }
 
 /**
@@ -146,25 +159,16 @@ export function logRealmSummary({ realm, total, used, unused }) {
  * Log the summary footer
  */
 export function logSummaryFooter() {
-    log('\n' + logSeparator(60));
-}
-
-/**
- * Get a separator line for formatting
- * @param {number} length - Length of separator (default 80)
- * @returns {string} Separator string
- */
-export function logSeparator(length = 80) {
-    return '='.repeat(length);
+    log(`\n${SEPARATOR}`);
 }
 
 /**
  * Log cartridge validation summary header
  */
 export function logCartridgeValidationSummaryHeader() {
-    log(logSeparator(80));
+    log(SEPARATOR);
     log('=== CARTRIDGE VALIDATION SUMMARY (ALL REALMS) ===');
-    log(logSeparator(80) + '\n');
+    log(`${SEPARATOR}\n`);
 }
 
 /**
@@ -200,10 +204,7 @@ export function logCartridgeValidationStats(result) {
  * @param {string} filePath - Path to the report file
  */
 export function logCartridgeValidationWarning(unusedCount, filePath) {
-    log(
-        `\n⚠ Warning: ${unusedCount} cartridge(s) ` +
-        'in repo have NO usage across any realm.'
-    );
+    log(`\n${LOG_PREFIX.WARNING} Warning: ${unusedCount} cartridge(s) in repo have NO usage across any realm.`);
     log(`See: ${filePath}`);
 }
 
@@ -211,7 +212,7 @@ export function logCartridgeValidationWarning(unusedCount, filePath) {
  * Log cartridge validation summary footer
  */
 export function logCartridgeValidationSummaryFooter() {
-    log('\n' + logSeparator(80) + '\n');
+    log(`\n${SEPARATOR}\n`);
 }
 
 /**
@@ -222,10 +223,22 @@ export function logCartridgeValidationSummaryFooter() {
  * @param {number} stats.mismatched - Number of mismatched sites
  */
 export function logSiteXmlValidationSummary(stats) {
-    log(logSeparator(80));
+    log(SEPARATOR);
     log('SUMMARY');
-    log(logSeparator(80));
+    log(SEPARATOR);
     log(`Total Sites Validated: ${stats.total}`);
     log(`Matching: ${stats.matching}`);
     log(`Mismatched: ${stats.mismatched}\n`);
+}
+
+/**
+ * Log formatted cartridge list
+ * @param {Array<string>} cartridges - Array of cartridge names
+ */
+export function logCartridgeList(cartridges) {
+    log(`Found ${cartridges.length} unique cartridge(s):\n`);
+    for (const cartridge of cartridges) {
+        log(`  → ${cartridge}`);
+    }
+    log('');
 }

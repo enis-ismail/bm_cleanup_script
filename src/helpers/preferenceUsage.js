@@ -2,6 +2,7 @@
 import fs from 'fs';
 import path from 'path';
 import { findAllMatrixFiles } from '../helpers.js';
+import { ensureResultsDir } from './util.js';
 
 const DEFAULT_COMPARISON_FILE = path.join(
     process.cwd(),
@@ -136,6 +137,50 @@ function collectMatchesInFile(filePath, preferenceId) {
     return matches;
 }
 
+function collectAllFilePaths(dirPath, fileList = []) {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+
+    for (const entry of entries) {
+        const entryPath = path.join(dirPath, entry.name);
+
+        if (entry.isDirectory()) {
+            if (shouldSkipDirectory(entry.name)) {
+                continue;
+            }
+            collectAllFilePaths(entryPath, fileList);
+            continue;
+        }
+
+        if (!shouldScanFile(entryPath)) {
+            continue;
+        }
+
+        const cartridgeName = getCartridgeNameFromPath(entryPath);
+
+        fileList.push({ path: entryPath, cartridge: cartridgeName });
+    }
+
+    return fileList;
+}
+
+function searchMultiplePreferencesInFile(filePath, preferenceIds) {
+    const foundPreferences = new Set();
+
+    try {
+        const content = fs.readFileSync(filePath, 'utf-8');
+
+        for (const prefId of preferenceIds) {
+            if (content.includes(prefId)) {
+                foundPreferences.add(prefId);
+            }
+        }
+    } catch {
+        // Ignore unreadable/binary files
+    }
+
+    return foundPreferences;
+}
+
 function logProgress(state, isFirstSearch) {
     if (!isFirstSearch) {
         return;
@@ -244,13 +289,90 @@ export function getActivePreferencesFromMatrices(matrixFilePaths) {
 }
 
 /**
- * Find usage for all active preferences in repository
+ * Export preference usage results to a text file
+ * @param {Array} results - Array of preference usage results
+ * @param {string} [instanceTypeOverride] - Optional instance type for output path scoping
+ * @returns {string} Path to the exported file
+ */
+function exportPreferenceUsageToFile(results, instanceTypeOverride = null) {
+    const resultsDir = ensureResultsDir('ALL_REALMS', instanceTypeOverride);
+    const filename = 'ALL_REALMS_preference_usage.txt';
+    const filePath = path.join(resultsDir, filename);
+
+    const lines = [
+        'Preference Usage Analysis',
+        `Generated: ${new Date().toISOString()}`,
+        `Total Preferences Analyzed: ${results.length}`,
+        '',
+        '================================================================================',
+        ''
+    ];
+
+    for (const result of results) {
+        lines.push(`Preference: ${result.preferenceId}`);
+        lines.push(`  Cartridges Found: ${result.cartridges.length}`);
+
+        if (result.cartridges.length === 0) {
+            lines.push('  (not used in any cartridge)');
+        } else {
+            result.cartridges.forEach(cartridge => {
+                lines.push(`    • ${cartridge}`);
+            });
+        }
+
+        lines.push('');
+    }
+
+    lines.push('================================================================================');
+    lines.push(`Total preferences scanned: ${results.length}`);
+    lines.push(`Preferences with usage: ${results.filter(r => r.cartridges.length > 0).length}`);
+    lines.push(`Preferences without usage: ${results.filter(r => r.cartridges.length === 0).length}`);
+
+    fs.writeFileSync(filePath, lines.join('\n'), 'utf-8');
+
+    return filePath;
+}
+
+/**
+ * Export unused preferences (with no cartridge usage) to a separate file
+ * @param {Array} results - Array of preference usage results
+ * @param {string} [instanceTypeOverride] - Optional instance type for output path scoping
+ * @returns {string} Path to the exported file
+ */
+function exportUnusedPreferencesToFile(results, instanceTypeOverride = null) {
+    const unusedPreferences = results.filter(r => r.cartridges.length === 0);
+
+    if (unusedPreferences.length === 0) {
+        return null;
+    }
+
+    const resultsDir = ensureResultsDir('ALL_REALMS', instanceTypeOverride);
+    const filename = 'ALL_REALMS_unused_preferences.txt';
+    const filePath = path.join(resultsDir, filename);
+
+    const lines = [
+        'Unused Preferences (Not Referenced in Any Cartridge)',
+        `Generated: ${new Date().toISOString()}`,
+        `Total Unused: ${unusedPreferences.length}`,
+        '',
+        '--- Preference IDs ---',
+        ...unusedPreferences.map(p => p.preferenceId)
+    ];
+
+    fs.writeFileSync(filePath, lines.join('\n'), 'utf-8');
+
+    return filePath;
+}
+
+/**
+ * Find usage for all active preferences in repository (optimized batch search)
  * @param {string} repositoryPath - Absolute path to repository root
  * @param {Object} [options] - Optional settings
  * @returns {Promise<Array>} Array of results for each preference
  */
 export async function findAllActivePreferencesUsage(repositoryPath, options = {}) {
     const matrixFiles = findAllMatrixFiles();
+    const comparisonFilePath = options.comparisonFilePath || DEFAULT_COMPARISON_FILE;
 
     if (matrixFiles.length === 0) {
         console.log('No matrix files found.');
@@ -261,25 +383,79 @@ export async function findAllActivePreferencesUsage(repositoryPath, options = {}
 
     const matrixFilePaths = matrixFiles.map(f => f.matrixFile);
     const activePreferences = Array.from(getActivePreferencesFromMatrices(matrixFilePaths)).sort();
-    const results = [];
 
     console.log(`Found ${activePreferences.length} active preference(s)\n`);
-    console.log('⚠️  WARNING: The first preference may take 5-10 minutes to scan depending on your project size.');
-    console.log('Subsequent preferences will typically be faster.\n');
+    console.log('📊 Optimized batch search: scanning each file once for all preferences\n');
 
-    let isFirstSearch = true;
-    for (let i = 0; i < activePreferences.length; i += 1) {
-        const preference = activePreferences[i];
-        const progressMsg = `[${i + 1}/${activePreferences.length}] Searching for '${preference}'...`;
-        console.log(progressMsg);
+    // Get deprecated cartridges for tagging
+    const deprecatedCartridges = getDeprecatedCartridges(comparisonFilePath);
+    console.log(`Deprecated cartridges: ${deprecatedCartridges.size}`);
+    console.log('Building file list...');
 
-        const result = await findPreferenceUsage(preference, repositoryPath, {
-            ...options,
-            isFirstSearch
+    const allFiles = collectAllFilePaths(repositoryPath);
+    console.log(`Total files to scan: ${allFiles.length}\n`);
+
+    // Track which preferences are found in which cartridges (with deprecation status)
+    const preferenceToCartridges = new Map();
+    activePreferences.forEach(pref => preferenceToCartridges.set(pref, {
+        active: new Set(),
+        deprecated: new Set()
+    }));
+
+    const logEvery = options.logEvery || 500;
+    let scannedFiles = 0;
+
+    // Scan each file once, looking for all preferences
+    for (const fileInfo of allFiles) {
+        const foundPrefs = searchMultiplePreferencesInFile(fileInfo.path, activePreferences);
+
+        // Record cartridges for each found preference
+        foundPrefs.forEach(pref => {
+            if (fileInfo.cartridge) {
+                const isDeprecated = deprecatedCartridges.has(fileInfo.cartridge);
+                const category = isDeprecated ? 'deprecated' : 'active';
+                preferenceToCartridges.get(pref)[category].add(fileInfo.cartridge);
+            }
         });
-        results.push(result);
-        isFirstSearch = false;
+
+        scannedFiles += 1;
+        if (scannedFiles % logEvery === 0 || scannedFiles === allFiles.length) {
+            const percent = ((scannedFiles / allFiles.length) * 100).toFixed(1);
+            console.log(`Scanned ${scannedFiles}/${allFiles.length} files (${percent}%)`);
+        }
     }
+
+    console.log('\nBuilding results...\n');
+
+    // Build results array
+    const results = activePreferences.map(preferenceId => {
+        const cartridgeData = preferenceToCartridges.get(preferenceId);
+        const allCartridges = Array.from(cartridgeData.active)
+            .concat(Array.from(cartridgeData.deprecated).map(c => `${c} [possibly deprecated]`))
+            .sort();
+
+        return {
+            preferenceId,
+            repositoryPath,
+            comparisonFilePath,
+            deprecatedCartridgesCount: deprecatedCartridges.size,
+            totalMatches: allCartridges.length,
+            cartridges: allCartridges
+        };
+    });
+
+    // Export results to file
+    const instanceTypeOverride = options.instanceTypeOverride || null;
+    const outputFile = exportPreferenceUsageToFile(results, instanceTypeOverride);
+    console.log(`✓ Preference usage results saved to: ${outputFile}`);
+
+    // Export unused preferences to separate file
+    const unusedFile = exportUnusedPreferencesToFile(results, instanceTypeOverride);
+    if (unusedFile) {
+        console.log(`✓ Unused preferences saved to: ${unusedFile}`);
+    }
+
+    console.log('');
 
     return results;
 }

@@ -1,6 +1,7 @@
 ﻿import inquirer from 'inquirer';
 import { Command } from 'commander';
 import path from 'path';
+import { registerDebugCommands } from './debug.js';
 import {
     addRealmToConfig,
     removeRealmFromConfig,
@@ -10,11 +11,7 @@ import {
 } from './helpers.js';
 import { startTimer } from './helpers/timer.js';
 import { getSiblingRepositories } from './helpers/util.js';
-import { exportAttributesToCSV } from './helpers/csv.js';
-import { executeListSites, executeValidateCartridges, executeValidateCartridgesAll, executeValidateSiteXml } from './helpers/cartridgeCommands.js';
-import {
-    getSitePreferences
-} from './api.js';
+import { executeListSites, executeValidateCartridgesAll, executeValidateSiteXml } from './helpers/cartridgeCommands.js';
 import {
     realmPrompt,
     objectTypePrompt,
@@ -24,11 +21,9 @@ import {
     scopePrompts,
     repositoryPrompt,
     includeDefaultsPrompt,
-    preferenceIdPrompt,
     resolveRealmScopeSelection
 } from './prompts.js';
 import {
-    logCheckPreferencesStart,
     logNoMatrixFiles,
     logMatrixFilesFound,
     logSummaryHeader,
@@ -39,11 +34,11 @@ import {
     logCartridgeValidationStats,
     logCartridgeValidationWarning,
     logCartridgeValidationSummaryFooter,
-    logSiteXmlValidationSummary
+    logSiteXmlValidationSummary,
+    logSectionTitle
 } from './helpers/log.js';
 import { processPreferenceMatrixFiles, executePreferenceSummarization } from './helpers/preferenceHelper.js';
 import {
-    findPreferenceUsage,
     findAllActivePreferencesUsage,
     getActivePreferencesFromMatrices
 } from './helpers/preferenceUsage.js';
@@ -53,6 +48,35 @@ import {
 // Central command registry for OCAPI tooling
 // ============================================================================
 
+/**
+ * Validate realm selection and return list to process
+ * @param {Array<string>} realmsToProcess - List of realms from selection
+ * @returns {boolean} True if realms are valid, false otherwise
+ * @private
+ */
+function validateRealmsSelection(realmsToProcess) {
+    if (!realmsToProcess || realmsToProcess.length === 0) {
+        console.log('No realms found for the selected scope.');
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Get target repository path from sibling repositories
+ * @param {Array<string>} siblings - List of sibling repository names
+ * @returns {Promise<string|null>} Target path or null if cancelled/invalid
+ * @private
+ */
+async function selectRepositoryPath(siblings) {
+    if (siblings.length === 0) {
+        console.log('No sibling repositories found.');
+        return null;
+    }
+
+    const siblingAnswers = await inquirer.prompt(await repositoryPrompt(siblings));
+    return path.join(path.dirname(process.cwd()), siblingAnswers.repository);
+}
 const program = new Command();
 
 // Command to list sites and export cartridge paths
@@ -70,22 +94,108 @@ program
     .command('list-sites')
     .description('List all sites and export cartridge paths to CSV')
     .action(async () => {
-        const realmAnswers = await inquirer.prompt(realmPrompt());
-        await executeListSites(realmAnswers.realm);
+        const selection = await resolveRealmScopeSelection(inquirer.prompt);
+        const realmsToProcess = selection.realmList;
+
+        if (!realmsToProcess || realmsToProcess.length === 0) {
+            console.log('No realms found for the selected scope.');
+            return;
+        }
+
+        for (const realm of realmsToProcess) {
+            await executeListSites(realm);
+        }
     });
 
 program
-    .command('get-preferences')
-    .description('Retrieve site preferences from OCAPI')
+    .command('analyze-preferences')
+    .description('Full preference analysis workflow: fetch → summarize → check')
     .action(async () => {
-        const realmAnswers = await inquirer.prompt(realmPrompt());
-        const realmName = realmAnswers.realm;
+        const timer = startTimer();
+
+        logSectionTitle('STEP 1: Configure Scope & Options');
+
+        const selection = await resolveRealmScopeSelection(inquirer.prompt);
+        const realmsToProcess = selection.realmList;
+
+        if (!validateRealmsSelection(realmsToProcess)) {
+            return;
+        }
+
         const answers = await inquirer.prompt([
-            ...objectTypePrompt(),
+            ...objectTypePrompt('SitePreferences'),
+            ...scopePrompts(),
             ...includeDefaultsPrompt()
         ]);
-        const allAttributes = await getSitePreferences(answers.objectType, realmName, answers.includeDefaults);
-        await exportAttributesToCSV(allAttributes, realmName);
+
+        const { objectType, scope, siteId, includeDefaults } = answers;
+
+        logSectionTitle('STEP 2: Fetching & Summarizing Preferences');
+
+        for (const realm of realmsToProcess) {
+            console.log(`\nProcessing realm: ${realm}`);
+            await executePreferenceSummarization({
+                realm,
+                objectType,
+                instanceType: getInstanceType(realm),
+                scope,
+                siteId,
+                includeDefaults
+            });
+        }
+
+        logSectionTitle('STEP 3: Checking Preference Usage');
+
+        const matrixFiles = findAllMatrixFiles();
+
+        if (matrixFiles.length === 0) {
+            logNoMatrixFiles();
+            console.log(`\n✓ Total runtime: ${timer.stop()}`);
+            return;
+        }
+
+        logMatrixFilesFound(matrixFiles.length);
+
+        const summary = await processPreferenceMatrixFiles(matrixFiles);
+
+        logSummaryHeader();
+        for (const stats of summary) {
+            logRealmSummary(stats);
+        }
+        logSummaryFooter();
+
+        logSectionTitle('STEP 4: Active Preferences Summary');
+
+        const matrixFilePaths = matrixFiles.map(f => f.matrixFile);
+        const activePreferences = Array.from(getActivePreferencesFromMatrices(matrixFilePaths)).sort();
+        const count = activePreferences.length;
+
+        console.log(`Active Preferences (${count}):\n`);
+        activePreferences.forEach((pref) => {
+            console.log(`  • ${pref}`);
+        });
+
+        logSectionTitle('STEP 5: Finding Preference Usage in Cartridges');
+
+        const siblings = await getSiblingRepositories();
+        const targetPath = await selectRepositoryPath(siblings);
+
+        if (targetPath) {
+            const results = await findAllActivePreferencesUsage(targetPath);
+
+            for (const result of results) {
+                console.log(`${result.preferenceId}:`);
+                if (result.cartridges.length === 0) {
+                    console.log('  (not used in any cartridge)');
+                } else {
+                    result.cartridges.forEach((cartridge) => {
+                        console.log(`  • ${cartridge}`);
+                    });
+                }
+            }
+        }
+
+        console.log(`\n✓ Total runtime: ${timer.stop()}`);
     });
 
 program
@@ -93,14 +203,8 @@ program
     .description('Add a new realm to config.json')
     .action(async () => {
         const answers = await inquirer.prompt(addRealmPrompts());
-        addRealmToConfig(
-            answers.name,
-            answers.hostname,
-            answers.clientId,
-            answers.clientSecret,
-            answers.siteTemplatesPath,
-            answers.instanceType
-        );
+        const { name, hostname, clientId, clientSecret, siteTemplatesPath, instanceType } = answers;
+        addRealmToConfig(name, hostname, clientId, clientSecret, siteTemplatesPath, instanceType);
     });
 
 program
@@ -114,7 +218,9 @@ program
         }
 
         const selectAnswer = await inquirer.prompt(selectRealmToRemovePrompt(realms));
-        const confirmAnswer = await inquirer.prompt(confirmRealmRemovalPrompt(selectAnswer.realmToRemove));
+        const confirmAnswer = await inquirer.prompt(
+            confirmRealmRemovalPrompt(selectAnswer.realmToRemove)
+        );
 
         if (confirmAnswer.confirm) {
             await removeRealmFromConfig(selectAnswer.realmToRemove);
@@ -123,137 +229,48 @@ program
         }
     });
 
-program
-    .command('summarize-preferences')
-    .description('Summarize preference definitions, groups, sites, and filled values across all sites')
-    .action(async () => {
-        const timer = startTimer();
-
-        const selection = await resolveRealmScopeSelection(inquirer.prompt);
-        const realmsToProcess = selection.realmList;
-
-        if (!realmsToProcess || realmsToProcess.length === 0) {
-            console.log('No realms found for the selected scope.');
-            return;
-        }
-
-        const answers = await inquirer.prompt([
-            ...objectTypePrompt('SitePreferences'),
-            ...scopePrompts(),
-            ...includeDefaultsPrompt()
-        ]);
-
-        for (const realm of realmsToProcess) {
-            console.log(`\nProcessing realm: ${realm}`);
-            await executePreferenceSummarization({
-                realm,
-                objectType: answers.objectType,
-                instanceType: getInstanceType(realm),
-                scope: answers.scope,
-                siteId: answers.siteId,
-                includeDefaults: answers.includeDefaults
-            });
-        }
-
-        console.log(`\n✓ Total runtime: ${timer.stop()}`);
-    });
-
-program
-    .command('check-preferences')
-    .description('Check preference usage from matrix files')
-    .action(async () => {
-        logCheckPreferencesStart();
-
-        const matrixFiles = findAllMatrixFiles();
-
-        if (matrixFiles.length === 0) {
-            logNoMatrixFiles();
-            return;
-        }
-
-        logMatrixFilesFound(matrixFiles.length);
-
-        const summary = await processPreferenceMatrixFiles(matrixFiles);
-
-        // Print summary
-        logSummaryHeader();
-
-        for (const stats of summary) {
-            logRealmSummary(stats);
-        }
-
-        logSummaryFooter();
-    });
-
 // ============================================================================
 // WIP COMMANDS (Work In Progress)
 // Experimental commands being developed
 // ============================================================================
 
 program
-    .command('validate-cartridges')
-    .description('[WIP] Validate cartridge path settings for all sites')
-    .action(async () => {
-        // Get sibling repositories
-        const siblings = await getSiblingRepositories();
-
-        if (siblings.length === 0) {
-            console.log('No sibling repositories found.');
-            return;
-        }
-
-        const siblingAnswers = await inquirer.prompt(await repositoryPrompt(siblings));
-
-        const targetPath = path.join(
-            path.dirname(process.cwd()),
-            siblingAnswers.repository
-        );
-
-        const realmAnswers = await inquirer.prompt(realmPrompt());
-        await executeValidateCartridges(targetPath, realmAnswers.realm);
-    });
-
-program
     .command('validate-cartridges-all')
     .description('[WIP] Validate cartridges across ALL configured realms (parallel)')
     .action(async () => {
         const selection = await resolveRealmScopeSelection(inquirer.prompt);
-        const realmList = selection.realmList;
-        const instanceTypeOverride = selection.instanceTypeOverride;
+        const { realmList, instanceTypeOverride } = selection;
 
-        if (!realmList || realmList.length === 0) {
-            console.log('No realms found for the selected scope.');
+        if (!validateRealmsSelection(realmList)) {
             return;
         }
 
-        // Get sibling repositories
         const siblings = await getSiblingRepositories();
+        const targetPath = await selectRepositoryPath(siblings);
 
-        if (siblings.length === 0) {
-            console.log('No sibling repositories found.');
+        if (!targetPath) {
             return;
         }
 
-        const siblingAnswers = await inquirer.prompt(await repositoryPrompt(siblings));
-
-        const targetPath = path.join(
-            path.dirname(process.cwd()),
-            siblingAnswers.repository
+        const result = await executeValidateCartridgesAll(
+            targetPath,
+            realmList,
+            instanceTypeOverride
         );
-
-        const result = await executeValidateCartridgesAll(targetPath, realmList, instanceTypeOverride);
 
         if (!result) {
             return;
         }
 
-        // Print summary
         logCartridgeValidationSummaryHeader();
         logRealmsProcessed(result.realmSummary);
         logCartridgeValidationStats(result);
 
         if (result.comparisonResult.unused.length > 0) {
-            logCartridgeValidationWarning(result.comparisonResult.unused.length, result.consolidatedFilePath);
+            logCartridgeValidationWarning(
+                result.comparisonResult.unused.length,
+                result.consolidatedFilePath
+            );
         }
 
         logCartridgeValidationSummaryFooter();
@@ -263,20 +280,12 @@ program
     .command('validate-site-xml')
     .description('[WIP] Validate that site.xml files match live SFCC cartridge paths')
     .action(async () => {
-        // Get sibling repositories
         const siblings = await getSiblingRepositories();
+        const targetPath = await selectRepositoryPath(siblings);
 
-        if (siblings.length === 0) {
-            console.log('No sibling repositories found.');
+        if (!targetPath) {
             return;
         }
-
-        const siblingAnswers = await inquirer.prompt(await repositoryPrompt(siblings));
-
-        const targetPath = path.join(
-            path.dirname(process.cwd()),
-            siblingAnswers.repository
-        );
 
         const realmAnswers = await inquirer.prompt(realmPrompt());
         const result = await executeValidateSiteXml(targetPath, realmAnswers.realm);
@@ -285,109 +294,13 @@ program
             return;
         }
 
-        // Print summary
         logSiteXmlValidationSummary(result.stats);
     });
 
-program
-    .command('test-active-preferences')
-    .description('Test: Display all active preferences from matrix files')
-    .action(async () => {
-        const matrixFiles = findAllMatrixFiles();
+// ============================================================================
+// REGISTER DEBUG COMMANDS
+// ============================================================================
 
-        if (matrixFiles.length === 0) {
-            console.log('No matrix files found.');
-            return;
-        }
-
-        console.log(`Found ${matrixFiles.length} matrix file(s)\n`);
-
-        const matrixFilePaths = matrixFiles.map(f => f.matrixFile);
-        const activePreferences = Array.from(getActivePreferencesFromMatrices(matrixFilePaths)).sort();
-
-        console.log(`Active Preferences (${activePreferences.length}):\n`);
-        activePreferences.forEach((pref) => {
-            console.log(`  • ${pref}`);
-        });
-    });
-
-program
-    .command('find-all-preference-usage')
-    .description('[WIP] Find usage for all active preferences across all realms')
-    .action(async () => {
-        const timer = startTimer();
-        const siblings = await getSiblingRepositories();
-
-        if (siblings.length === 0) {
-            console.log('No sibling repositories found.');
-            return;
-        }
-
-        const siblingAnswers = await inquirer.prompt(await repositoryPrompt(siblings));
-
-        const targetPath = path.join(
-            path.dirname(process.cwd()),
-            siblingAnswers.repository
-        );
-
-        const results = await findAllActivePreferencesUsage(targetPath);
-
-        // Print summary
-        console.log('\n================================================================================');
-        console.log('PREFERENCE USAGE SUMMARY');
-        console.log('================================================================================\n');
-
-        for (const result of results) {
-            console.log(`${result.preferenceId}:`);
-            if (result.cartridges.length === 0) {
-                console.log('  (not used in any cartridge)');
-            } else {
-                result.cartridges.forEach((cartridge) => {
-                    console.log(`  • ${cartridge}`);
-                });
-            }
-        }
-
-        console.log(`\n✓ Total runtime: ${timer.stop()}`);
-    });
-
-program
-    .command('find-preference-usage')
-    .description('Find cartridges using a specific preference ID')
-    .action(async () => {
-        const timer = startTimer();
-        const siblings = await getSiblingRepositories();
-
-        if (siblings.length === 0) {
-            console.log('No sibling repositories found.');
-            return;
-        }
-
-        const siblingAnswers = await inquirer.prompt(await repositoryPrompt(siblings));
-        const preferenceAnswers = await inquirer.prompt(preferenceIdPrompt());
-
-        const targetPath = path.join(
-            path.dirname(process.cwd()),
-            siblingAnswers.repository
-        );
-
-        const result = await findPreferenceUsage(preferenceAnswers.preferenceId, targetPath);
-
-        console.log(`\nPreference ID: ${result.preferenceId}`);
-        console.log(`Repository: ${result.repositoryPath}`);
-        console.log(`Deprecated cartridges filtered: ${result.deprecatedCartridgesCount}`);
-        console.log(`Matches found: ${result.totalMatches}`);
-        console.log(`\nCartridges using this preference (${result.cartridges.length}):`);
-
-        if (result.cartridges.length === 0) {
-            console.log('No cartridges found.');
-        } else {
-            result.cartridges.forEach((cartridge) => {
-                console.log(`  • ${cartridge}`);
-            });
-        }
-
-        console.log(`\n✓ Total runtime: ${timer.stop()}`);
-    });
+registerDebugCommands(program);
 
 program.parse();

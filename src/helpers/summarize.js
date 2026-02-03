@@ -3,11 +3,54 @@ import { normalizeId, isValueKey } from '../helpers.js';
 import { processBatch } from './batch.js';
 import { startTimer } from './timer.js';
 
+// ============================================================================
+// HELPER FUNCTIONS
+// Utility functions for preference processing
+// ============================================================================
 
-// ============================================================================
-// PREFERENCE METADATA CONSTRUCTION
-// Transform raw OCAPI attribute definitions into normalized metadata
-// ============================================================================
+/**
+ * Check if a value is a placeholder or type descriptor that should be ignored
+ * @param {string} val - String value to check
+ * @returns {boolean} True if value is a placeholder/descriptor
+ * @private
+ */
+function isPlaceholder(val) {
+    const lower = String(val).toLowerCase();
+    return lower === 'object_attribute_value_definition' || lower === 'null' || lower === '[object object]';
+}
+
+/**
+ * Extract meaningful value from primitive or object, filtering placeholders
+ * @param {*} val - Value to extract (string, number, boolean, or object)
+ * @returns {string|null} Extracted value or null if placeholder/invalid
+ * @private
+ */
+function extractMeaningfulValue(val) {
+    if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
+        return isPlaceholder(val) ? null : String(val);
+    }
+
+    if (typeof val === 'object' && val !== null) {
+        // Try value property first
+        if ('value' in val && val.value !== undefined && val.value !== null) {
+            return isPlaceholder(val.value) ? null : String(val.value);
+        }
+        // Try id property for enum values
+        if ('id' in val && val.id !== undefined && val.id !== null) {
+            return isPlaceholder(val.id) ? null : String(val.id);
+        }
+        // Try first non-metadata property
+        for (const key in val) {
+            if (!['_type', '_resource_state', 'value', 'id', 'position'].includes(key) &&
+                val[key] !== undefined && val[key] !== null) {
+                const extracted = String(val[key]);
+                return isPlaceholder(extracted) ? null : extracted;
+            }
+        }
+    }
+
+    return null;
+}
 
 /**
  * Build normalized preference metadata map from OCAPI attribute definitions
@@ -38,53 +81,8 @@ export function buildPreferenceMeta(preferenceDefinitions) {
  * @returns {string|null} Normalized default value or null if none found
  */
 function extractDefaultValue(def) {
-    let val = def.default_value !== undefined ? def.default_value : (def.default ?? null);
-
-    if (val === null) return null;
-
-    // If it's already a primitive, return it
-    if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
-        // Filter out type descriptors and placeholder strings
-        val = String(val).toLowerCase();
-        if (val === 'object_attribute_value_definition' ||
-            val === 'null' ||
-            val === '[object object]') {
-            return null;
-        }
-        return String(def.default_value !== undefined ? def.default_value : def.default);
-    }
-
-    // If it's an object, try to extract meaningful value
-    if (typeof val === 'object' && val !== null) {
-        // Check for value property explicitly (don't use || for falsy values like false or 0)
-        if ('value' in val && val.value !== undefined && val.value !== null) {
-            const checkVal = String(val.value).toLowerCase();
-            if (checkVal === 'object_attribute_value_definition' || checkVal === 'null') {
-                return null;
-            }
-            return String(val.value);
-        }
-        // Try id property for enum values
-        if ('id' in val && val.id !== undefined && val.id !== null) {
-            const checkVal = String(val.id).toLowerCase();
-            if (checkVal === 'object_attribute_value_definition' || checkVal === 'null') {
-                return null;
-            }
-            return String(val.id);
-        }
-        // Try first non-empty value in object (skipping metadata)
-        for (const key in val) {
-            if (key !== '_type' && key !== '_resource_state' && key !== 'value' && key !== 'id' &&
-                key !== 'position' && val[key] !== undefined && val[key] !== null) {
-                const checkVal = String(val[key]).toLowerCase();
-                if (checkVal !== 'object_attribute_value_definition' && checkVal !== 'null' && checkVal !== '[object object]') {
-                    return String(val[key]);
-                }
-            }
-        }
-    }
-
-    return null;
+    const val = def.default_value !== undefined ? def.default_value : (def.default ?? null);
+    return val === null ? null : extractMeaningfulValue(val);
 }
 
 
@@ -92,6 +90,48 @@ function extractDefaultValue(def) {
 // SITE AND GROUP PROCESSING
 // Fetch and aggregate preference values across sites and groups
 // ============================================================================
+
+/**
+ * Build usage rows from group preference responses for a single site
+ * @param {string} siteId - Site identifier
+ * @param {string} cartridges - Cartridge path for the site
+ * @param {Array} groupSummaries - Group objects
+ * @param {Array} groupResponses - API responses for each group
+ * @param {Object} preferenceMeta - Preference metadata map
+ * @returns {Array} Array of usage rows for this site
+ * @private
+ */
+function buildSiteUsageRows(siteId, cartridges, groupSummaries, groupResponses, preferenceMeta) {
+    const rows = [];
+
+    for (let i = 0; i < groupSummaries.length; i++) {
+        const group = groupSummaries[i];
+        const sitePrefs = groupResponses[i];
+        const usedPreferenceIds = Object.keys(sitePrefs || {}).filter(isValueKey);
+
+        for (const prefId of usedPreferenceIds) {
+            const rawVal = sitePrefs[prefId];
+            // Only include if value is not null, undefined, or empty string
+            if (rawVal === null || rawVal === undefined || rawVal === '') continue;
+
+            const normalizedPrefId = normalizeId(prefId);
+            const safeVal = typeof rawVal === 'object' ? JSON.stringify(rawVal) : String(rawVal);
+            const meta = preferenceMeta[normalizedPrefId] || {};
+            rows.push({
+                siteId,
+                cartridges,
+                groupId: group.groupId,
+                preferenceId: normalizedPrefId,
+                hasValue: true,
+                value: safeVal,
+                defaultValue: meta.defaultValue ?? '',
+                description: meta.description ?? ''
+            });
+        }
+    }
+
+    return rows;
+}
 
 /**
  * Process all sites and attribute groups to build comprehensive usage data
@@ -106,30 +146,22 @@ function extractDefaultValue(def) {
 export async function processSitesAndGroups(sitesToProcess, groupSummaries, realm, answers, preferenceMeta) {
     const usageRows = [];
     const siteSummaries = [];
-    let siteIndex = 0;
-    let siteId = '';
-    let siteDetail = null;
-    let cartridges = '';
-    let groupTimer = null;
-    let groupResponses = [];
-    let groupValues = [];
-    let sitePrefsCount = 0;
 
-    for (const site of sitesToProcess) {
-        siteId = site.id || site.site_id || site.siteId;
+    for (let siteIndex = 0; siteIndex < sitesToProcess.length; siteIndex++) {
+        const site = sitesToProcess[siteIndex];
+        const siteId = site.id || site.site_id || site.siteId;
         if (!siteId) continue;
 
-        siteIndex++;
-        console.log(`\n[${siteIndex}/${sitesToProcess.length}] Processing site: ${siteId}`);
+        console.log(`\n[${siteIndex + 1}/${sitesToProcess.length}] Processing site: ${siteId}`);
 
-        siteDetail = await getSiteById(siteId, realm);
-        cartridges = siteDetail?.cartridges || siteDetail?.cartridgesPath || siteDetail?.cartridges_path || '';
+        const siteDetail = await getSiteById(siteId, realm);
+        const cartridges = siteDetail?.cartridges || siteDetail?.cartridgesPath || siteDetail?.cartridges_path || '';
 
         console.log(`  - Fetching preference values across ${groupSummaries.length} group(s) in batches...`);
-        groupTimer = startTimer();
+        const groupTimer = startTimer();
 
         // Fetch groups in parallel batches
-        groupResponses = await processBatch(
+        const groupResponses = await processBatch(
             groupSummaries,
             (group) => getSitePreferencesGroup(siteId, group.groupId, answers.instanceType, realm),
             20, // Process 20 groups in parallel
@@ -143,44 +175,19 @@ export async function processSitesAndGroups(sitesToProcess, groupSummaries, real
         );
 
         console.log(`  - Groups fetched in ${groupTimer.stop()}`);
-        groupValues = [];
 
         // Process fetched group data to extract preference values
-        for (let i = 0; i < groupSummaries.length; i++) {
-            const group = groupSummaries[i];
-            const sitePrefs = groupResponses[i];
-            const usedPreferenceIds = Object.keys(sitePrefs || {}).filter(isValueKey);
+        const siteRows = buildSiteUsageRows(siteId, cartridges, groupSummaries, groupResponses, preferenceMeta);
+        usageRows.push(...siteRows);
 
-            // Capture rows for any preferences that have values on this site
-            for (const prefId of usedPreferenceIds) {
-                const rawVal = sitePrefs[prefId];
-                // Only include if value is not null, undefined, or empty string
-                if (rawVal === null || rawVal === undefined || rawVal === '') continue;
+        // Build group values summary
+        const groupValues = groupSummaries.map((group, i) => ({
+            groupId: group.groupId,
+            usedPreferenceIds: Object.keys(groupResponses[i] || {}).filter(isValueKey),
+            values: groupResponses[i]
+        }));
 
-                const normalizedPrefId = normalizeId(prefId);
-                const safeVal = typeof rawVal === 'object' ? JSON.stringify(rawVal) : String(rawVal);
-                const meta = preferenceMeta[normalizedPrefId] || {};
-                usageRows.push({
-                    siteId,
-                    cartridges,
-                    groupId: group.groupId,
-                    preferenceId: normalizedPrefId,
-                    hasValue: true,
-                    value: safeVal,
-                    defaultValue: meta.defaultValue ?? '',
-                    description: meta.description ?? ''
-                });
-            }
-
-            groupValues.push({
-                groupId: group.groupId,
-                usedPreferenceIds,
-                values: sitePrefs
-            });
-        }
-
-        sitePrefsCount = usageRows.filter(r => r.siteId === siteId).length;
-        console.log(`  ✓ Site ${siteId} complete (${sitePrefsCount} preferences found)`);
+        console.log(`  ✓ Site ${siteId} complete (${siteRows.length} preferences found)`);
         siteSummaries.push({ siteId, cartridges, groups: groupValues });
     }
 
@@ -211,9 +218,9 @@ export function buildPreferenceMatrix(
     // Initialize matrix with all preferences having false for all sites
     const preferenceMatrix = allPrefIds.map(prefId => {
         const siteValues = {};
-        allSiteIds.forEach(siteId => {
+        for (const siteId of allSiteIds) {
             siteValues[siteId] = false;
-        });
+        }
         return {
             preferenceId: prefId,
             defaultValue: preferenceMeta[prefId]?.defaultValue || '',

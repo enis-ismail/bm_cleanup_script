@@ -2,6 +2,54 @@ import fs from 'fs';
 import path from 'path';
 import { parseString } from 'xml2js';
 import { ensureResultsDir } from './util.js';
+import { SEPARATOR } from './constants.js';
+import { logError } from './log.js';
+
+/**
+ * Find all site.xml files in a site templates directory
+ * @param {string} repoPath - Path to the repository
+ * @param {string} siteTemplatesPath - Relative path to site templates (e.g., "sites/site_template_bcwr080")
+ * @returns {Promise<Array<Object>>} Array of site.xml file information
+ */
+
+/**
+ * Extract cartridges from custom-cartridges XML element
+ * @param {*} customCartridges - The custom-cartridges element from parsed XML
+ * @returns {Object} Object with cartridges array and cartridgePath string
+ * @private
+ */
+function extractCartridgesFromXml(customCartridges) {
+    const cartridges = [];
+    let cartridgePath = '';
+
+    // Check if it's a string (colon-separated list)
+    if (typeof customCartridges === 'string') {
+        cartridgePath = customCartridges;
+        cartridges.push(
+            ...customCartridges
+                .split(':')
+                .map(c => c.trim())
+                .filter(c => c.length > 0)
+        );
+    }
+    // Check if it contains cartridge elements
+    else if (customCartridges.cartridge) {
+        const cartridgeElements = Array.isArray(customCartridges.cartridge)
+            ? customCartridges.cartridge
+            : [customCartridges.cartridge];
+
+        for (const cart of cartridgeElements) {
+            if (typeof cart === 'string') {
+                cartridges.push(cart.trim());
+            } else if (cart._) {
+                cartridges.push(cart._.trim());
+            }
+        }
+        cartridgePath = cartridges.join(':');
+    }
+
+    return { cartridges, cartridgePath };
+}
 
 /**
  * Find all site.xml files in a site templates directory
@@ -61,37 +109,10 @@ export async function parseSiteXml(siteXmlPath) {
             try {
                 const site = result.site;
                 const siteId = site.$?.['site-id'] || 'Unknown';
-                const cartridges = [];
-                let cartridgePath = '';
-
-                if (site['custom-cartridges'] && site['custom-cartridges'][0]) {
-                    const customCartridges = site['custom-cartridges'][0];
-
-                    // Check if it's a string (colon-separated list)
-                    if (typeof customCartridges === 'string') {
-                        cartridgePath = customCartridges;
-                        cartridges.push(...customCartridges
-                            .split(':')
-                            .map(c => c.trim())
-                            .filter(c => c.length > 0)
-                        );
-                    }
-                    // Check if it contains cartridge elements
-                    else if (customCartridges.cartridge) {
-                        const cartridgeElements = Array.isArray(customCartridges.cartridge)
-                            ? customCartridges.cartridge
-                            : [customCartridges.cartridge];
-
-                        cartridgeElements.forEach(cart => {
-                            if (typeof cart === 'string') {
-                                cartridges.push(cart.trim());
-                            } else if (cart._) {
-                                cartridges.push(cart._.trim());
-                            }
-                        });
-                        cartridgePath = cartridges.join(':');
-                    }
-                }
+                const customCartridges = site['custom-cartridges']?.[0];
+                const { cartridges, cartridgePath } = customCartridges
+                    ? extractCartridgesFromXml(customCartridges)
+                    : { cartridges: [], cartridgePath: '' };
 
                 resolve({
                     siteId,
@@ -137,29 +158,48 @@ export function compareSiteXmlWithLive(xmlCartridges, liveCartridges) {
  * @param {string} xmlFilePath - Path to site.xml file
  * @returns {string} Formatted display string
  */
+
+/**
+ * Write validation results to file with error handling
+ * @param {string} filePath - Absolute path to output file
+ * @param {string} content - File content to write
+ * @private
+ */
+function writeSiteXmlValidationFile(filePath, content) {
+    try {
+        fs.writeFileSync(filePath, content, 'utf-8');
+        console.log(`Site XML validation report written to ${filePath}`);
+    } catch (error) {
+        logError(`Failed to write site XML validation report ${filePath}: ${error.message}`);
+        throw error;
+    }
+}
 export function formatSiteXmlComparison(siteId, comparison, xmlFilePath) {
-    let output = `\n=== Site: ${siteId} ===\n`;
-    output += `XML File: ${xmlFilePath}\n`;
-    output += `Status: ${comparison.isMatch ? '[OK] MATCH' : '[X] MISMATCH'}\n`;
-    output += `XML Cartridges: ${comparison.xmlCount} | Live Cartridges: ${comparison.liveCount}\n`;
+    const lines = [];
+    const status = comparison.isMatch ? '[OK] MATCH' : '[X] MISMATCH';
+
+    lines.push(`\n=== Site: ${siteId} ===`);
+    lines.push(`XML File: ${xmlFilePath}`);
+    lines.push(`Status: ${status}`);
+    lines.push(`XML Cartridges: ${comparison.xmlCount} | Live Cartridges: ${comparison.liveCount}`);
 
     if (!comparison.isMatch) {
         if (comparison.onlyInXml.length > 0) {
-            output += `\n[!] In XML but NOT on live (${comparison.onlyInXml.length}):\n`;
-            comparison.onlyInXml.forEach(c => {
-                output += `    - ${c}\n`;
-            });
+            lines.push(`\n[!] In XML but NOT on live (${comparison.onlyInXml.length}):`);
+            for (const c of comparison.onlyInXml) {
+                lines.push(`    - ${c}`);
+            }
         }
 
         if (comparison.onlyInLive.length > 0) {
-            output += `\n[!] On live but NOT in XML (${comparison.onlyInLive.length}):\n`;
-            comparison.onlyInLive.forEach(c => {
-                output += `    - ${c}\n`;
-            });
+            lines.push(`\n[!] On live but NOT in XML (${comparison.onlyInLive.length}):`);
+            for (const c of comparison.onlyInLive) {
+                lines.push(`    - ${c}`);
+            }
         }
     }
 
-    return output;
+    return lines.join('\n') + '\n';
 }
 
 /**
@@ -170,28 +210,30 @@ export function formatSiteXmlComparison(siteId, comparison, xmlFilePath) {
  */
 export async function exportSiteXmlComparison(comparisons, realm) {
     const resultsDir = ensureResultsDir(realm);
-    const filename = `${realm}_site_xml_validation.txt`;
-    const filePath = path.join(resultsDir, filename);
-    const separator = '='.repeat(80);
+    const filePath = path.join(resultsDir, `${realm}_site_xml_validation.txt`);
     const matchCount = comparisons.filter(c => c.comparison.isMatch).length;
     const mismatchCount = comparisons.length - matchCount;
 
-    let content = separator + '\n';
-    content += 'SITE.XML VALIDATION REPORT\n';
-    content += separator + '\n';
+    const lines = [
+        SEPARATOR,
+        'SITE.XML VALIDATION REPORT',
+        SEPARATOR
+    ];
 
     for (const comp of comparisons) {
-        content += formatSiteXmlComparison(comp.siteId, comp.comparison, comp.xmlFile);
+        lines.push(formatSiteXmlComparison(comp.siteId, comp.comparison, comp.xmlFile));
     }
 
-    content += '\n' + separator + '\n';
-    content += 'SUMMARY\n';
-    content += separator + '\n';
-    content += `Total Sites Validated: ${comparisons.length}\n`;
-    content += `Matching: ${matchCount}\n`;
-    content += `Mismatched: ${mismatchCount}\n`;
+    lines.push(SEPARATOR);
+    lines.push('SUMMARY');
+    lines.push(SEPARATOR);
+    lines.push(`Total Sites Validated: ${comparisons.length}`);
+    lines.push(`Matching: ${matchCount}`);
+    lines.push(`Mismatched: ${mismatchCount}`);
 
-    fs.writeFileSync(filePath, content, 'utf-8');
+    const content = lines.join('\n');
+
+    writeSiteXmlValidationFile(filePath, content);
 
     return filePath;
 }

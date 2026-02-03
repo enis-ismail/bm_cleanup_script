@@ -2,8 +2,61 @@ import axios from 'axios';
 import { processBatch, withLoadShedding } from './helpers/batch.js';
 import { getSandboxConfig } from './helpers.js';
 import { getApiConfig } from './helpers/constants.js';
+import { logError } from './helpers/log.js';
 
 /* eslint-disable no-undef */
+
+// ============================================================================
+// API REQUEST HELPERS
+// Common patterns for OCAPI requests
+// ============================================================================
+
+/**
+ * Build standard authorization headers for OCAPI requests
+ * @param {string} token - OAuth bearer token
+ * @returns {Object} Headers object with authorization
+ * @private
+ */
+function buildApiHeaders(token) {
+    return {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+    };
+}
+
+/**
+ * Fetch data from an API endpoint with pagination support
+ * @param {string} baseUrl - Base URL for pagination requests
+ * @param {string} token - OAuth bearer token
+ * @param {number} batchSize - Items per page (default 200)
+ * @returns {Promise<Array>} All fetched items
+ * @private
+ */
+async function paginatedApiFetch(baseUrl, token, batchSize = 200) {
+    const allItems = [];
+    const headers = buildApiHeaders(token);
+    let start = 0;
+    let total = 0;
+
+    do {
+        const url = `${baseUrl}?start=${start}&count=${batchSize}`;
+        const response = await axios.get(url, { headers });
+
+        const items = response.data.data || [];
+        total = response.data.total || items.length;
+
+        allItems.push(...items);
+        start += items.length;
+
+        console.log(`Fetched ${allItems.length} of ${total}...`);
+
+        if (items.length === 0 || allItems.length >= total) {
+            break;
+        }
+    } while (allItems.length < total);
+
+    return allItems;
+}
 
 // ============================================================================
 // OAUTH AUTHENTICATION
@@ -17,11 +70,11 @@ import { getApiConfig } from './helpers/constants.js';
  * @returns {Promise<string>} OAuth bearer token
  */
 export async function getOAuthToken(sandbox) {
+    const tokenUrl = 'https://account.demandware.com/dwsso/oauth2/access_token';
+    const credentials = Buffer.from(`${sandbox.clientId}:${sandbox.clientSecret}`).toString('base64');
+
     return withLoadShedding(
         async () => {
-            const tokenUrl = 'https://account.demandware.com/dwsso/oauth2/access_token';
-            const credentials = Buffer.from(`${sandbox.clientId}:${sandbox.clientSecret}`).toString('base64');
-
             const response = await axios.post(
                 tokenUrl,
                 new URLSearchParams({
@@ -61,20 +114,13 @@ export async function getAllSites(realm) {
         const sandbox = getSandboxConfig(realm);
         const token = await getOAuthToken(sandbox);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v19_5/sites`;
-
-        const response = await axios.get(url, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
+        const headers = buildApiHeaders(token);
+        const response = await axios.get(url, { headers });
         const sites = response.data.data || [];
         console.log(`Found ${sites.length} sites`);
-
         return sites;
     } catch (error) {
-        console.error('Error fetching sites:', error.response?.data || error.message);
+        logError(`Failed to fetch sites: ${error.response?.data?.message || error.message}`);
         return [];
     }
 }
@@ -91,15 +137,11 @@ export async function getSiteById(siteId, realm) {
         const sandbox = getSandboxConfig(realm);
         const token = await getOAuthToken(sandbox);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v19_5/sites/${encodeURIComponent(siteId)}`;
-        const response = await axios.get(url, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            }
-        });
+        const headers = buildApiHeaders(token);
+        const response = await axios.get(url, { headers });
         return response.data;
     } catch (error) {
-        console.error(`Error fetching site ${siteId}:`, error.response?.data || error.message);
+        logError(`Failed to fetch site ${siteId}: ${error.response?.data?.message || error.message}`);
         return null;
     }
 }
@@ -122,68 +164,39 @@ export async function getSitePreferences(objectType, realm, includeDefaults = fa
         const sandbox = getSandboxConfig(realm);
         const startTime = Date.now();
         const token = await getOAuthToken(sandbox);
-        let allAttributes = [];
-        let start = 0;
-        const count = 200;
-        let total = 0;
-
-        do {
-            const url = `https://${sandbox.hostname}/s/-/dw/data/v19_5/system_object_definitions/${objectType}/attribute_definitions?start=${start}&count=${count}`;
-            const response = await axios.get(url, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            const attributes = response.data.data || [];
-            total = response.data.total || attributes.length;
-
-            allAttributes = allAttributes.concat(attributes);
-            start += attributes.length;
-
-            console.log(`Fetched ${allAttributes.length} of ${total} attributes...`);
-            if (attributes.length === 0 || allAttributes.length >= total) {
-                break;
-            }
-        } while (allAttributes.length < total);
+        const baseUrl = `https://${sandbox.hostname}/s/-/dw/data/v19_5/system_object_definitions/${objectType}/attribute_definitions`;
+        const allAttributes = await paginatedApiFetch(baseUrl, token, 200);
 
         const listTime = Date.now() - startTime;
-        console.log(
-            `Found ${allAttributes.length} total attributes for ${objectType} ` +
-            `(${(listTime / 1000).toFixed(2)}s)`
-        );
+        const duration = (listTime / 1000).toFixed(2);
+        console.log(`Found ${allAttributes.length} total attributes for ${objectType} (${duration}s)`);
 
-        // If includeDefaults is true, fetch each attribute individually to get default_value
-        if (includeDefaults) {
-            console.log('\nFetching full details with default values (parallel batches)...');
-            const detailStartTime = Date.now();
-            const apiConfig = getApiConfig(sandbox.instanceType);
-
-            const detailedAttributes = await processBatch(
-                allAttributes,
-                (attr) => getAttributeDefinitionById(objectType, attr.id, realm),
-                apiConfig.batchSize,
-                (progress, total, rate) => {
-                    console.log(
-                        `Fetched detailed info for ${progress} of ${total} ` +
-                        `attributes (${rate.toFixed(1)} attrs/sec)...`
-                    );
-                },
-                apiConfig.batchDelayMs
-            );
-
-            const detailTime = Date.now() - detailStartTime;
-            console.log(
-                `Completed fetching ${detailedAttributes.length} attributes with ` +
-                `full details (${(detailTime / 1000).toFixed(2)}s)`
-            );
-            return detailedAttributes;
+        if (!includeDefaults) {
+            return allAttributes;
         }
 
-        return allAttributes;
+        console.log('\nFetching full details with default values (parallel batches)...');
+        const detailStartTime = Date.now();
+        const apiConfig = getApiConfig(sandbox.instanceType);
+
+        const detailedAttributes = await processBatch(
+            allAttributes,
+            (attr) => getAttributeDefinitionById(objectType, attr.id, realm),
+            apiConfig.batchSize,
+            (progress, total, rate) => {
+                const rateStr = rate.toFixed(1);
+                console.log(`Fetched detailed info for ${progress} of ${total} attributes (${rateStr} attrs/sec)...`);
+            },
+            apiConfig.batchDelayMs
+        );
+
+        const detailTime = Date.now() - detailStartTime;
+        const detailDuration = (detailTime / 1000).toFixed(2);
+        const count = detailedAttributes.length;
+        console.log(`Completed fetching ${count} attributes with full details (${detailDuration}s)`);
+        return detailedAttributes;
     } catch (error) {
-        console.error('Error fetching site preferences:', error.response?.data || error.message);
+        logError(`Failed to fetch site preferences: ${error.response?.data?.message || error.message}`);
         return [];
     }
 }
@@ -199,18 +212,13 @@ export async function getSitePreferences(objectType, realm, includeDefaults = fa
 export async function getAttributeDefinitionById(objectType, attributeId, realm) {
     try {
         const sandbox = getSandboxConfig(realm);
+
         return await withLoadShedding(
             async () => {
                 const token = await getOAuthToken(sandbox);
                 const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_definitions/${encodeURIComponent(attributeId)}`;
-
-                const response = await axios.get(url, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
-
+                const headers = buildApiHeaders(token);
+                const response = await axios.get(url, { headers });
                 return response.data;
             },
             {
@@ -221,7 +229,7 @@ export async function getAttributeDefinitionById(objectType, attributeId, realm)
             }
         );
     } catch (error) {
-        console.error(`Error fetching attribute ${attributeId}:`, error.response?.data || error.message);
+        logError(`Failed to fetch attribute ${attributeId}: ${error.response?.data?.message || error.message}`);
         return null;
     }
 }
@@ -242,37 +250,12 @@ export async function getAttributeGroups(objectType, realm) {
     try {
         const sandbox = getSandboxConfig(realm);
         const token = await getOAuthToken(sandbox);
-        let allGroups = [];
-        let start = 0;
-        const count = 200;
-        let total = 0;
-
-        do {
-            const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_groups?start=${start}&count=${count}`;
-            const response = await axios.get(url, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            const groups = response.data.data || [];
-            total = response.data.total || groups.length;
-
-            allGroups = allGroups.concat(groups);
-            start += groups.length;
-
-            console.log(`Fetched ${allGroups.length} of ${total} attribute groups...`);
-
-            if (groups.length === 0 || allGroups.length >= total) {
-                break;
-            }
-        } while (allGroups.length < total);
-
+        const baseUrl = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_groups`;
+        const allGroups = await paginatedApiFetch(baseUrl, token, 200);
         console.log(`Found ${allGroups.length} total attribute groups for ${objectType}`);
         return allGroups;
     } catch (error) {
-        console.error('Error fetching attribute groups:', error.response?.data || error.message);
+        logError(`Failed to fetch attribute groups: ${error.response?.data?.message || error.message}`);
         return [];
     }
 }
@@ -296,17 +279,12 @@ export async function getSitePreferencesGroup(siteId, groupId, instanceType, rea
         const sandbox = getSandboxConfig(realm);
         const token = await getOAuthToken(sandbox);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/sites/${encodeURIComponent(siteId)}/site_preferences/preference_groups/${encodeURIComponent(groupId)}/${encodeURIComponent(instanceType)}`;
-
-        const response = await axios.get(url, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
+        const headers = buildApiHeaders(token);
+        const response = await axios.get(url, { headers });
         return response.data;
     } catch (error) {
-        console.error(`Error fetching site preferences for group ${groupId}:`, error.response?.data || error.message);
+        const msg = error.response?.data?.message || error.message;
+        logError(`Failed to fetch site preferences for group ${groupId}: ${msg}`);
         return null;
     }
 }

@@ -4,25 +4,39 @@
  */
 
 /**
+ * Log message prefixes for consistent console output
+ */
+export const LOG_PREFIX = {
+    INFO: '✓',
+    WARNING: '⚠',
+    ERROR: '✗'
+};
+
+/**
+ * Standard separator line for formatting output (80 characters)
+ */
+export const SEPARATOR = '='.repeat(80);
+
+/**
  * API request configuration by instance type
  * Adjust these values based on sandbox capacity and rate limits
  */
 export const API_CONFIG = {
     sandbox: {
-        batchSize: 75,           // Number of items to process in parallel
-        batchDelayMs: 300,        // Delay (ms) between batch requests
+        batchSize: 100,           // Number of items to process in parallel
+        batchDelayMs: 1000,        // Delay (ms) between batch requests
         retryAttempts: 3,         // Number of retry attempts for rate-limited requests
         requestTimeoutMs: 30000   // Timeout for individual API requests
     },
     development: {
-        batchSize: 75,
-        batchDelayMs: 300,
+        batchSize: 100,
+        batchDelayMs: 1000,
         retryAttempts: 3,
         requestTimeoutMs: 30000
     },
     staging: {
-        batchSize: 75,           // Staging can handle more parallel requests
-        batchDelayMs: 300,
+        batchSize: 100,           // Staging can handle more parallel requests
+        batchDelayMs: 1000,
         retryAttempts: 3,
         requestTimeoutMs: 30000
     },

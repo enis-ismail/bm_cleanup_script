@@ -2,17 +2,56 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getResultsPath, ensureResultsDir } from './helpers/util.js';
+import { logError } from './helpers/log.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ============================================================================
-// REALM CONFIGURATION HELPERS
-// These functions manage realm configuration in config.json
+// CONFIG MANAGEMENT HELPERS
+// Load and manage configuration file
 // ============================================================================
 
-// Load configuration from config.json containing realm credentials
-const config = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../config.json'), 'utf-8'));
+/**
+ * Load configuration from config.json file
+ * @returns {Object} Parsed configuration object
+ * @private
+ */
+function loadConfig() {
+    const configPath = path.resolve(__dirname, '../config.json');
+    try {
+        return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    } catch (error) {
+        logError(`Failed to load config.json: ${error.message}`);
+        throw error;
+    }
+}
+
+/**
+ * Save configuration to config.json file
+ * @param {Object} config - Configuration object to save
+ * @private
+ */
+function saveConfig(config) {
+    const configPath = path.resolve(__dirname, '../config.json');
+    try {
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    } catch (error) {
+        logError(`Failed to save config.json: ${error.message}`);
+        throw error;
+    }
+}
+
+/**
+ * Find realm configuration by name
+ * @param {string} realmName - Realm name to find
+ * @param {Object} config - Configuration object
+ * @returns {Object|null} Realm configuration or null if not found
+ * @private
+ */
+function findRealmInConfig(realmName, config) {
+    return config.realms.find(r => r.name === realmName) || null;
+}
 
 /**
  * Retrieve sandbox configuration for a specific realm
@@ -21,7 +60,8 @@ const config = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../config.jso
  * @returns {Object} Sandbox configuration object
  */
 export function getSandboxConfig(realmName) {
-    const realm = config.realms.find(r => r.name === realmName);
+    const config = loadConfig();
+    const realm = findRealmInConfig(realmName, config);
     if (!realm) {
         throw new Error(`Realm '${realmName}' not found in config.json`);
     }
@@ -44,6 +84,7 @@ export function getRealmConfig(realmName) {
  * @returns {string[]} Array of realm names
  */
 export function getAvailableRealms() {
+    const config = loadConfig();
     return config.realms.map(r => r.name);
 }
 
@@ -54,7 +95,8 @@ export function getAvailableRealms() {
  * @returns {string} Instance type (sandbox, development, staging, production)
  */
 export function getInstanceType(realmName) {
-    const realm = config.realms.find(r => r.name === realmName);
+    const config = loadConfig();
+    const realm = findRealmInConfig(realmName, config);
     if (!realm) {
         throw new Error(`Realm '${realmName}' not found in config.json`);
     }
@@ -68,6 +110,7 @@ export function getInstanceType(realmName) {
  * @returns {string[]} Array of realm names for the given instance type
  */
 export function getRealmsByInstanceType(instanceType) {
+    const config = loadConfig();
     return config.realms
         .filter(r => r.instanceType === instanceType)
         .map(r => r.name);
@@ -79,6 +122,7 @@ export function getRealmsByInstanceType(instanceType) {
  * @returns {Object} Validation configuration object
  */
 export function getValidationConfig() {
+    const config = loadConfig();
     return config.validation || { ignoreBmCartridges: true };
 }
 
@@ -106,46 +150,33 @@ export function deriveRealm(hostname) {
 export function addRealmToConfig(name, hostname, clientId, clientSecret, siteTemplatesPath = '', instanceType = 'sandbox') {
     try {
         const configPath = path.resolve(__dirname, '../config.json');
-        let config;
+        let config = fs.existsSync(configPath)
+            ? loadConfig()
+            : { realms: [] };
 
-        // Check if config file exists, if not create it with initial structure
-        if (fs.existsSync(configPath)) {
-            config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-        } else {
-            console.log('config.json not found. Creating new configuration file...');
-            config = { realms: [] };
-        }
-
-        // Check if realm already exists
-        if (config.realms.some(r => r.name === name)) {
+        if (findRealmInConfig(name, config)) {
             console.error(`Realm '${name}' already exists in config.json`);
             return false;
         }
 
-        // Add new realm
         const newRealm = {
             name,
             hostname,
             clientId,
-            clientSecret
+            clientSecret,
+            instanceType
         };
 
-        // Add siteTemplatesPath only if provided
         if (siteTemplatesPath && siteTemplatesPath.trim() !== '') {
             newRealm.siteTemplatesPath = siteTemplatesPath.trim();
         }
 
-        // Add instanceType
-        newRealm.instanceType = instanceType;
-
         config.realms.push(newRealm);
-
-        // Write back to file
-        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        saveConfig(config);
         console.log(`Realm '${name}' added to config.json`);
         return true;
     } catch (error) {
-        console.error('Error adding realm to config:', error.message);
+        logError(`Failed to add realm to config: ${error.message}`);
         return false;
     }
 }
@@ -158,25 +189,19 @@ export function addRealmToConfig(name, hostname, clientId, clientSecret, siteTem
  */
 export async function removeRealmFromConfig(realmName) {
     try {
-        const configPath = path.resolve(__dirname, '../config.json');
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        const config = loadConfig();
 
-        // Check if realm exists
-        const realmExists = config.realms.some(r => r.name === realmName);
-        if (!realmExists) {
+        if (!findRealmInConfig(realmName, config)) {
             console.error(`Realm '${realmName}' not found in config.json`);
             return false;
         }
 
-        // Remove realm
         config.realms = config.realms.filter(r => r.name !== realmName);
-
-        // Write back to file
-        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        saveConfig(config);
         console.log(`Realm '${realmName}' removed from config.json`);
         return true;
     } catch (error) {
-        console.error('Error removing realm from config:', error.message);
+        logError(`Failed to remove realm from config: ${error.message}`);
         return false;
     }
 }
@@ -302,28 +327,19 @@ export function findAllMatrixFiles() {
  */
 export function parseCSVToNestedArray(filePath) {
     try {
-        // Read the file content
         const fileContent = fs.readFileSync(filePath, 'utf-8');
-
-        // Split by lines and filter out empty lines
         const lines = fileContent.split('\n').filter(line => line.trim() !== '');
 
-        // Parse each line into an array by splitting on comma
-        const nestedArray = lines.map(line => {
-            // Split by comma, trim whitespace, and remove surrounding quotes from each value
-            return line.split(',').map(value => {
+        return lines.map(line =>
+            line.split(',').map(value => {
                 const trimmed = value.trim();
-                // Remove surrounding quotes if present
-                if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-                    return trimmed.slice(1, -1);
-                }
-                return trimmed;
-            });
-        });
-
-        return nestedArray;
+                return (trimmed.startsWith('"') && trimmed.endsWith('"'))
+                    ? trimmed.slice(1, -1)
+                    : trimmed;
+            })
+        );
     } catch (error) {
-        console.error(`Error parsing CSV file: ${error.message}`);
+        logError(`Failed to parse CSV file: ${error.message}`);
         return [];
     }
 }
@@ -334,6 +350,26 @@ export function parseCSVToNestedArray(filePath) {
 // ============================================================================
 
 /**
+ * Check if a preference has any value on a site
+ * @param {Array<string>} row - CSV row
+ * @param {number} siteDataStart - Column index where site data begins
+ * @returns {boolean} True if preference has a value on any site
+ * @private
+ */
+function hasValueOnAnySite(row, siteDataStart) {
+    return row.slice(siteDataStart).some(v => v === 'X' || v === 'x');
+}
+
+/**
+ * Check if preference has a default value
+ * @param {string} defaultValue - Default value from CSV
+ * @returns {boolean} True if default value exists
+ * @private
+ */
+function hasDefaultValue(defaultValue) {
+    return defaultValue && defaultValue.trim() !== '';
+}
+/**
  * Identify unused preferences from parsed CSV matrix data
  * See .github/instructions/function-reference.md for detailed documentation
  * Finds preferences with no "X" values across all sites
@@ -342,14 +378,11 @@ export function parseCSVToNestedArray(filePath) {
  */
 export function findUnusedPreferences(csvData) {
     if (csvData.length <= 1) {
-        // No data rows or only header
         return [];
     }
 
     const unusedPreferences = [];
     const headers = csvData[0];
-
-    // Find column indices in matrix format
     const preferenceIdIndex = headers.indexOf('preferenceId');
     const defaultValueIndex = headers.indexOf('defaultValue');
 
@@ -358,23 +391,18 @@ export function findUnusedPreferences(csvData) {
         return [];
     }
 
-    // Skip the header row and check data rows
+    const siteDataStart = defaultValueIndex > -1 ? defaultValueIndex + 1 : 1;
+
     for (let i = 1; i < csvData.length; i++) {
         const row = csvData[i];
         const preferenceId = row[preferenceIdIndex];
 
         if (!preferenceId) continue;
 
-        // Check if preference has values on any site (all columns after defaultValue)
-        const siteDataStart = defaultValueIndex > -1 ? defaultValueIndex + 1 : 1;
-        const hasValue = row.slice(siteDataStart).some(v => v === 'X' || v === 'x');
-
-        // Get defaultValue
         const defaultValue = defaultValueIndex > -1 ? row[defaultValueIndex] : '';
-        const hasDefault = defaultValue && defaultValue.trim() !== '';
+        const isUsed = hasValueOnAnySite(row, siteDataStart) || hasDefaultValue(defaultValue);
 
-        // Preference is unused if: no values on any site AND no default value
-        if (!hasValue && !hasDefault) {
+        if (!isUsed) {
             unusedPreferences.push(preferenceId);
         }
     }
@@ -393,16 +421,15 @@ export function findUnusedPreferences(csvData) {
  */
 export function writeUnusedPreferencesFile(realmDir, realm, unusedPreferences) {
     const filename = path.join(realmDir, `${realm}_unused_preferences.txt`);
-
-    const content = [
+    const lines = [
         `Unused Preferences for Realm: ${realm}`,
         `Generated: ${new Date().toISOString()}`,
         `Total Unused: ${unusedPreferences.length}`,
         '',
         '--- Preference IDs ---',
         ...unusedPreferences
-    ].join('\n');
+    ];
 
-    fs.writeFileSync(filename, content, 'utf-8');
+    fs.writeFileSync(filename, lines.join('\n'), 'utf-8');
     return filename;
 }

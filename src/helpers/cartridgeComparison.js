@@ -2,11 +2,18 @@ import fs from 'fs';
 import path from 'path';
 import { ensureResultsDir } from './util.js';
 import { getValidationConfig } from '../helpers.js';
+import { logError } from './log.js';
 
 /**
- * Compare discovered cartridges from repo structure against cartridges used on sites
- * Main list is the discovered cartridges, with usage status from sites
+ * Check if cartridge should be included based on validation config
+ * @param {string} cartridge - Cartridge name
+ * @param {boolean} ignoreBmCartridges - Whether to filter out BM cartridges
+ * @returns {boolean} True if cartridge should be included
+ * @private
  */
+function shouldIncludeCartridge(cartridge, ignoreBmCartridges) {
+    return !(ignoreBmCartridges && cartridge.startsWith('bm_'));
+}
 
 /**
  * Extract unique cartridge names from all sites
@@ -19,18 +26,33 @@ function extractSiteCartridges(sites) {
     const ignoreBmCartridges = validationConfig.ignoreBmCartridges;
     const siteCartridges = new Set();
 
-    sites.forEach((site) => {
+    for (const site of sites) {
         if (Array.isArray(site.cartridges)) {
-            site.cartridges.forEach((cartridge) => {
-                // Optionally filter out bm_ cartridges based on config
-                if (!(ignoreBmCartridges && cartridge.startsWith('bm_'))) {
+            for (const cartridge of site.cartridges) {
+                if (shouldIncludeCartridge(cartridge, ignoreBmCartridges)) {
                     siteCartridges.add(cartridge);
                 }
-            });
+            }
         }
-    });
+    }
 
     return siteCartridges;
+}
+
+/**
+ * Get sites that use a specific cartridge
+ * @param {string} cartridge - Cartridge name
+ * @param {Array<Object>} sites - Array of site objects
+ * @param {boolean} ignoreBmCartridges - Whether to filter BM cartridges
+ * @returns {Array<Object>} Sites using the cartridge
+ * @private
+ */
+function getSitesUsingCartridge(cartridge, sites, ignoreBmCartridges) {
+    return sites.filter(site =>
+        Array.isArray(site.cartridges) &&
+        site.cartridges.includes(cartridge) &&
+        shouldIncludeCartridge(cartridge, ignoreBmCartridges)
+    );
 }
 
 /**
@@ -50,25 +72,16 @@ export function compareCartridges(discoveredCartridges, sites) {
         detail: []
     };
 
-    discoveredCartridges.forEach((cartridge) => {
+    for (const cartridge of discoveredCartridges) {
         const isUsed = siteCartridges.has(cartridge);
-        const usageCount = sites.filter((site) =>
-            Array.isArray(site.cartridges) &&
-            site.cartridges.includes(cartridge) &&
-            !(ignoreBmCartridges && cartridge.startsWith('bm_'))
-        ).length;
+        const sitesUsing = getSitesUsingCartridge(cartridge, sites, ignoreBmCartridges);
+        const usageCount = sitesUsing.length;
 
         const detail = {
             name: cartridge,
             used: isUsed,
             usageCount,
-            sites: sites
-                .filter((site) =>
-                    Array.isArray(site.cartridges) &&
-                    site.cartridges.includes(cartridge) &&
-                    !(ignoreBmCartridges && cartridge.startsWith('bm_'))
-                )
-                .map((site) => site.name)
+            sites: sitesUsing.map(site => site.name)
         };
 
         comparisonResult.detail.push(detail);
@@ -78,7 +91,7 @@ export function compareCartridges(discoveredCartridges, sites) {
         } else {
             comparisonResult.unused.push(cartridge);
         }
-    });
+    }
 
     return comparisonResult;
 }
@@ -89,30 +102,32 @@ export function compareCartridges(discoveredCartridges, sites) {
  * @returns {string} Formatted display string
  */
 export function formatComparisonResults(comparisonResult) {
-    let output = '\n=== Cartridge Comparison Results ===\n';
-    output += `Total Discovered: ${comparisonResult.total}\n`;
-    output += `Used on Sites: ${comparisonResult.used.length}\n`;
-    output += `Deprecated (Unused): ${comparisonResult.unused.length}\n`;
+    const lines = [];
+
+    lines.push('\n=== Cartridge Comparison Results ===');
+    lines.push(`Total Discovered: ${comparisonResult.total}`);
+    lines.push(`Used on Sites: ${comparisonResult.used.length}`);
+    lines.push(`Deprecated (Unused): ${comparisonResult.unused.length}`);
 
     if (comparisonResult.unused.length > 0) {
-        output += '\n--- Potentially Deprecated Cartridges ---\n';
-        comparisonResult.unused.forEach((cartridge) => {
-            output += `  [X] ${cartridge}\n`;
-        });
+        lines.push('\n--- Potentially Deprecated Cartridges ---');
+        for (const cartridge of comparisonResult.unused) {
+            lines.push(`  [X] ${cartridge}`);
+        }
     }
 
     if (comparisonResult.used.length > 0) {
-        output += '\n--- Active Cartridges ---\n';
-        comparisonResult.used.forEach((cartridge) => {
-            const detail = comparisonResult.detail.find((d) => d.name === cartridge);
-            output += `  [+] ${cartridge} (used on ${detail.usageCount} site(s))\n`;
+        lines.push('\n--- Active Cartridges ---');
+        for (const cartridge of comparisonResult.used) {
+            const detail = comparisonResult.detail.find(d => d.name === cartridge);
+            lines.push(`  [+] ${cartridge} (used on ${detail.usageCount} site(s))`);
             if (detail.sites.length > 0) {
-                output += `      Sites: ${detail.sites.join(', ')}\n`;
+                lines.push(`      Sites: ${detail.sites.join(', ')}`);
             }
-        });
+        }
     }
 
-    return output;
+    return lines.join('\n') + '\n';
 }
 /**
  * Export comparison results to a text file
@@ -128,13 +143,10 @@ export async function exportComparisonToFile(comparisonResult, realm, instanceTy
     const content = formatComparisonResults(comparisonResult);
 
     try {
-        // Create results directory if it doesn't exist
-        // Write file
         fs.writeFileSync(filePath, content, 'utf-8');
-
         return filePath;
     } catch (error) {
-        console.error('Error exporting comparison results:', error.message);
+        logError(`Error exporting comparison results: ${error.message}`);
         throw error;
     }
 }

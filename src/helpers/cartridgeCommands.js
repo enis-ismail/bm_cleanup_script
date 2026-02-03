@@ -4,12 +4,39 @@ import { findCartridgeFolders, transformSiteToCartridgeInfo, calculateValidation
 import { exportSitesCartridgesToCSV } from './csv.js';
 import { getAllSites, getSiteById } from '../api.js';
 import { compareCartridges, exportComparisonToFile } from './cartridgeComparison.js';
+import { LOG_PREFIX } from './constants.js';
+import { logCartridgeList } from './log.js';
 import {
     findSiteXmlFiles,
     parseSiteXml,
     compareSiteXmlWithLive,
     exportSiteXmlComparison
 } from './siteXmlHelper.js';
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * Fetch and transform site data for cartridge information
+ * @param {string} realm - Realm name to fetch sites from
+ * @returns {Promise<Array|null>} Array of transformed sites or null on error
+ */
+async function fetchAndTransformSites(realm) {
+    const sites = await getAllSites(realm);
+
+    if (sites.length === 0) {
+        return null;
+    }
+
+    const siteDetails = await Promise.all(
+        sites.map((s) => getSiteById(s.id || s.site_id || s.siteId, realm))
+    );
+
+    return siteDetails.filter(Boolean).map((site) =>
+        transformSiteToCartridgeInfo(site, realm)
+    );
+}
 
 // ============================================================================
 // LIST SITES COMMAND
@@ -22,74 +49,6 @@ import {
  */
 export async function executeListSites(realm) {
     await exportSitesCartridgesToCSV(realm);
-}
-
-// ============================================================================
-// VALIDATE CARTRIDGES COMMAND
-// ============================================================================
-
-/**
- * Validate cartridge path settings for a single realm
- * @param {string} repositoryPath - Path to the repository containing cartridges
- * @param {string} realm - Realm name to validate against
- * @returns {Promise<string>} Path to the generated comparison report
- */
-export async function executeValidateCartridges(repositoryPath, realm) {
-    const selectedRepo = path.basename(repositoryPath);
-    const cartridges = findCartridgeFolders(repositoryPath);
-
-    console.log('\n[WIP] Validating cartridge paths...\n');
-    console.log(`✓ Selected: ${selectedRepo}\n`);
-    console.log(`Validating cartridges in: ${selectedRepo}\n`);
-
-    // Find cartridge folders in the selected repository
-    console.log('Searching for cartridge folders (full depth)...\n');
-
-    if (cartridges.length === 0) {
-        console.log('No cartridges found in the selected repository.');
-        return null;
-    }
-
-    console.log(`Found ${cartridges.length} unique cartridge(s):\n`);
-    for (const cartridge of cartridges) {
-        console.log(`  → ${cartridge}`);
-    }
-    console.log();
-
-    console.log('Fetching sites...');
-    const sites = await getAllSites(realm);
-
-    if (sites.length === 0) {
-        console.log('No sites found.');
-        return null;
-    }
-
-    console.log(`Fetching detailed cartridge paths for ${sites.length} site(s)...`);
-
-    const siteDetails = await Promise.all(
-        sites.map((s) => getSiteById(s.id || s.site_id || s.siteId, realm))
-    );
-    const validSites = siteDetails.filter(Boolean).map((site) =>
-        transformSiteToCartridgeInfo(site)
-    );
-
-    console.log(`\nCartridge Paths for ${validSites.length} site(s):\n`);
-
-    for (const site of validSites) {
-        console.log(`${site.name}:`);
-        for (const cartridge of site.cartridges) {
-            console.log(`  - ${cartridge}`);
-        }
-        console.log();
-    }
-
-    // Compare discovered cartridges with site cartridges
-    const comparisonResult = compareCartridges(cartridges, validSites);
-    const filePath = await exportComparisonToFile(comparisonResult, realm);
-
-    console.log(`\n✓ Cartridge comparison saved to: ${filePath}\n`);
-
-    return filePath;
 }
 
 // ============================================================================
@@ -114,7 +73,7 @@ export async function executeValidateCartridgesAll(
         : getAvailableRealms();
 
     console.log('\n[WIP] Validating cartridge paths across all realms...\n');
-    console.log(`✓ Selected: ${selectedRepo}\n`);
+    console.log(`${LOG_PREFIX.INFO} Selected: ${selectedRepo}\n`);
     console.log(`Validating cartridges in: ${selectedRepo}\n`);
 
     if (cartridges.length === 0) {
@@ -122,7 +81,7 @@ export async function executeValidateCartridgesAll(
         return;
     }
 
-    console.log(`Found ${cartridges.length} unique cartridge(s)\n`);
+    logCartridgeList(cartridges);
 
     if (availableRealms.length === 0) {
         console.log('No realms configured.');
@@ -135,24 +94,14 @@ export async function executeValidateCartridgesAll(
     const realmPromises = availableRealms.map(async (realmName) => {
         try {
             console.log(`[${realmName}] Fetching sites...`);
-            const sites = await getAllSites(realmName);
+            const validSites = await fetchAndTransformSites(realmName);
 
-            if (sites.length === 0) {
-                console.log(`[${realmName}] ⚠ No sites found.`);
+            if (!validSites || validSites.length === 0) {
+                console.log(`[${realmName}] ${LOG_PREFIX.WARNING} No sites found.`);
                 return { realm: realmName, sites: [], success: false };
             }
 
-            console.log(`[${realmName}] Fetching detailed data for ${sites.length} site(s)...`);
-
-            const siteDetails = await Promise.all(
-                sites.map((s) => getSiteById(s.id || s.site_id || s.siteId, realmName))
-            );
-
-            const validSites = siteDetails.filter(Boolean).map((site) =>
-                transformSiteToCartridgeInfo(site, realmName)
-            );
-
-            console.log(`[${realmName}] ✓ Processed ${validSites.length} site(s)`);
+            console.log(`[${realmName}] ${LOG_PREFIX.INFO} Processed ${validSites.length} site(s)`);
 
             return {
                 realm: realmName,
@@ -160,7 +109,7 @@ export async function executeValidateCartridgesAll(
                 success: true
             };
         } catch (error) {
-            console.log(`[${realmName}] ✗ Error: ${error.message}`);
+            console.log(`[${realmName}] ${LOG_PREFIX.ERROR} ${error.message}`);
             return {
                 realm: realmName,
                 sites: [],
@@ -172,7 +121,7 @@ export async function executeValidateCartridgesAll(
 
     const realmResults = await Promise.all(realmPromises);
 
-    // Aggregate all sites across all realms
+    // Aggregate sites and summaries
     const allSitesAcrossRealms = [];
     const realmSummary = [];
 
@@ -191,13 +140,13 @@ export async function executeValidateCartridgesAll(
         return;
     }
 
-    console.log(`\n✓ Aggregated ${allSitesAcrossRealms.length} site(s) across ${realmSummary.length} realm(s)\n`);
+    console.log(`\n${LOG_PREFIX.INFO} Aggregated ${allSitesAcrossRealms.length} site(s) `
+        + `across ${realmSummary.length} realm(s)\n`);
 
-    // Perform ONE comparison across ALL realms
+    // Compare and export
     console.log('Comparing discovered cartridges with cartridges used across ALL realms...\n');
     const comparisonResult = compareCartridges(cartridges, allSitesAcrossRealms);
 
-    // Export consolidated results
     const instanceTypeScope = instanceTypeOverride || (() => {
         if (!realmsToProcess || realmsToProcess.length === 0) {
             return null;
@@ -212,7 +161,7 @@ export async function executeValidateCartridgesAll(
         'ALL_REALMS',
         instanceTypeScope
     );
-    console.log(`✓ Consolidated comparison saved to: ${consolidatedFilePath}\n`);
+    console.log(`${LOG_PREFIX.INFO} Consolidated comparison saved to: ${consolidatedFilePath}\n`);
 
     return {
         realmSummary,
@@ -234,15 +183,17 @@ export async function executeValidateCartridgesAll(
 export async function executeValidateSiteXml(repositoryPath, realm) {
     const selectedRepo = path.basename(repositoryPath);
     const realmConfig = getRealmConfig(realm);
+    const siteXmlFiles = realmConfig.siteTemplatesPath
+        ? await findSiteXmlFiles(repositoryPath, realmConfig.siteTemplatesPath)
+        : [];
 
     console.log('\n[WIP] Validating site.xml files against live SFCC...\n');
-    console.log(`✓ Selected: ${selectedRepo}\n`);
+    console.log(`${LOG_PREFIX.INFO} Selected: ${selectedRepo}\n`);
 
-    // Check if realm has siteTemplatesPath configured
+    // Validate configuration
     if (!realmConfig.siteTemplatesPath) {
         console.log(
-            `\n✗ Error: Realm "${realm}" does not have ` +
-            '"siteTemplatesPath" configured in config.json\n'
+            `\n${LOG_PREFIX.ERROR} Realm "${realm}" does not have "siteTemplatesPath" configured in config.json\n`
         );
         console.log('Please add "siteTemplatesPath" to the realm configuration.');
         console.log('Example: "siteTemplatesPath": "sites/site_template_bcwr080"\n');
@@ -250,8 +201,6 @@ export async function executeValidateSiteXml(repositoryPath, realm) {
     }
 
     console.log(`Site Templates Path: ${realmConfig.siteTemplatesPath}\n`);
-
-    const siteXmlFiles = await findSiteXmlFiles(repositoryPath, realmConfig.siteTemplatesPath);
 
     if (siteXmlFiles.length === 0) {
         console.log('No site.xml files found.\n');
@@ -264,29 +213,22 @@ export async function executeValidateSiteXml(repositoryPath, realm) {
     });
     console.log();
 
-    // Fetch live sites from SFCC
+    // Fetch live sites and build map
     console.log('Fetching live site data from SFCC...');
-    const sites = await getAllSites(realm);
+    const validSites = await fetchAndTransformSites(realm);
 
-    if (sites.length === 0) {
+    if (!validSites || validSites.length === 0) {
         console.log('No sites found on SFCC.\n');
         return null;
     }
 
-    console.log(`Fetching detailed cartridge paths for ${sites.length} site(s)...\n`);
-
-    const siteDetails = await Promise.all(
-        sites.map((s) => getSiteById(s.id || s.site_id || s.siteId, realm))
-    );
-
     const liveSitesMap = {};
-    siteDetails.filter(Boolean).forEach((site) => {
-        const siteInfo = transformSiteToCartridgeInfo(site);
-        liveSitesMap[siteInfo.id] = siteInfo.cartridges;
+    validSites.forEach((site) => {
+        liveSitesMap[site.id] = site.cartridges;
     });
 
-    // Parse and compare each site.xml
-    console.log('Parsing and comparing site.xml files...\n');
+    // Parse and compare
+    console.log('\nParsing and comparing site.xml files...\n');
     const comparisons = [];
 
     for (const xmlFile of siteXmlFiles) {
@@ -295,7 +237,7 @@ export async function executeValidateSiteXml(repositoryPath, realm) {
             console.log(`[${xmlData.siteId}] Parsed ${xmlFile.relativePath}`);
 
             if (!liveSitesMap[xmlData.siteId]) {
-                console.log(`  ⚠ Warning: Site "${xmlData.siteId}" not found on live SFCC`);
+                console.log(`  ${LOG_PREFIX.WARNING} Site "${xmlData.siteId}" not found on live SFCC`);
                 continue;
             }
 
@@ -310,9 +252,9 @@ export async function executeValidateSiteXml(repositoryPath, realm) {
                 comparison
             });
 
-            console.log(`  ${comparison.isMatch ? '✓ Match' : '✗ Mismatch'}`);
+            console.log(`  ${comparison.isMatch ? `${LOG_PREFIX.INFO} Match` : `${LOG_PREFIX.ERROR} Mismatch`}`);
         } catch (error) {
-            console.log(`  ✗ Error parsing ${xmlFile.relativePath}: ${error.message}`);
+            console.log(`  ${LOG_PREFIX.ERROR} Error parsing ${xmlFile.relativePath}: ${error.message}`);
         }
     }
 
@@ -321,11 +263,10 @@ export async function executeValidateSiteXml(repositoryPath, realm) {
         return null;
     }
 
-    // Export results
+    // Export and return stats
     const reportPath = await exportSiteXmlComparison(comparisons, realm);
-    console.log(`\n✓ Validation report saved to: ${reportPath}\n`);
+    console.log(`\n${LOG_PREFIX.INFO} Validation report saved to: ${reportPath}\n`);
 
-    // Return stats for summary display
     const stats = calculateValidationStats(comparisons);
 
     return {
