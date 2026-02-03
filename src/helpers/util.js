@@ -1,16 +1,33 @@
 import path from 'path';
 import fs from 'fs';
-import { getValidationConfig } from '../helpers.js';
+import { getValidationConfig, getInstanceType } from '../helpers.js';
 
 /**
  * Get the absolute path to the results directory
- * @param {string} [realm] - Optional realm subdirectory name
- * @returns {string} Absolute path to results or results/realm directory
+ * @param {string} [realm] - Optional realm name for subdirectory
+ * @param {string} [instanceTypeOverride] - Optional instance type override
+ * @returns {string} Absolute path to results or results/{instanceType}/{realm} directory
  */
-export function getResultsPath(realm = null) {
+export function getResultsPath(realm = null, instanceTypeOverride = null) {
     const resultsDir = path.join(process.cwd(), 'results');
     if (realm) {
-        return path.join(resultsDir, realm);
+        if (realm === 'ALL_REALMS') {
+            if (instanceTypeOverride) {
+                return path.join(resultsDir, instanceTypeOverride, realm);
+            }
+            return path.join(resultsDir, realm);
+        }
+
+        if (instanceTypeOverride) {
+            return path.join(resultsDir, instanceTypeOverride, realm);
+        }
+
+        try {
+            const instanceType = getInstanceType(realm);
+            return path.join(resultsDir, instanceType, realm);
+        } catch {
+            return path.join(resultsDir, 'unknown', realm);
+        }
     }
     return resultsDir;
 }
@@ -18,10 +35,11 @@ export function getResultsPath(realm = null) {
 /**
  * Ensure results directory exists for a realm
  * @param {string} realm - Realm name
+ * @param {string} [instanceTypeOverride] - Optional instance type override
  * @returns {string} Absolute path to the created directory
  */
-export function ensureResultsDir(realm) {
-    const dir = getResultsPath(realm);
+export function ensureResultsDir(realm, instanceTypeOverride = null) {
+    const dir = getResultsPath(realm, instanceTypeOverride);
     if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
     }

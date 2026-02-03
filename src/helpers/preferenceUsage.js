@@ -1,6 +1,7 @@
 /* eslint-disable linebreak-style */
 import fs from 'fs';
 import path from 'path';
+import { findAllMatrixFiles } from '../helpers.js';
 
 const DEFAULT_COMPARISON_FILE = path.join(
     process.cwd(),
@@ -135,7 +136,11 @@ function collectMatchesInFile(filePath, preferenceId) {
     return matches;
 }
 
-function logProgress(state) {
+function logProgress(state, isFirstSearch) {
+    if (!isFirstSearch) {
+        return;
+    }
+
     if (state.scannedFiles % state.logEvery === 0 || state.scannedFiles === state.totalFiles) {
         const remaining = Math.max(state.totalFiles - state.scannedFiles, 0);
         const percent = state.totalFiles > 0
@@ -149,7 +154,7 @@ function logProgress(state) {
     }
 }
 
-function searchDirectoryForPreference(dirPath, preferenceId, deprecatedCartridges, matches, state) {
+function searchDirectoryForPreference(dirPath, preferenceId, deprecatedCartridges, matches, state, isFirstSearch) {
     const entries = fs.readdirSync(dirPath, { withFileTypes: true });
 
     for (const entry of entries) {
@@ -159,7 +164,7 @@ function searchDirectoryForPreference(dirPath, preferenceId, deprecatedCartridge
             if (shouldSkipDirectory(entry.name)) {
                 continue;
             }
-            searchDirectoryForPreference(entryPath, preferenceId, deprecatedCartridges, matches, state);
+            searchDirectoryForPreference(entryPath, preferenceId, deprecatedCartridges, matches, state, isFirstSearch);
             continue;
         }
 
@@ -180,7 +185,7 @@ function searchDirectoryForPreference(dirPath, preferenceId, deprecatedCartridge
             const fileMatches = collectMatchesInFile(entryPath, preferenceId);
             matches.push(...fileMatches);
             state.matchesFound += fileMatches.length;
-            logProgress(state);
+            logProgress(state, isFirstSearch);
         } catch {
             // Ignore unreadable/binary files
         }
@@ -188,15 +193,100 @@ function searchDirectoryForPreference(dirPath, preferenceId, deprecatedCartridge
 }
 
 /**
- * Find usage locations for a preference ID in repository cartridges
- * @param {string} preferenceId - Preference ID to search for
+ * Get all active preferences from matrix CSV files
+ * @param {Array<string>} matrixFilePaths - Array of matrix file paths
+ * @returns {Set<string>} Set of unique active preference IDs
+ */
+export function getActivePreferencesFromMatrices(matrixFilePaths) {
+    const activePreferences = new Set();
+
+    for (const filePath of matrixFilePaths) {
+        try {
+            const content = fs.readFileSync(filePath, 'utf-8');
+            const lines = content.split(/\r?\n/);
+
+            if (lines.length < 2) {
+                continue;
+            }
+
+            const headers = lines[0].split(',');
+            const preferenceIdIndex = headers.indexOf('preferenceId');
+
+            if (preferenceIdIndex === -1) {
+                continue;
+            }
+
+            // Iterate through data rows starting from line 1
+            for (let i = 1; i < lines.length; i += 1) {
+                const line = lines[i].trim();
+                if (!line) {
+                    continue;
+                }
+
+                const parts = line.split(',');
+                if (parts.length > preferenceIdIndex) {
+                    let prefId = parts[preferenceIdIndex].trim();
+                    // Remove surrounding quotes from CSV fields
+                    if (prefId.startsWith('"') && prefId.endsWith('"')) {
+                        prefId = prefId.slice(1, -1);
+                    }
+                    if (prefId) {
+                        activePreferences.add(prefId);
+                    }
+                }
+            }
+        } catch {
+            // Ignore unreadable files
+        }
+    }
+
+    return activePreferences;
+}
+
+/**
+ * Find usage for all active preferences in repository
  * @param {string} repositoryPath - Absolute path to repository root
  * @param {Object} [options] - Optional settings
- * @param {string} [options.comparisonFilePath] - Path to cartridge comparison file
- * @returns {Object} Usage results with matches and counts
+ * @returns {Promise<Array>} Array of results for each preference
  */
+export async function findAllActivePreferencesUsage(repositoryPath, options = {}) {
+    const matrixFiles = findAllMatrixFiles();
+
+    if (matrixFiles.length === 0) {
+        console.log('No matrix files found.');
+        return [];
+    }
+
+    console.log(`Found ${matrixFiles.length} matrix file(s)\n`);
+
+    const matrixFilePaths = matrixFiles.map(f => f.matrixFile);
+    const activePreferences = Array.from(getActivePreferencesFromMatrices(matrixFilePaths)).sort();
+    const results = [];
+
+    console.log(`Found ${activePreferences.length} active preference(s)\n`);
+    console.log('⚠️  WARNING: The first preference may take 5-10 minutes to scan depending on your project size.');
+    console.log('Subsequent preferences will typically be faster.\n');
+
+    let isFirstSearch = true;
+    for (let i = 0; i < activePreferences.length; i += 1) {
+        const preference = activePreferences[i];
+        const progressMsg = `[${i + 1}/${activePreferences.length}] Searching for '${preference}'...`;
+        console.log(progressMsg);
+
+        const result = await findPreferenceUsage(preference, repositoryPath, {
+            ...options,
+            isFirstSearch
+        });
+        results.push(result);
+        isFirstSearch = false;
+    }
+
+    return results;
+}
+
 export async function findPreferenceUsage(preferenceId, repositoryPath, options = {}) {
     const comparisonFilePath = options.comparisonFilePath || DEFAULT_COMPARISON_FILE;
+    const isFirstSearch = options.isFirstSearch || false;
     const deprecatedCartridges = getDeprecatedCartridges(comparisonFilePath);
     const matches = [];
     const totalFiles = countScannableFiles(repositoryPath);
@@ -207,17 +297,28 @@ export async function findPreferenceUsage(preferenceId, repositoryPath, options 
         totalFiles
     };
 
-    console.log(`Searching for '${preferenceId}'...`);
-    console.log(`Filtering deprecated cartridges: ${deprecatedCartridges.size}`);
-    console.log(`Logging every ${state.logEvery} files scanned.`);
-    console.log(`Total files to scan: ${state.totalFiles}`);
+    if (isFirstSearch) {
+        console.log(`Searching for '${preferenceId}'...`);
+        console.log(`Filtering deprecated cartridges: ${deprecatedCartridges.size}`);
+        console.log(`Logging every ${state.logEvery} files scanned.`);
+        console.log(`Total files to scan: ${state.totalFiles}`);
+    }
 
-    searchDirectoryForPreference(repositoryPath, preferenceId, deprecatedCartridges, matches, state);
+    searchDirectoryForPreference(repositoryPath, preferenceId, deprecatedCartridges, matches, state, isFirstSearch);
 
-    console.log(
-        `Scan complete. Files scanned: ${state.scannedFiles}/${state.totalFiles}. `
-        + `Matches: ${state.matchesFound}.`
-    );
+    if (isFirstSearch) {
+        console.log(
+            `Scan complete. Files scanned: ${state.scannedFiles}/${state.totalFiles}. `
+            + `Matches: ${state.matchesFound}.`
+        );
+    }
+
+    // Extract unique cartridge names from matches
+    const cartridges = Array.from(new Set(
+        matches
+            .map(match => getCartridgeNameFromPath(match.filePath))
+            .filter(Boolean)
+    )).sort();
 
     return {
         preferenceId,
@@ -225,6 +326,6 @@ export async function findPreferenceUsage(preferenceId, repositoryPath, options 
         comparisonFilePath,
         deprecatedCartridgesCount: deprecatedCartridges.size,
         totalMatches: matches.length,
-        matches
+        cartridges
     };
 }

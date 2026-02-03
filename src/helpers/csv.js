@@ -50,12 +50,11 @@ export function compactValue(val) {
  * Export all sites with their cartridge paths to CSV
  * See .github/instructions/function-reference.md for detailed documentation
  * Output: results/{realm}/active_site_cartridges_list.csv
- * @param {Object} sandbox - Sandbox configuration object
  * @param {string} realm - Realm name for folder/file naming
  * @returns {Promise<void>}
  */
-export async function exportSitesCartridgesToCSV(sandbox, realm) {
-    const sites = await getAllSites(sandbox);
+export async function exportSitesCartridgesToCSV(realm) {
+    const sites = await getAllSites(realm);
     const details = [];
     let rows = [];
     const header = 'id,cartridges';
@@ -71,7 +70,7 @@ export async function exportSitesCartridgesToCSV(sandbox, realm) {
 
     // Fetch details for each site (in parallel)
     details.push(...await Promise.all(
-        sites.map((s) => getSiteById(s.id || s.site_id || s.siteId, sandbox))
+        sites.map((s) => getSiteById(s.id || s.site_id || s.siteId, realm))
     ));
 
     // Map to rows of id + cartridges
@@ -243,7 +242,7 @@ export function writeMatrixCSV(realmDir, realm, instanceType, preferenceMatrix, 
     matrixRows = preferenceMatrix.map(pref => {
         const cols = [
             pref.preferenceId,
-            pref.defaultValue ? `"${String(pref.defaultValue).replace(/"/g, '""')}"` : ''
+            pref.defaultValue ? 'X' : ''
         ];
         for (const siteId of allSiteIds) {
             cols.push(pref.sites[siteId] ? 'X' : '');

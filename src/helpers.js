@@ -62,6 +62,18 @@ export function getInstanceType(realmName) {
 }
 
 /**
+ * Get all realms for a specific instance type
+ * See .github/instructions/function-reference.md for detailed documentation
+ * @param {string} instanceType - Instance type (sandbox, development, staging, production)
+ * @returns {string[]} Array of realm names for the given instance type
+ */
+export function getRealmsByInstanceType(instanceType) {
+    return config.realms
+        .filter(r => r.instanceType === instanceType)
+        .map(r => r.name);
+}
+
+/**
  * Get validation configuration settings
  * See .github/instructions/function-reference.md for detailed documentation
  * @returns {Object} Validation configuration object
@@ -241,37 +253,35 @@ export function isValueKey(key) {
 /**
  * Find all preference matrix CSV files in the results directory
  * See .github/instructions/function-reference.md for detailed documentation
- * Expected file pattern: results/{realm}/{realm}_*_preferences_matrix.csv
+ * Expected file pattern: results/{instanceType}/{realm}/{realm}_*_preferences_matrix.csv
  * @returns {Array<{realm: string, matrixFile: string}>} Array of realm and matrix file paths
  */
 export function findAllMatrixFiles() {
-    const resultsDir = getResultsPath();
     const matrixFiles = [];
+    const realms = getAvailableRealms();
 
-    // Check if results directory exists
-    if (!fs.existsSync(resultsDir)) {
-        console.log('Results directory not found.');
-        return matrixFiles;
-    }
+    // For each configured realm, check for matrix files in its results directory
+    for (const realmName of realms) {
+        try {
+            const realmDir = getResultsPath(realmName);
 
-    // Read all folders in results directory
-    const items = fs.readdirSync(resultsDir, { withFileTypes: true });
-    const realmFolders = items.filter(item => item.isDirectory());
+            // Check if realm directory exists
+            if (!fs.existsSync(realmDir)) {
+                continue;
+            }
 
-    // For each realm folder, look for matrix files
-    for (const folder of realmFolders) {
-        const realmName = folder.name;
-        const realmDir = path.join(resultsDir, realmName);
+            // Look for any matrix CSV file in this realm
+            const files = fs.readdirSync(realmDir);
+            const matrixFile = files.find(f => f.includes('_preferences_matrix.csv'));
 
-        // Look for any matrix CSV file in this realm
-        const files = fs.readdirSync(realmDir);
-        const matrixFile = files.find(f => f.includes('_preferences_matrix.csv'));
-
-        if (matrixFile) {
-            matrixFiles.push({
-                realm: realmName,
-                matrixFile: path.join(realmDir, matrixFile)
-            });
+            if (matrixFile) {
+                matrixFiles.push({
+                    realm: realmName,
+                    matrixFile: path.join(realmDir, matrixFile)
+                });
+            }
+        } catch {
+            // Skip realms with read errors
         }
     }
 

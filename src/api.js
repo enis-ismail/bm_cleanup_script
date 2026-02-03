@@ -1,5 +1,7 @@
 import axios from 'axios';
 import { processBatch, withLoadShedding } from './helpers/batch.js';
+import { getSandboxConfig } from './helpers.js';
+import { getApiConfig } from './helpers/constants.js';
 
 /* eslint-disable no-undef */
 
@@ -54,8 +56,9 @@ export async function getOAuthToken(sandbox) {
  * @param {Object} sandbox - Sandbox configuration object
  * @returns {Promise<Array>} Array of site objects
  */
-export async function getAllSites(sandbox) {
+export async function getAllSites(realm) {
     try {
+        const sandbox = getSandboxConfig(realm);
         const token = await getOAuthToken(sandbox);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v19_5/sites`;
 
@@ -83,8 +86,9 @@ export async function getAllSites(sandbox) {
  * @param {Object} sandbox - Sandbox configuration object
  * @returns {Promise<Object|null>} Site object with full configuration
  */
-export async function getSiteById(siteId, sandbox) {
+export async function getSiteById(siteId, realm) {
     try {
+        const sandbox = getSandboxConfig(realm);
         const token = await getOAuthToken(sandbox);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v19_5/sites/${encodeURIComponent(siteId)}`;
         const response = await axios.get(url, {
@@ -113,8 +117,9 @@ export async function getSiteById(siteId, sandbox) {
  * @param {boolean} includeDefaults - If true, fetch each attribute individually to get default_value
  * @returns {Promise<Array>} Array of attribute definition objects
  */
-export async function getSitePreferences(objectType, sandbox, includeDefaults = false) {
+export async function getSitePreferences(objectType, realm, includeDefaults = false) {
     try {
+        const sandbox = getSandboxConfig(realm);
         const startTime = Date.now();
         const token = await getOAuthToken(sandbox);
         let allAttributes = [];
@@ -153,18 +158,19 @@ export async function getSitePreferences(objectType, sandbox, includeDefaults = 
         if (includeDefaults) {
             console.log('\nFetching full details with default values (parallel batches)...');
             const detailStartTime = Date.now();
+            const apiConfig = getApiConfig(sandbox.instanceType);
 
             const detailedAttributes = await processBatch(
                 allAttributes,
-                (attr) => getAttributeDefinitionById(objectType, attr.id, sandbox),
-                100, // Process 100 attributes in parallel
+                (attr) => getAttributeDefinitionById(objectType, attr.id, realm),
+                apiConfig.batchSize,
                 (progress, total, rate) => {
                     console.log(
                         `Fetched detailed info for ${progress} of ${total} ` +
                         `attributes (${rate.toFixed(1)} attrs/sec)...`
                     );
                 },
-                200 // 200ms delay between batches
+                apiConfig.batchDelayMs
             );
 
             const detailTime = Date.now() - detailStartTime;
@@ -190,8 +196,9 @@ export async function getSitePreferences(objectType, sandbox, includeDefaults = 
  * @param {Object} sandbox - Sandbox configuration object
  * @returns {Promise<Object|null>} Single attribute definition object with full details including default_value
  */
-export async function getAttributeDefinitionById(objectType, attributeId, sandbox) {
+export async function getAttributeDefinitionById(objectType, attributeId, realm) {
     try {
+        const sandbox = getSandboxConfig(realm);
         return await withLoadShedding(
             async () => {
                 const token = await getOAuthToken(sandbox);
@@ -231,8 +238,9 @@ export async function getAttributeDefinitionById(objectType, attributeId, sandbo
  * @param {Object} sandbox - Sandbox configuration object
  * @returns {Promise<Array>} Array of attribute group objects
  */
-export async function getAttributeGroups(objectType, sandbox) {
+export async function getAttributeGroups(objectType, realm) {
     try {
+        const sandbox = getSandboxConfig(realm);
         const token = await getOAuthToken(sandbox);
         let allGroups = [];
         let start = 0;
@@ -283,8 +291,9 @@ export async function getAttributeGroups(objectType, sandbox) {
  * @param {Object} sandbox - Sandbox configuration object
  * @returns {Promise<Object|null>} Preference group object with values
  */
-export async function getSitePreferencesGroup(siteId, groupId, instanceType, sandbox) {
+export async function getSitePreferencesGroup(siteId, groupId, instanceType, realm) {
     try {
+        const sandbox = getSandboxConfig(realm);
         const token = await getOAuthToken(sandbox);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/sites/${encodeURIComponent(siteId)}/site_preferences/preference_groups/${encodeURIComponent(groupId)}/${encodeURIComponent(instanceType)}`;
 

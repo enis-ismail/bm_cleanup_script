@@ -118,10 +118,11 @@ export function formatComparisonResults(comparisonResult) {
  * Export comparison results to a text file
  * @param {Object} comparisonResult - Result from compareCartridges()
  * @param {string} realm - The realm/sandbox name
+ * @param {string} [instanceTypeOverride] - Optional instance type override for output path
  * @returns {Promise<string>} Path to the written file
  */
-export async function exportComparisonToFile(comparisonResult, realm) {
-    const resultsDir = ensureResultsDir(realm);
+export async function exportComparisonToFile(comparisonResult, realm, instanceTypeOverride = null) {
+    const resultsDir = ensureResultsDir(realm, instanceTypeOverride);
     const filename = `${realm}_cartridge_comparison.txt`;
     const filePath = path.join(resultsDir, filename);
     const content = formatComparisonResults(comparisonResult);

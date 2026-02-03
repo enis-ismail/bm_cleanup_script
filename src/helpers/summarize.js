@@ -98,12 +98,12 @@ function extractDefaultValue(def) {
  * See .github/instructions/function-reference.md for detailed documentation
  * @param {Array} sitesToProcess - Array of site objects
  * @param {Array} groupSummaries - Array of group objects
- * @param {Object} sandbox - Sandbox configuration object
+ * @param {string} realm - Realm name
  * @param {Object} answers - User input containing instanceType field
  * @param {Object} preferenceMeta - Preference metadata map
  * @returns {Promise<Object>} Object with usageRows and siteSummaries
  */
-export async function processSitesAndGroups(sitesToProcess, groupSummaries, sandbox, answers, preferenceMeta) {
+export async function processSitesAndGroups(sitesToProcess, groupSummaries, realm, answers, preferenceMeta) {
     const usageRows = [];
     const siteSummaries = [];
     let siteIndex = 0;
@@ -122,7 +122,7 @@ export async function processSitesAndGroups(sitesToProcess, groupSummaries, sand
         siteIndex++;
         console.log(`\n[${siteIndex}/${sitesToProcess.length}] Processing site: ${siteId}`);
 
-        siteDetail = await getSiteById(siteId, sandbox);
+        siteDetail = await getSiteById(siteId, realm);
         cartridges = siteDetail?.cartridges || siteDetail?.cartridgesPath || siteDetail?.cartridges_path || '';
 
         console.log(`  - Fetching preference values across ${groupSummaries.length} group(s) in batches...`);
@@ -131,7 +131,7 @@ export async function processSitesAndGroups(sitesToProcess, groupSummaries, sand
         // Fetch groups in parallel batches
         groupResponses = await processBatch(
             groupSummaries,
-            (group) => getSitePreferencesGroup(siteId, group.groupId, answers.instanceType, sandbox),
+            (group) => getSitePreferencesGroup(siteId, group.groupId, answers.instanceType, realm),
             20, // Process 20 groups in parallel
             (progress, total, rate) => {
                 console.log(

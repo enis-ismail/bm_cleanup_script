@@ -3,8 +3,7 @@ import {
     parseCSVToNestedArray,
     findUnusedPreferences,
     writeUnusedPreferencesFile,
-    ensureRealmDir,
-    getSandboxConfig
+    ensureRealmDir
 } from '../helpers.js';
 import { logProcessingRealm, logEmptyCSV, logRealmResults } from './log.js';
 import {
@@ -74,7 +73,6 @@ export async function processPreferenceMatrixFiles(matrixFiles) {
  * @returns {Promise<Object>} Object with runtime and realm directory
  */
 export async function executePreferenceSummarization(params) {
-    const sandbox = getSandboxConfig(params.realm);
     let preferenceDefinitions = [];
     let groups = [];
     let groupSummaries = [];
@@ -90,16 +88,16 @@ export async function executePreferenceSummarization(params) {
     console.log('\nFetching all preference definitions (attribute definitions)...');
     preferenceDefinitions = await getSitePreferences(
         params.objectType,
-        sandbox,
+        params.realm,
         params.includeDefaults
     );
 
     console.log('\nFetching preference groups (no assignments, just IDs)...');
-    groups = await getAttributeGroups(params.objectType, sandbox);
+    groups = await getAttributeGroups(params.objectType, params.realm);
     groupSummaries = buildGroupSummaries(groups);
 
     console.log('\nFetching sites and cartridge paths...');
-    sites = await getAllSites(sandbox);
+    sites = await getAllSites(params.realm);
     sitesToProcess = filterSitesByScope(sites, params.scope, params.siteId);
 
     if (params.scope === 'single' && sitesToProcess.length === 0) {
@@ -114,7 +112,7 @@ export async function executePreferenceSummarization(params) {
     const { usageRows: processedRows } = await processSitesAndGroups(
         sitesToProcess,
         groupSummaries,
-        sandbox,
+        params.realm,
         params,
         preferenceMeta
     );
