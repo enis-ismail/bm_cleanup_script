@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { findAllMatrixFiles } from '../helpers.js';
 import { ensureResultsDir } from './util.js';
+import { logStatusUpdate, logStatusClear } from './log.js';
 
 const DEFAULT_COMPARISON_FILE = path.join(
     process.cwd(),
@@ -385,14 +386,14 @@ export async function findAllActivePreferencesUsage(repositoryPath, options = {}
     const activePreferences = Array.from(getActivePreferencesFromMatrices(matrixFilePaths)).sort();
 
     console.log(`Found ${activePreferences.length} active preference(s)\n`);
-    console.log('📊 Optimized batch search: scanning each file once for all preferences\n');
+    logStatusUpdate('Scanning for deprecated cartridges...');
 
     // Get deprecated cartridges for tagging
     const deprecatedCartridges = getDeprecatedCartridges(comparisonFilePath);
-    console.log(`Deprecated cartridges: ${deprecatedCartridges.size}`);
-    console.log('Building file list...');
+    logStatusUpdate('Building file list...');
 
     const allFiles = collectAllFilePaths(repositoryPath);
+    logStatusClear();
     console.log(`Total files to scan: ${allFiles.length}\n`);
 
     // Track which preferences are found in which cartridges (with deprecation status)
@@ -421,10 +422,11 @@ export async function findAllActivePreferencesUsage(repositoryPath, options = {}
         scannedFiles += 1;
         if (scannedFiles % logEvery === 0 || scannedFiles === allFiles.length) {
             const percent = ((scannedFiles / allFiles.length) * 100).toFixed(1);
-            console.log(`Scanned ${scannedFiles}/${allFiles.length} files (${percent}%)`);
+            logStatusUpdate(`Scanned ${scannedFiles}/${allFiles.length} files (${percent}%)`);
         }
     }
 
+    logStatusClear();
     console.log('\nBuilding results...\n');
 
     // Build results array

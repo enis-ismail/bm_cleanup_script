@@ -1,4 +1,6 @@
 import path from 'path';
+import chalk from 'chalk';
+import ora from 'ora';
 import { LOG_PREFIX, SEPARATOR } from './constants.js';
 
 /**
@@ -114,7 +116,7 @@ export function logComplete() {
  * @param {string} message - Error message
  */
 export function logError(message) {
-    console.error(`${LOG_PREFIX.ERROR} ERROR: ${message}`);
+    console.error(`${chalk.red('✖ ERROR:')} ${message}`);
 }
 
 /**
@@ -241,4 +243,148 @@ export function logCartridgeList(cartridges) {
         log(`  → ${cartridge}`);
     }
     log('');
+}
+
+// ============================================================================
+// DYNAMIC STATUS LOGGING
+// For updating status in place without scrolling using ora spinner
+// ============================================================================
+
+/* global setInterval, clearInterval, setTimeout */
+
+let currentSpinner = null;
+let currentMessage = '';
+
+/**
+ * Log a status line that can be updated dynamically with animation
+ * Uses ora spinner library with blue text for status updates
+ * @param {string} message - Status message to display
+ * @param {boolean} animate - Whether to show spinner animation (default true)
+ */
+export function logStatusUpdate(message, animate = true) {
+    currentMessage = message;
+
+    // Stop existing spinner if any
+    if (currentSpinner) {
+        currentSpinner.stop();
+    }
+
+    // Create new spinner with blue colored message
+    currentSpinner = ora({
+        text: chalk.blue(message),
+        prefixText: chalk.blue('►')
+    }).start();
+
+    // Disable animation if requested
+    if (!animate) {
+        currentSpinner.stop();
+    }
+}
+
+/**
+ * Log a rate limit warning without interrupting current status
+ * Displays orange warning below current status and restarts spinner
+ * @param {string} message - Rate limit warning message
+ */
+export function logRateLimitWarning(message) {
+    // Temporarily stop spinner to display warning
+    const wasRunning = currentSpinner !== null;
+    if (currentSpinner) {
+        currentSpinner.stop();
+    }
+
+    // Log the warning in orange/yellow
+    console.warn(`${chalk.yellow('⚠ RATE LIMITED:')} ${message}`);
+
+    // Restart spinner if it was running
+    if (wasRunning && currentMessage) {
+        currentSpinner = ora({
+            text: chalk.blue(currentMessage),
+            prefixText: chalk.blue('►')
+        }).start();
+    }
+}
+
+/**
+ * Log a dynamic rate limit countdown that updates in place
+ * Shows "Retrying in Xs..." with countdown timer
+ * @param {number} delayMs - Delay in milliseconds
+ * @param {number} attempt - Current attempt number
+ * @param {string} context - Optional context (e.g., attribute ID)
+ */
+export async function logRateLimitCountdown(delayMs, attempt, context = '') {
+    const wasRunning = currentSpinner !== null;
+    const previousMessage = currentMessage;
+
+    // Stop spinner without destroying it
+    if (currentSpinner) {
+        currentSpinner.stop();
+        currentSpinner = null;
+    }
+
+    const totalSeconds = Math.ceil(delayMs / 1000);
+    let remainingSeconds = totalSeconds;
+
+    // Display initial countdown message
+    const contextStr = context ? ` on ${context}` : '';
+    process.stdout.write(
+        `\r${chalk.yellow(`⚠ RATE LIMITED${contextStr}: Retry ${attempt}/3 in ${remainingSeconds}s...`)}`
+    );
+
+    // Wait for first second to elapse before starting interval
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Continue countdown
+    return new Promise(resolve => {
+        const countdownInterval = setInterval(() => {
+            remainingSeconds -= 1;
+
+            if (remainingSeconds > 0) {
+                process.stdout.write(
+                    `\r${chalk.yellow(`⚠ RATE LIMITED${contextStr}: Retry ${attempt}/3 in ${remainingSeconds}s...`)}`
+                );
+            } else {
+                clearInterval(countdownInterval);
+                process.stdout.write('\r\x1b[K'); // Clear line
+
+                // Restart spinner if it was running
+                if (wasRunning && previousMessage) {
+                    currentMessage = previousMessage;
+                    currentSpinner = ora({
+                        text: chalk.blue(previousMessage),
+                        prefixText: chalk.blue('►')
+                    }).start();
+                }
+
+                resolve();
+            }
+        }, 1000);
+    });
+}
+
+/**
+ * Log completion/success message in green
+ * @param {string} message - Completion message
+ */
+export function logCompletion(message) {
+    // Stop any running spinner
+    if (currentSpinner) {
+        currentSpinner.stop();
+        currentSpinner = null;
+    }
+    currentMessage = '';
+
+    console.log(`${chalk.green('✓')} ${chalk.green(message)}`);
+}
+
+/**
+ * Clear the current status line and start a fresh one
+ * Stops the spinner without marking as success or failure
+ */
+export function logStatusClear() {
+    if (currentSpinner) {
+        currentSpinner.stop();
+        currentSpinner = null;
+    }
+    currentMessage = '';
 }

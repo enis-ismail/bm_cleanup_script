@@ -2,7 +2,7 @@ import axios from 'axios';
 import { processBatch, withLoadShedding } from './helpers/batch.js';
 import { getSandboxConfig } from './helpers.js';
 import { getApiConfig } from './helpers/constants.js';
-import { logError } from './helpers/log.js';
+import { logError, logStatusUpdate, logStatusClear, logRateLimitCountdown } from './helpers/log.js';
 
 /* eslint-disable no-undef */
 
@@ -48,7 +48,7 @@ async function paginatedApiFetch(baseUrl, token, batchSize = 200) {
         allItems.push(...items);
         start += items.length;
 
-        console.log(`Fetched ${allItems.length} of ${total}...`);
+        logStatusUpdate(`Fetched ${allItems.length} of ${total}...`);
 
         if (items.length === 0 || allItems.length >= total) {
             break;
@@ -92,7 +92,7 @@ export async function getOAuthToken(sandbox) {
         {
             maxRetries: 3,
             onRetry: (attempt, delay) => {
-                console.log(`Rate limited. Retry ${attempt}/3 in ${delay / 1000}s...`);
+                logRateLimitCountdown(delay, attempt);
             }
         }
     );
@@ -185,7 +185,8 @@ export async function getSitePreferences(objectType, realm, includeDefaults = fa
             apiConfig.batchSize,
             (progress, total, rate) => {
                 const rateStr = rate.toFixed(1);
-                console.log(`Fetched detailed info for ${progress} of ${total} attributes (${rateStr} attrs/sec)...`);
+                const msg = `Fetched info for ${progress} of ${total} attributes`;
+                logStatusUpdate(`${msg} (${rateStr} attrs/sec)...`);
             },
             apiConfig.batchDelayMs
         );
@@ -193,6 +194,7 @@ export async function getSitePreferences(objectType, realm, includeDefaults = fa
         const detailTime = Date.now() - detailStartTime;
         const detailDuration = (detailTime / 1000).toFixed(2);
         const count = detailedAttributes.length;
+        logStatusClear();
         console.log(`Completed fetching ${count} attributes with full details (${detailDuration}s)`);
         return detailedAttributes;
     } catch (error) {
@@ -224,7 +226,7 @@ export async function getAttributeDefinitionById(objectType, attributeId, realm)
             {
                 maxRetries: 3,
                 onRetry: (attempt, delay) => {
-                    console.log(`Rate limited on ${attributeId}. Retry ${attempt}/3 in ${delay / 1000}s...`);
+                    logRateLimitCountdown(delay, attempt, attributeId);
                 }
             }
         );

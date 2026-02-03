@@ -35,7 +35,9 @@ import {
     logCartridgeValidationWarning,
     logCartridgeValidationSummaryFooter,
     logSiteXmlValidationSummary,
-    logSectionTitle
+    logSectionTitle,
+    logStatusUpdate,
+    logStatusClear
 } from './helpers/log.js';
 import { processPreferenceMatrixFiles, executePreferenceSummarization } from './helpers/preferenceHelper.js';
 import {
@@ -133,7 +135,7 @@ program
         logSectionTitle('STEP 2: Fetching & Summarizing Preferences');
 
         for (const realm of realmsToProcess) {
-            console.log(`\nProcessing realm: ${realm}`);
+            logStatusUpdate(`Fetching preferences for ${realm}`);
             await executePreferenceSummarization({
                 realm,
                 objectType,
@@ -142,7 +144,10 @@ program
                 siteId,
                 includeDefaults
             });
+            logStatusClear();
         }
+
+        console.log('');
 
         logSectionTitle('STEP 3: Checking Preference Usage');
 

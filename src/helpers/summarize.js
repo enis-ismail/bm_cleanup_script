@@ -2,6 +2,7 @@ import { getSiteById, getSitePreferencesGroup } from '../api.js';
 import { normalizeId, isValueKey } from '../helpers.js';
 import { processBatch } from './batch.js';
 import { startTimer } from './timer.js';
+import { logStatusUpdate, logStatusClear } from './log.js';
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -166,14 +167,15 @@ export async function processSitesAndGroups(sitesToProcess, groupSummaries, real
             (group) => getSitePreferencesGroup(siteId, group.groupId, answers.instanceType, realm),
             20, // Process 20 groups in parallel
             (progress, total, rate) => {
-                console.log(
-                    `    Fetched ${progress} of ${total} groups ` +
+                logStatusUpdate(
+                    `Fetched ${progress} of ${total} groups ` +
                     `(${rate.toFixed(1)} groups/sec)...`
                 );
             },
             200 // 200ms delay between batches
         );
 
+        logStatusClear();
         console.log(`  - Groups fetched in ${groupTimer.stop()}`);
 
         // Process fetched group data to extract preference values
