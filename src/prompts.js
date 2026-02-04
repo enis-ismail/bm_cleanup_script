@@ -123,7 +123,7 @@ export const includeDefaultsPrompt = () => ([
         type: 'confirm',
         name: 'includeDefaults',
         message: 'Include default values? (slower)',
-        default: false
+        default: true
     }
 ]);
 

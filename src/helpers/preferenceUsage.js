@@ -1,9 +1,10 @@
 /* eslint-disable linebreak-style */
 import fs from 'fs';
 import path from 'path';
+import { setImmediate } from 'timers/promises';
 import { findAllMatrixFiles } from '../helpers.js';
 import { ensureResultsDir } from './util.js';
-import { logStatusUpdate, logStatusClear } from './log.js';
+import { logStatusUpdate, logStatusClear, logProgress } from './log.js';
 
 const DEFAULT_COMPARISON_FILE = path.join(
     process.cwd(),
@@ -180,24 +181,6 @@ function searchMultiplePreferencesInFile(filePath, preferenceIds) {
     }
 
     return foundPreferences;
-}
-
-function logProgress(state, isFirstSearch) {
-    if (!isFirstSearch) {
-        return;
-    }
-
-    if (state.scannedFiles % state.logEvery === 0 || state.scannedFiles === state.totalFiles) {
-        const remaining = Math.max(state.totalFiles - state.scannedFiles, 0);
-        const percent = state.totalFiles > 0
-            ? Math.min((state.scannedFiles / state.totalFiles) * 100, 100)
-            : 100;
-
-        console.log(
-            `Scanned ${state.scannedFiles}/${state.totalFiles} files (${percent.toFixed(1)}%), `
-            + `remaining: ${remaining}, matches: ${state.matchesFound}`
-        );
-    }
 }
 
 function searchDirectoryForPreference(dirPath, preferenceId, deprecatedCartridges, matches, state, isFirstSearch) {
@@ -386,14 +369,13 @@ export async function findAllActivePreferencesUsage(repositoryPath, options = {}
     const activePreferences = Array.from(getActivePreferencesFromMatrices(matrixFilePaths)).sort();
 
     console.log(`Found ${activePreferences.length} active preference(s)\n`);
-    logStatusUpdate('Scanning for deprecated cartridges...');
 
     // Get deprecated cartridges for tagging
     const deprecatedCartridges = getDeprecatedCartridges(comparisonFilePath);
-    logStatusUpdate('Building file list...');
 
+    // Collect all file paths (synchronous - may take time for large repos)
+    console.log('Collecting all file paths...');
     const allFiles = collectAllFilePaths(repositoryPath);
-    logStatusClear();
     console.log(`Total files to scan: ${allFiles.length}\n`);
 
     // Track which preferences are found in which cartridges (with deprecation status)
@@ -403,10 +385,14 @@ export async function findAllActivePreferencesUsage(repositoryPath, options = {}
         deprecated: new Set()
     }));
 
-    const logEvery = options.logEvery || 500;
+    const logEvery = options.logEvery || 100;
     let scannedFiles = 0;
 
+    // Start the spinner for scanning
+    logStatusUpdate('Starting file scan...');
+
     // Scan each file once, looking for all preferences
+    // We yield to event loop after each file to allow smooth spinner animation and Ctrl+C
     for (const fileInfo of allFiles) {
         const foundPrefs = searchMultiplePreferencesInFile(fileInfo.path, activePreferences);
 
@@ -420,14 +406,18 @@ export async function findAllActivePreferencesUsage(repositoryPath, options = {}
         });
 
         scannedFiles += 1;
+
+        // Update spinner text every logEvery files
         if (scannedFiles % logEvery === 0 || scannedFiles === allFiles.length) {
             const percent = ((scannedFiles / allFiles.length) * 100).toFixed(1);
             logStatusUpdate(`Scanned ${scannedFiles}/${allFiles.length} files (${percent}%)`);
         }
+
+        // Yield to event loop after each file for smooth spinner animation
+        await setImmediate();
     }
 
     logStatusClear();
-    console.log('\nBuilding results...\n');
 
     // Build results array
     const results = activePreferences.map(preferenceId => {

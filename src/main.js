@@ -117,6 +117,10 @@ program
 
         logSectionTitle('STEP 1: Configure Scope & Options');
 
+        const siblings = await getSiblingRepositories();
+        const repositoryAnswers = await inquirer.prompt(repositoryPrompt(siblings));
+        const { repository: repositoryPath } = repositoryAnswers;
+
         const selection = await resolveRealmScopeSelection(inquirer.prompt);
         const realmsToProcess = selection.realmList;
 
@@ -182,11 +186,8 @@ program
 
         logSectionTitle('STEP 5: Finding Preference Usage in Cartridges');
 
-        const siblings = await getSiblingRepositories();
-        const targetPath = await selectRepositoryPath(siblings);
-
-        if (targetPath) {
-            const results = await findAllActivePreferencesUsage(targetPath);
+        if (repositoryPath) {
+            const results = await findAllActivePreferencesUsage(repositoryPath);
 
             for (const result of results) {
                 console.log(`${result.preferenceId}:`);

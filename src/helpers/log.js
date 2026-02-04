@@ -264,9 +264,16 @@ let currentMessage = '';
 export function logStatusUpdate(message, animate = true) {
     currentMessage = message;
 
-    // Stop existing spinner if any
-    if (currentSpinner) {
+    // If spinner already exists and is spinning, just update the text
+    if (currentSpinner && currentSpinner.isSpinning) {
+        currentSpinner.text = chalk.blue(message);
+        return;
+    }
+
+    // Stop existing spinner if it exists but not spinning
+    if (currentSpinner && !currentSpinner.isSpinning) {
         currentSpinner.stop();
+        currentSpinner = null;
     }
 
     // Create new spinner with blue colored message
@@ -387,4 +394,31 @@ export function logStatusClear() {
         currentSpinner = null;
     }
     currentMessage = '';
+}
+
+/**
+ * Log progress during file scanning operations
+ * @param {Object} state - Progress state object
+ * @param {number} state.scannedFiles - Number of files scanned so far
+ * @param {number} state.totalFiles - Total number of files to scan
+ * @param {number} state.logEvery - Log interval (every N files)
+ * @param {number} state.matchesFound - Number of matches found
+ * @param {boolean} isFirstSearch - Whether this is the first search (controls whether to log)
+ */
+export function logProgress(state, isFirstSearch) {
+    if (!isFirstSearch) {
+        return;
+    }
+
+    if (state.scannedFiles % state.logEvery === 0 || state.scannedFiles === state.totalFiles) {
+        const remaining = Math.max(state.totalFiles - state.scannedFiles, 0);
+        const percent = state.totalFiles > 0
+            ? Math.min((state.scannedFiles / state.totalFiles) * 100, 100)
+            : 100;
+
+        logStatusUpdate(
+            `Scanned ${state.scannedFiles}/${state.totalFiles} files (${percent.toFixed(1)}%), ` +
+            `remaining: ${remaining}, matches: ${state.matchesFound}`
+        );
+    }
 }
