@@ -42,24 +42,26 @@ export async function processBatch(items, processFn, batchSize = 10, onProgress 
 }
 
 /**
- * Execute a function with automatic retry and exponential backoff for rate limiting
+ * Execute a function with automatic retry and exponential backoff for rate limiting and temporary failures
  * See .github/instructions/function-reference.md for detailed documentation
  * @param {Function} fn - Async function to execute
  * @param {Object} options - Configuration options
  * @param {number} options.maxRetries - Maximum number of retry attempts (default: 3)
- * @param {number} options.initialDelay - Initial delay in ms before first retry (default: 2000)
+ * @param {number} options.initialDelay - Initial delay in ms before first retry (default: 10000)
  * @param {number} options.maxDelay - Maximum delay in ms between retries (default: 60000)
  * @param {boolean} options.exponential - Use exponential backoff (default: true)
  * @param {Function} options.onRetry - Optional callback(attempt, delay, error) when retrying
+ * @param {Array<number>} options.retryableStatuses - HTTP status codes to retry on (default: [429, 503, 504])
  * @returns {Promise<*>} Result from successful function execution
  */
 export async function withLoadShedding(fn, options = {}) {
     const {
         maxRetries = 3,
-        initialDelay = 2000,
+        initialDelay = 10000,
         maxDelay = 60000,
         exponential = true,
-        onRetry = null
+        onRetry = null,
+        retryableStatuses = [429, 503, 504, 529]
     } = options;
 
     let lastError;
@@ -70,11 +72,13 @@ export async function withLoadShedding(fn, options = {}) {
         } catch (error) {
             lastError = error;
 
-            // Check if it's a rate limit error (429)
-            const isRateLimited = error.response?.status === 429;
+            // Check if error is retryable (rate limit, service unavailable, gateway timeout)
+            const statusCode = error.response?.status;
+            const isRetryable = retryableStatuses.includes(statusCode);
+            const isNetworkError = !statusCode && error.code && error.code !== 'ENOTFOUND';
 
-            // Don't retry if we've exhausted attempts or it's not a rate limit error
-            if (attempt >= maxRetries || !isRateLimited) {
+            // Don't retry if we've exhausted attempts or error is not retryable
+            if (attempt >= maxRetries || (!isRetryable && !isNetworkError)) {
                 throw error;
             }
 

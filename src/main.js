@@ -1,4 +1,4 @@
-import inquirer from 'inquirer';
+﻿import inquirer from 'inquirer';
 import { Command } from 'commander';
 import path from 'path';
 import { registerDebugCommands } from './debug.js';
@@ -118,8 +118,8 @@ program
         logSectionTitle('STEP 1: Configure Scope & Options');
 
         const siblings = await getSiblingRepositories();
-        const repositoryAnswers = await inquirer.prompt(repositoryPrompt(siblings));
-        const { repository: repositoryPath } = repositoryAnswers;
+        const repositoryAnswers = await inquirer.prompt(await repositoryPrompt(siblings));
+        const repositoryPath = path.join(path.dirname(process.cwd()), repositoryAnswers.repository);
 
         const selection = await resolveRealmScopeSelection(inquirer.prompt);
         const realmsToProcess = selection.realmList;
@@ -139,7 +139,6 @@ program
         logSectionTitle('STEP 2: Fetching & Summarizing Preferences');
 
         for (const realm of realmsToProcess) {
-            logStatusUpdate(`Fetching preferences for ${realm}`);
             await executePreferenceSummarization({
                 realm,
                 objectType,
@@ -148,7 +147,6 @@ program
                 siteId,
                 includeDefaults
             });
-            logStatusClear();
         }
 
         console.log('');
@@ -186,19 +184,12 @@ program
 
         logSectionTitle('STEP 5: Finding Preference Usage in Cartridges');
 
-        if (repositoryPath) {
-            const results = await findAllActivePreferencesUsage(repositoryPath);
-
-            for (const result of results) {
-                console.log(`${result.preferenceId}:`);
-                if (result.cartridges.length === 0) {
-                    console.log('  (not used in any cartridge)');
-                } else {
-                    result.cartridges.forEach((cartridge) => {
-                        console.log(`  • ${cartridge}`);
-                    });
-                }
-            }
+        if (repositoryPath && realmsToProcess.length > 0) {
+            // Use first realm's instance type for results directory
+            const firstRealmInstanceType = getInstanceType(realmsToProcess[0]);
+            await findAllActivePreferencesUsage(repositoryPath, {
+                instanceTypeOverride: firstRealmInstanceType
+            });
         }
 
         console.log(`\n✓ Total runtime: ${timer.stop()}`);

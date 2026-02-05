@@ -2,7 +2,7 @@ import axios from 'axios';
 import { processBatch, withLoadShedding } from './helpers/batch.js';
 import { getSandboxConfig } from './helpers.js';
 import { getApiConfig } from './helpers/constants.js';
-import { logError, logStatusUpdate, logStatusClear, logRateLimitCountdown } from './helpers/log.js';
+import { logError, logRateLimitCountdown } from './helpers/log.js';
 
 /* eslint-disable no-undef */
 
@@ -47,8 +47,6 @@ async function paginatedApiFetch(baseUrl, token, batchSize = 200) {
 
         allItems.push(...items);
         start += items.length;
-
-        logStatusUpdate(`Fetched ${allItems.length} of ${total}...`);
 
         if (items.length === 0 || allItems.length >= total) {
             break;
@@ -179,22 +177,27 @@ export async function getSitePreferences(objectType, realm, includeDefaults = fa
         const detailStartTime = Date.now();
         const apiConfig = getApiConfig(sandbox.instanceType);
 
-        const detailedAttributes = await processBatch(
-            allAttributes,
-            (attr) => getAttributeDefinitionById(objectType, attr.id, realm),
-            apiConfig.batchSize,
-            (progress, total, rate) => {
-                const rateStr = rate.toFixed(1);
-                const msg = `Fetched info for ${progress} of ${total} attributes`;
-                logStatusUpdate(`${msg} (${rateStr} attrs/sec)...`);
+        const detailedAttributes = await withLoadShedding(
+            async () => {
+                return await processBatch(
+                    allAttributes,
+                    (attr) => getAttributeDefinitionById(objectType, attr.id, realm),
+                    apiConfig.batchSize,
+                    null,
+                    apiConfig.batchDelayMs
+                );
             },
-            apiConfig.batchDelayMs
+            {
+                maxRetries: 2,
+                onRetry: (attempt, delay) => {
+                    logRateLimitCountdown(delay, attempt, `batch of ${allAttributes.length} attributes`);
+                }
+            }
         );
 
         const detailTime = Date.now() - detailStartTime;
         const detailDuration = (detailTime / 1000).toFixed(2);
         const count = detailedAttributes.length;
-        logStatusClear();
         console.log(`Completed fetching ${count} attributes with full details (${detailDuration}s)`);
         return detailedAttributes;
     } catch (error) {
@@ -214,22 +217,11 @@ export async function getSitePreferences(objectType, realm, includeDefaults = fa
 export async function getAttributeDefinitionById(objectType, attributeId, realm) {
     try {
         const sandbox = getSandboxConfig(realm);
-
-        return await withLoadShedding(
-            async () => {
-                const token = await getOAuthToken(sandbox);
-                const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_definitions/${encodeURIComponent(attributeId)}`;
-                const headers = buildApiHeaders(token);
-                const response = await axios.get(url, { headers });
-                return response.data;
-            },
-            {
-                maxRetries: 3,
-                onRetry: (attempt, delay) => {
-                    logRateLimitCountdown(delay, attempt, attributeId);
-                }
-            }
-        );
+        const token = await getOAuthToken(sandbox);
+        const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_definitions/${encodeURIComponent(attributeId)}`;
+        const headers = buildApiHeaders(token);
+        const response = await axios.get(url, { headers });
+        return response.data;
     } catch (error) {
         logError(`Failed to fetch attribute ${attributeId}: ${error.response?.data?.message || error.message}`);
         return null;

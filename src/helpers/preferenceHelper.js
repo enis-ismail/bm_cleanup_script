@@ -23,6 +23,7 @@ import {
 } from './summarize.js';
 import { writeUsageCSV, writeMatrixCSV } from './csv.js';
 import { buildGroupSummaries, filterSitesByScope } from './util.js';
+import { logStatusUpdate, logStatusClear } from './log.js';
 
 /**
  * Process a single matrix file and extract unused preferences
@@ -180,6 +181,8 @@ function exportResults(realmDir, realm, results, instanceType) {
  * @returns {Promise<Object>} Object with realmDir and success flag
  */
 export async function executePreferenceSummarization(params) {
+    logStatusUpdate(`Fetching preferences for ${params.realm}`);
+
     const realmDir = ensureRealmDir(params.realm);
 
     const apiData = await fetchPreferenceData(params);
@@ -201,5 +204,6 @@ export async function executePreferenceSummarization(params) {
     const results = await buildPreferenceMatrices(processData, params.realm, params);
     exportResults(realmDir, params.realm, results, params.instanceType);
 
+    logStatusClear();
     return { realmDir, success: true };
 }

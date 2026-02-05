@@ -279,8 +279,9 @@ export function getActivePreferencesFromMatrices(matrixFilePaths) {
  * @returns {string} Path to the exported file
  */
 function exportPreferenceUsageToFile(results, instanceTypeOverride = null) {
+    const dirName = instanceTypeOverride || 'ALL_REALMS';
     const resultsDir = ensureResultsDir('ALL_REALMS', instanceTypeOverride);
-    const filename = 'ALL_REALMS_preference_usage.txt';
+    const filename = `${dirName}_preference_usage.txt`;
     const filePath = path.join(resultsDir, filename);
 
     const lines = [
@@ -330,8 +331,9 @@ function exportUnusedPreferencesToFile(results, instanceTypeOverride = null) {
         return null;
     }
 
+    const dirName = instanceTypeOverride || 'ALL_REALMS';
     const resultsDir = ensureResultsDir('ALL_REALMS', instanceTypeOverride);
-    const filename = 'ALL_REALMS_unused_preferences.txt';
+    const filename = `${dirName}_unused_preferences.txt`;
     const filePath = path.join(resultsDir, filename);
 
     const lines = [
@@ -342,6 +344,78 @@ function exportUnusedPreferencesToFile(results, instanceTypeOverride = null) {
         '--- Preference IDs ---',
         ...unusedPreferences.map(p => p.preferenceId)
     ];
+
+    fs.writeFileSync(filePath, lines.join('\n'), 'utf-8');
+
+    return filePath;
+}
+
+/**
+ * Export cartridge-to-preferences mapping to a text file
+ * @param {Array} results - Array of preference usage results
+ * @param {string} [instanceTypeOverride] - Optional instance type for output path scoping
+ * @returns {string} Path to the exported file
+ */
+function exportCartridgePreferenceMapping(results, instanceTypeOverride = null) {
+    // Build a map of cartridge -> preferences
+    const cartridgeToPreferences = new Map();
+
+    for (const result of results) {
+        for (const cartridge of result.cartridges) {
+            // Extract cartridge name (remove [possibly deprecated] tag if present)
+            const cartridgeName = cartridge.replace(' [possibly deprecated]', '');
+            const isDeprecated = cartridge.includes('[possibly deprecated]');
+
+            if (!cartridgeToPreferences.has(cartridgeName)) {
+                cartridgeToPreferences.set(cartridgeName, {
+                    preferences: new Set(),
+                    isDeprecated
+                });
+            }
+
+            cartridgeToPreferences.get(cartridgeName).preferences.add(result.preferenceId);
+        }
+    }
+
+    // Sort cartridges alphabetically
+    const sortedCartridges = Array.from(cartridgeToPreferences.keys()).sort();
+
+    const dirName = instanceTypeOverride || 'ALL_REALMS';
+    const resultsDir = ensureResultsDir('ALL_REALMS', instanceTypeOverride);
+    const filename = `${dirName}_cartridge_preferences.txt`;
+    const filePath = path.join(resultsDir, filename);
+
+    const lines = [
+        'Cartridge Preference Usage',
+        `Generated: ${new Date().toISOString()}`,
+        `Total Cartridges: ${sortedCartridges.length}`,
+        '',
+        '================================================================================',
+        ''
+    ];
+
+    for (const cartridgeName of sortedCartridges) {
+        const data = cartridgeToPreferences.get(cartridgeName);
+        const deprecatedTag = data.isDeprecated ? ' [possibly deprecated]' : '';
+        const preferences = Array.from(data.preferences).sort();
+
+        lines.push(`Cartridge: ${cartridgeName}${deprecatedTag}`);
+        lines.push(`  Preferences Used: ${preferences.length}`);
+
+        if (preferences.length === 0) {
+            lines.push('  (no preferences found)');
+        } else {
+            preferences.forEach(pref => {
+                lines.push(`    • ${pref}`);
+            });
+        }
+
+        lines.push('');
+    }
+
+    lines.push('================================================================================');
+    lines.push(`Total cartridges: ${sortedCartridges.length}`);
+    lines.push(`Total unique preferences used: ${results.filter(r => r.cartridges.length > 0).length}`);
 
     fs.writeFileSync(filePath, lines.join('\n'), 'utf-8');
 
@@ -445,6 +519,12 @@ export async function findAllActivePreferencesUsage(repositoryPath, options = {}
     const unusedFile = exportUnusedPreferencesToFile(results, instanceTypeOverride);
     if (unusedFile) {
         console.log(`✓ Unused preferences saved to: ${unusedFile}`);
+    }
+
+    // Export cartridge-to-preferences mapping
+    const cartridgeFile = exportCartridgePreferenceMapping(results, instanceTypeOverride);
+    if (cartridgeFile) {
+        console.log(`✓ Cartridge preference mapping saved to: ${cartridgeFile}`);
     }
 
     console.log('');
