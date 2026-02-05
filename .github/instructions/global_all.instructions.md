@@ -1,4 +1,4 @@
-﻿---
+---
 applyTo: "**"
 ---
 # SFCC Agentic Development Setup V2 

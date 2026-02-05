@@ -1,4 +1,4 @@
-﻿import inquirer from 'inquirer';
+import inquirer from 'inquirer';
 import { Command } from 'commander';
 import path from 'path';
 import { registerDebugCommands } from './debug.js';
