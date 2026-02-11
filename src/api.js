@@ -14,14 +14,19 @@ import { logError, logRateLimitCountdown } from './helpers/log.js';
 /**
  * Build standard authorization headers for OCAPI requests
  * @param {string} token - OAuth bearer token
+ * @param {string} [ifMatch] - Optional If-Match header for PATCH/PUT operations
  * @returns {Object} Headers object with authorization
  * @private
  */
-function buildApiHeaders(token) {
-    return {
+function buildApiHeaders(token, ifMatch = null) {
+    const headers = {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
     };
+    if (ifMatch !== null) {
+        headers['If-Match'] = ifMatch;
+    }
+    return headers;
 }
 
 /**
@@ -228,6 +233,94 @@ export async function getAttributeDefinitionById(objectType, attributeId, realm)
     }
 }
 
+/**
+ * Update/modify an attribute definition by ID with specified HTTP method
+ * @param {string} objectType - SFCC system object type (e.g., "SitePreferences")
+ * @param {string} attributeId - Attribute ID to update/delete
+ * @param {string} method - HTTP method: 'patch' | 'put' | 'delete'
+ * @param {Object} [payload] - Request payload (optional for delete method)
+ * @param {string} realm - Realm name
+ * @returns {Promise<Object|boolean|null>} Response data or boolean for delete
+ */
+export async function updateAttributeDefinitionById(objectType, attributeId, method, payload, realm) {
+    const methodLower = method.toLowerCase();
+    try {
+        const sandbox = getSandboxConfig(realm);
+        const token = await getOAuthToken(sandbox);
+        const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_definitions/${encodeURIComponent(attributeId)}`;
+
+        let response;
+        switch (methodLower) {
+        case 'patch':
+        case 'put': {
+            // For PATCH/PUT, try to fetch the current attribute to get its ETag (for updates)
+            const currentAttr = await getAttributeDefinitionById(objectType, attributeId, realm);
+            let headers;
+            if (currentAttr && currentAttr._resource_state) {
+                // Attribute exists - use ETag for update
+                headers = buildApiHeaders(token, currentAttr._resource_state);
+            } else {
+                // Attribute doesn't exist - create without ETag (for PUT creation)
+                headers = buildApiHeaders(token);
+            }
+            if (methodLower === 'patch') {
+                response = await axios.patch(url, payload, { headers });
+            } else {
+                response = await axios.put(url, payload, { headers });
+            }
+            return response.data;
+        }
+        case 'delete': {
+            const headers = buildApiHeaders(token);
+            await axios.delete(url, { headers });
+            return true;
+        }
+        default:
+            logError(`Unsupported method: ${method}. Use 'patch', 'put', or 'delete'.`);
+            return null;
+        }
+    } catch (error) {
+        logError(`Failed to ${method} attribute ${attributeId}: ${error.response?.data?.message || error.message}`);
+        console.error('Full error response:', error.response?.data || error);
+        return methodLower === 'delete' ? false : null;
+    }
+}
+
+/**
+ * Patch (partial update) an attribute definition by ID
+ * @param {string} objectType - SFCC system object type (e.g., "SitePreferences")
+ * @param {string} attributeId - Attribute ID to update
+ * @param {Object} payload - Partial update payload
+ * @param {string} realm - Realm name
+ * @returns {Promise<Object|null>} Updated attribute definition
+ */
+export async function patchAttributeDefinitionById(objectType, attributeId, payload, realm) {
+    return updateAttributeDefinitionById(objectType, attributeId, 'patch', payload, realm);
+}
+
+/**
+ * Replace (full update) an attribute definition by ID
+ * @param {string} objectType - SFCC system object type (e.g., "SitePreferences")
+ * @param {string} attributeId - Attribute ID to update
+ * @param {Object} payload - Full update payload
+ * @param {string} realm - Realm name
+ * @returns {Promise<Object|null>} Updated attribute definition
+ */
+export async function putAttributeDefinitionById(objectType, attributeId, payload, realm) {
+    return updateAttributeDefinitionById(objectType, attributeId, 'put', payload, realm);
+}
+
+/**
+ * Delete an attribute definition by ID
+ * @param {string} objectType - SFCC system object type (e.g., "SitePreferences")
+ * @param {string} attributeId - Attribute ID to delete
+ * @param {string} realm - Realm name
+ * @returns {Promise<boolean>} True if deleted successfully
+ */
+export async function deleteAttributeDefinitionById(objectType, attributeId, realm) {
+    return updateAttributeDefinitionById(objectType, attributeId, 'delete', null, realm);
+}
+
 // ============================================================================
 // ATTRIBUTE GROUPS
 // Manage attribute group definitions and membership
@@ -279,6 +372,31 @@ export async function getSitePreferencesGroup(siteId, groupId, instanceType, rea
     } catch (error) {
         const msg = error.response?.data?.message || error.message;
         logError(`Failed to fetch site preferences for group ${groupId}: ${msg}`);
+        return null;
+    }
+}
+
+/**
+ * Patch site preference values for a specific group on a specific site
+ * @param {string} siteId - Site identifier
+ * @param {string} groupId - Attribute group identifier
+ * @param {string} instanceType - Instance type for preference scope
+ * @param {Object} payload - Preference values to update (e.g., {"c_myPref": "value"})
+ * @param {string} realm - Realm name
+ * @returns {Promise<Object|null>} Updated preference group object
+ */
+export async function patchSitePreferencesGroup(siteId, groupId, instanceType, payload, realm) {
+    try {
+        const sandbox = getSandboxConfig(realm);
+        const token = await getOAuthToken(sandbox);
+        const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/sites/${encodeURIComponent(siteId)}/site_preferences/preference_groups/${encodeURIComponent(groupId)}/${encodeURIComponent(instanceType)}`;
+        const headers = buildApiHeaders(token);
+        const response = await axios.patch(url, payload, { headers });
+        return response.data;
+    } catch (error) {
+        const msg = error.response?.data?.message || error.message;
+        logError(`Failed to patch site preferences for group ${groupId}: ${msg}`);
+        console.error('Full error response:', error.response?.data || error);
         return null;
     }
 }

@@ -1,0 +1,21 @@
+{
+  "description": {
+    "default": "Description",
+    "es": "mia description"
+  },
+  "display_name": {
+    "default": "default name",
+    "es": "nombre"
+  },
+  "id": "testAttribute",
+  "key": false,
+  "link": "https://bcwr-080.sandbox.sfcc.com/s/-/dw/data/v25_6/system_object_definitions/SitePreferences/attribute_definitions/testAttribute",
+  "localizable": false,
+  "mandatory": false,
+  "queryable": true,
+  "searchable": false,
+  "site_specific": false,
+  "system": false,
+  "value_type": "string",
+  "visible": false
+}

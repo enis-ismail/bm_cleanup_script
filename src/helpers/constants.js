@@ -23,19 +23,19 @@ export const SEPARATOR = '='.repeat(80);
  */
 export const API_CONFIG = {
     sandbox: {
-        batchSize: 100,           // Number of items to process in parallel
+        batchSize: 25,           // Number of items to process in parallel
         batchDelayMs: 1000,        // Delay (ms) between batch requests
         retryAttempts: 3,         // Number of retry attempts for rate-limited requests
         requestTimeoutMs: 30000   // Timeout for individual API requests
     },
     development: {
-        batchSize: 100,
+        batchSize: 25,
         batchDelayMs: 1000,
         retryAttempts: 3,
         requestTimeoutMs: 30000
     },
     staging: {
-        batchSize: 100,           // Staging can handle more parallel requests
+        batchSize: 25,           // Staging can handle more parallel requests
         batchDelayMs: 1000,
         retryAttempts: 3,
         requestTimeoutMs: 30000
