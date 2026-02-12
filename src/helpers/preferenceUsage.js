@@ -273,52 +273,6 @@ export function getActivePreferencesFromMatrices(matrixFilePaths) {
 }
 
 /**
- * Export preference usage results to a text file
- * @param {Array} results - Array of preference usage results
- * @param {string} [instanceTypeOverride] - Optional instance type for output path scoping
- * @returns {string} Path to the exported file
- */
-function exportPreferenceUsageToFile(results, instanceTypeOverride = null) {
-    const dirName = instanceTypeOverride || 'ALL_REALMS';
-    const resultsDir = ensureResultsDir('ALL_REALMS', instanceTypeOverride);
-    const filename = `${dirName}_preference_usage.txt`;
-    const filePath = path.join(resultsDir, filename);
-
-    const lines = [
-        'Preference Usage Analysis',
-        `Generated: ${new Date().toISOString()}`,
-        `Total Preferences Analyzed: ${results.length}`,
-        '',
-        '================================================================================',
-        ''
-    ];
-
-    for (const result of results) {
-        lines.push(`Preference: ${result.preferenceId}`);
-        lines.push(`  Cartridges Found: ${result.cartridges.length}`);
-
-        if (result.cartridges.length === 0) {
-            lines.push('  (not used in any cartridge)');
-        } else {
-            result.cartridges.forEach(cartridge => {
-                lines.push(`    • ${cartridge}`);
-            });
-        }
-
-        lines.push('');
-    }
-
-    lines.push('================================================================================');
-    lines.push(`Total preferences scanned: ${results.length}`);
-    lines.push(`Preferences with usage: ${results.filter(r => r.cartridges.length > 0).length}`);
-    lines.push(`Preferences without usage: ${results.filter(r => r.cartridges.length === 0).length}`);
-
-    fs.writeFileSync(filePath, lines.join('\n'), 'utf-8');
-
-    return filePath;
-}
-
-/**
  * Export unused preferences (with no cartridge usage) to a separate file
  * @param {Array} results - Array of preference usage results
  * @param {string} [instanceTypeOverride] - Optional instance type for output path scoping
@@ -423,6 +377,128 @@ function exportCartridgePreferenceMapping(results, instanceTypeOverride = null) 
 }
 
 /**
+ * Parse unused preferences file and extract preference IDs
+ * @param {string} filePath - Path to unused preferences file
+ * @returns {Set<string>} Set of unused preference IDs
+ */
+function parseUnusedPreferencesFile(filePath) {
+    const unusedPrefs = new Set();
+
+    if (!fs.existsSync(filePath)) {
+        return unusedPrefs;
+    }
+
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const lines = content.split(/\r?\n/);
+    let inPreferenceSection = false;
+
+    for (const line of lines) {
+        if (line.trim() === '--- Preference IDs ---') {
+            inPreferenceSection = true;
+            continue;
+        }
+
+        if (inPreferenceSection && line.trim()) {
+            unusedPrefs.add(line.trim());
+        }
+    }
+
+    return unusedPrefs;
+}
+
+/**
+ * Parse cartridge preferences file and extract all used preference IDs
+ * @param {string} filePath - Path to cartridge preferences file
+ * @returns {Set<string>} Set of used preference IDs
+ */
+function parseCartridgePreferencesFile(filePath) {
+    const usedPrefs = new Set();
+
+    if (!fs.existsSync(filePath)) {
+        return usedPrefs;
+    }
+
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const lines = content.split(/\r?\n/);
+
+    for (const line of lines) {
+        // Look for lines that start with bullet points (preferences)
+        const match = line.match(/^\s+•\s+(.+)$/);
+        if (match && match[1]) {
+            usedPrefs.add(match[1].trim());
+        }
+    }
+
+    return usedPrefs;
+}
+
+/**
+ * Compare unused and cartridge preferences files and generate deletion candidates
+ * @param {string} [instanceTypeOverride] - Optional instance type for output path scoping
+ * @returns {string|null} Path to the generated file, or null if no candidates found
+ */
+export function generatePreferenceDeletionCandidates(instanceTypeOverride = null) {
+    const dirName = instanceTypeOverride || 'ALL_REALMS';
+    const resultsDir = ensureResultsDir('ALL_REALMS', instanceTypeOverride);
+
+    const unusedFilePath = path.join(resultsDir, `${dirName}_unused_preferences.txt`);
+    const cartridgeFilePath = path.join(resultsDir, `${dirName}_cartridge_preferences.txt`);
+
+    // Check if both files exist
+    if (!fs.existsSync(unusedFilePath)) {
+        console.log(`⚠ Unused preferences file not found: ${unusedFilePath}`);
+        return null;
+    }
+
+    if (!fs.existsSync(cartridgeFilePath)) {
+        console.log(`⚠ Cartridge preferences file not found: ${cartridgeFilePath}`);
+        return null;
+    }
+
+    // Parse both files
+    const unusedPreferences = parseUnusedPreferencesFile(unusedFilePath);
+    const usedPreferences = parseCartridgePreferencesFile(cartridgeFilePath);
+
+    // Find preferences that are in unused but NOT in used (truly safe to delete)
+    const deletionCandidates = Array.from(unusedPreferences)
+        .filter(pref => !usedPreferences.has(pref))
+        .sort();
+
+    if (deletionCandidates.length === 0) {
+        console.log('✓ No preferences marked for deletion (all unused preferences have some usage)');
+        return null;
+    }
+
+    // Generate output file
+    const outputFilename = `${dirName}_preferences_for_deletion.txt`;
+    const outputFilePath = path.join(resultsDir, outputFilename);
+
+    const lines = [
+        'Site Preferences Marked for Deletion',
+        `Generated: ${new Date().toISOString()}`,
+        '',
+        'Analysis Summary:',
+        `  • Total unused preferences: ${unusedPreferences.size}`,
+        `  • Total used preferences: ${usedPreferences.size}`,
+        `  • Preferences marked for deletion: ${deletionCandidates.length}`,
+        '',
+        'These preferences are:',
+        '  1. Not referenced in any cartridge code',
+        '  2. Not listed in the cartridge preferences mapping',
+        '  3. Safe to delete from site preferences',
+        '',
+        '================================================================================',
+        '',
+        '--- Preferences for Deletion ---',
+        ...deletionCandidates
+    ];
+
+    fs.writeFileSync(outputFilePath, lines.join('\n'), 'utf-8');
+
+    return outputFilePath;
+}
+
+/**
  * Find usage for all active preferences in repository (optimized batch search)
  * @param {string} repositoryPath - Absolute path to repository root
  * @param {Object} [options] - Optional settings
@@ -512,8 +588,6 @@ export async function findAllActivePreferencesUsage(repositoryPath, options = {}
 
     // Export results to file
     const instanceTypeOverride = options.instanceTypeOverride || null;
-    const outputFile = exportPreferenceUsageToFile(results, instanceTypeOverride);
-    console.log(`✓ Preference usage results saved to: ${outputFile}`);
 
     // Export unused preferences to separate file
     const unusedFile = exportUnusedPreferencesToFile(results, instanceTypeOverride);
@@ -525,6 +599,12 @@ export async function findAllActivePreferencesUsage(repositoryPath, options = {}
     const cartridgeFile = exportCartridgePreferenceMapping(results, instanceTypeOverride);
     if (cartridgeFile) {
         console.log(`✓ Cartridge preference mapping saved to: ${cartridgeFile}`);
+    }
+
+    // Generate deletion candidates by comparing unused vs used preferences
+    const deletionFile = generatePreferenceDeletionCandidates(instanceTypeOverride);
+    if (deletionFile) {
+        console.log(`✓ Preferences marked for deletion: ${deletionFile}`);
     }
 
     console.log('');

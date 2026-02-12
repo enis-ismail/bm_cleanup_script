@@ -11,7 +11,10 @@ export default [
             sourceType: 'module',
             globals: {
                 console: 'readonly',
-                process: 'readonly'
+                process: 'readonly',
+                setInterval: 'readonly',
+                clearInterval: 'readonly',
+                setTimeout: 'readonly'
             }
         },
         rules: {

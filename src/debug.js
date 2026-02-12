@@ -65,6 +65,18 @@ export function registerDebugCommands(program) {
                 realmName,
                 answers.includeDefaults
             );
+            
+            console.log('\n================================================================================');
+            console.log('FULL RESPONSE OF FIRST ATTRIBUTE:');
+            console.log('================================================================================\n');
+            if (allAttributes && allAttributes.length > 0) {
+                console.log(JSON.stringify(allAttributes[0], null, 2));
+                console.log('\n================================================================================\n');
+            } else {
+                console.log('No attributes found.');
+                console.log('\n================================================================================\n');
+            }
+            
             await exportAttributesToCSV(allAttributes, realmName);
         });
 

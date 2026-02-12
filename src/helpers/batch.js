@@ -6,25 +6,91 @@
 /* eslint-disable no-undef */
 
 /**
- * Process items in parallel batches with callback
+ * Process a single item with automatic retry and exponential backoff
+ * @param {*} item - Item to process
+ * @param {Function} processFn - Async function to process the item
+ * @param {number} maxRetries - Maximum retry attempts (default: 3)
+ * @param {number} initialDelay - Initial delay in ms (default: 1000)
+ * @returns {Promise<*>} Result or null if all retries failed
+ */
+async function processItemWithRetry(item, processFn, maxRetries = 3, initialDelay = 1000) {
+    let lastError;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            return await processFn(item);
+        } catch (error) {
+            lastError = error;
+
+            // Check if error is retryable
+            const statusCode = error.response?.status;
+            const isRetryable = [408, 429, 503, 504, 529].includes(statusCode) || !statusCode;
+
+            // Don't retry if we've exhausted attempts or error is not retryable
+            if (attempt >= maxRetries || (statusCode && !isRetryable)) {
+                return null; // Return null for failed items instead of throwing
+            }
+
+            // Calculate delay with exponential backoff
+            const delay = Math.min(initialDelay * Math.pow(2, attempt), 30000);
+
+            // Wait before retrying
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Process items in parallel batches with callback and per-item retry logic
  * See .github/instructions/function-reference.md for detailed documentation
  * @param {Array} items - Array of items to process
  * @param {Function} processFn - Async function to process each item
  * @param {number} batchSize - Number of items to process in parallel
  * @param {Function} onProgress - Optional callback(current, total, rate) for progress tracking
  * @param {number} delayMs - Optional delay in milliseconds between batches (default: 0)
- * @returns {Promise<Array>} Array of results from processing
+ * @param {Object} retryOptions - Optional retry configuration
+ * @param {number} retryOptions.maxRetries - Max retries per item (default: 3)
+ * @param {number} retryOptions.initialDelay - Initial retry delay in ms (default: 1000)
+ * @returns {Promise<Array>} Array of results from processing (filters out nulls from failed retries)
  */
-export async function processBatch(items, processFn, batchSize = 10, onProgress = null, delayMs = 0) {
+export async function processBatch(
+    items,
+    processFn,
+    batchSize = 10,
+    onProgress = null,
+    delayMs = 0,
+    retryOptions = {}
+) {
+    const {
+        maxRetries = 3,
+        initialDelay = 1000
+    } = retryOptions;
+
     const results = [];
     const startTime = Date.now();
+    let processedCount = 0;
 
     for (let i = 0; i < items.length; i += batchSize) {
         const batch = items.slice(i, i + batchSize);
-        const batchPromises = batch.map(item => processFn(item));
-        const batchResults = await Promise.all(batchPromises);
-        results.push(...batchResults.filter(r => r !== null));
+        
+        // Process each item in batch with retry logic
+        const batchPromises = batch.map(item =>
+            processItemWithRetry(item, processFn, maxRetries, initialDelay)
+        );
+        
+        const batchResults = await Promise.allSettled(batchPromises);
+        
+        // Collect successful results
+        for (const result of batchResults) {
+            if (result.status === 'fulfilled' && result.value !== null) {
+                results.push(result.value);
+            }
+            processedCount += 1;
+        }
 
+        // Update progress
         const progress = Math.min(i + batchSize, items.length);
         if (onProgress) {
             const elapsed = Date.now() - startTime;

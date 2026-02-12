@@ -2,7 +2,8 @@ import axios from 'axios';
 import { processBatch, withLoadShedding } from './helpers/batch.js';
 import { getSandboxConfig } from './helpers.js';
 import { getApiConfig } from './helpers/constants.js';
-import { logError, logRateLimitCountdown } from './helpers/log.js';
+import { logError, logRateLimitCountdown, logStatusClear } from './helpers/log.js';
+import { generateBackupFromDefinitions, checkBackupFileAge } from './helpers/preferenceBackup.js';
 
 /* eslint-disable no-undef */
 
@@ -160,11 +161,44 @@ export async function getSiteById(siteId, realm) {
  * @param {string} objectType - SFCC system object type (e.g., "SitePreferences")
  * @param {Object} sandbox - Sandbox configuration object
  * @param {boolean} includeDefaults - If true, fetch each attribute individually to get default_value
+ * @param {Function} [promptFn] - Optional inquirer.prompt function for user confirmation
  * @returns {Promise<Array>} Array of attribute definition objects
  */
-export async function getSitePreferences(objectType, realm, includeDefaults = false) {
+export async function getSitePreferences(objectType, realm, includeDefaults = false, promptFn = null) {
     try {
         const sandbox = getSandboxConfig(realm);
+
+        // Check for existing backup file BEFORE any API calls
+        if (includeDefaults && promptFn) {
+            const backupInfo = await checkBackupFileAge(realm, sandbox.instanceType, objectType);
+
+            if (backupInfo.exists) {
+                const ageInDays = backupInfo.ageInDays;
+                
+                // Clear any status logging before prompting user
+                logStatusClear();
+                
+                console.log(`\nFound existing backup file (${ageInDays} day${ageInDays === 1 ? '' : 's'} old)`);
+                console.log(`  ${backupInfo.filePath}`);
+
+                // Auto-use if less than 14 days old and prompt for confirmation
+                if (ageInDays < 14) {
+                    const { useExistingBackupPrompt } = await import('./prompts.js');
+                    const answer = await promptFn(useExistingBackupPrompt(ageInDays, backupInfo.filePath));
+
+                    if (answer.useExisting) {
+                        console.log('\n✓ Using existing backup file (skipping API fetch).\n');
+                        return backupInfo.backup.attributes;
+                    } else {
+                        console.log('\nFetching fresh data...\n');
+                    }
+                } else {
+                    console.log('Backup is older than 14 days, fetching fresh data...\n');
+                }
+            }
+        }
+
+        // Proceed with API fetches only if not using cached backup
         const startTime = Date.now();
         const token = await getOAuthToken(sandbox);
         const baseUrl = `https://${sandbox.hostname}/s/-/dw/data/v19_5/system_object_definitions/${objectType}/attribute_definitions`;
@@ -204,6 +238,15 @@ export async function getSitePreferences(objectType, realm, includeDefaults = fa
         const detailDuration = (detailTime / 1000).toFixed(2);
         const count = detailedAttributes.length;
         console.log(`Completed fetching ${count} attributes with full details (${detailDuration}s)`);
+        
+        // Generate backup file from fetched definitions
+        await generateBackupFromDefinitions(
+            objectType,
+            detailedAttributes,
+            realm,
+            sandbox.instanceType
+        );
+        
         return detailedAttributes;
     } catch (error) {
         logError(`Failed to fetch site preferences: ${error.response?.data?.message || error.message}`);

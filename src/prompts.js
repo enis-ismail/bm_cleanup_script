@@ -183,3 +183,42 @@ export const getRealmsForInstanceType = (instanceType) => {
     }
     return realms;
 };
+export const confirmPreferenceDeletionPrompt = (count) => ([
+    {
+        name: 'confirm',
+        message: `Are you sure you want to delete these ${count} preferences? This action cannot be undone.`,
+        type: 'confirm',
+        default: false
+    }
+]);
+
+export const runAnalyzePreferencesPrompt = (instanceType) => ([
+    {
+        name: 'runAnalyze',
+        message: `Preferences for deletion file hasn't been generated yet for '${instanceType}'. Would you like to run analyze-preferences to generate this file?`,
+        type: 'confirm',
+        default: true
+    }
+]);
+
+export const realmByInstanceTypePrompt = (instanceType) => {
+    const realms = getRealmsByInstanceType(instanceType);
+    return [
+        {
+            name: 'realm',
+            message: 'Select a realm for backup:',
+            type: 'rawlist',
+            choices: realms,
+            default: realms[0]
+        }
+    ];
+};
+
+export const useExistingBackupPrompt = (ageInDays, filePath) => ([
+    {
+        name: 'useExisting',
+        message: `Backup file found (${ageInDays} day${ageInDays === 1 ? '' : 's'} old). Use existing backup instead of fetching new data?`,
+        type: 'confirm',
+        default: true
+    }
+]);

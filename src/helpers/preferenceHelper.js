@@ -86,7 +86,8 @@ async function fetchPreferenceData(params) {
     const preferenceDefinitions = await getSitePreferences(
         params.objectType,
         params.realm,
-        params.includeDefaults
+        params.includeDefaults,
+        params.promptFn
     );
 
     console.log('\nFetching preference groups (no assignments, just IDs)...');

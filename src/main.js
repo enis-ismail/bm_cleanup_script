@@ -1,6 +1,7 @@
 ﻿import inquirer from 'inquirer';
 import { Command } from 'commander';
 import path from 'path';
+import { spawn } from 'child_process';
 import { registerDebugCommands } from './debug.js';
 import {
     addRealmToConfig,
@@ -21,7 +22,11 @@ import {
     scopePrompts,
     repositoryPrompt,
     includeDefaultsPrompt,
-    resolveRealmScopeSelection
+    resolveRealmScopeSelection,
+    instanceTypePrompt,
+    confirmPreferenceDeletionPrompt,
+    runAnalyzePreferencesPrompt,
+    realmByInstanceTypePrompt
 } from './prompts.js';
 import {
     logNoMatrixFiles,
@@ -35,15 +40,19 @@ import {
     logCartridgeValidationWarning,
     logCartridgeValidationSummaryFooter,
     logSiteXmlValidationSummary,
-    logSectionTitle,
-    logStatusUpdate,
-    logStatusClear
+    logSectionTitle
 } from './helpers/log.js';
 import { processPreferenceMatrixFiles, executePreferenceSummarization } from './helpers/preferenceHelper.js';
 import {
     findAllActivePreferencesUsage,
     getActivePreferencesFromMatrices
 } from './helpers/preferenceUsage.js';
+import {
+    loadPreferencesForDeletion,
+    openPreferencesForDeletionInEditor,
+    generateDeletionSummary
+} from './helpers/preferenceRemoval.js';
+import { loadBackupFile } from './helpers/preferenceBackup.js';
 
 // ============================================================================
 // CLI ENTRYPOINT
@@ -145,7 +154,8 @@ program
                 instanceType: getInstanceType(realm),
                 scope,
                 siteId,
-                includeDefaults
+                includeDefaults,
+                promptFn: inquirer.prompt.bind(inquirer)
             });
         }
 
@@ -193,6 +203,139 @@ program
         }
 
         console.log(`\n✓ Total runtime: ${timer.stop()}`);
+    });
+
+program
+    .command('remove-preferences')
+    .description('Remove preferences marked for deletion from site preferences')
+    .action(async () => {
+        const timer = startTimer();
+
+        logSectionTitle('STEP 1: Select Instance Type');
+
+        const instanceTypeAnswers = await inquirer.prompt(instanceTypePrompt('development'));
+        const { instanceType } = instanceTypeAnswers;
+
+        logSectionTitle('STEP 2: Load Preferences for Deletion');
+
+        let preferences = loadPreferencesForDeletion(instanceType);
+
+        if (!preferences) {
+            console.log(`\n⚠ Preferences for deletion file not found for instance type: ${instanceType}\n`);
+
+            const analyzeAnswers = await inquirer.prompt(runAnalyzePreferencesPrompt(instanceType));
+
+            if (!analyzeAnswers.runAnalyze) {
+                console.log('\n✓ Preference removal cancelled.\n');
+                console.log(`✓ Total runtime: ${timer.stop()}`);
+                return;
+            }
+
+            console.log('\nRunning analyze-preferences command...\n');
+            console.log('================================================================================\n');
+
+            // Run analyze-preferences in the current terminal and wait for completion
+            await new Promise((resolve, reject) => {
+                const analyzeProcess = spawn('node', ['src/main.js', 'analyze-preferences'], {
+                    stdio: 'inherit',
+                    shell: true
+                });
+
+                analyzeProcess.on('close', (code) => {
+                    console.log('\n================================================================================\n');
+                    if (code === 0) {
+                        console.log('✓ analyze-preferences completed successfully!\n');
+                        resolve();
+                    } else {
+                        reject(new Error(`analyze-preferences exited with code ${code}`));
+                    }
+                });
+
+                analyzeProcess.on('error', (error) => {
+                    reject(error);
+                });
+            }).catch((error) => {
+                console.log(`\n❌ Error: ${error.message}`);
+                console.log(`✓ Total runtime: ${timer.stop()}`);
+                return;
+            });
+
+            // Reload preferences after analyze-preferences completes
+            preferences = loadPreferencesForDeletion(instanceType);
+            if (!preferences) {
+                console.log('\n⚠ Preferences file still not found. Please check the analyze-preferences output.\n');
+                console.log(`✓ Total runtime: ${timer.stop()}`);
+                return;
+            }
+        }
+
+        logSectionTitle('STEP 3: Review Preferences for Deletion');
+
+        try {
+            const filePath = await openPreferencesForDeletionInEditor(instanceType);
+            console.log(`✓ Opened preferences file in VS Code: ${filePath}\n`);
+        } catch (error) {
+            console.log(`⚠ Could not open file in VS Code: ${error.message}`);
+            console.log('  Make sure VS Code is installed and accessible via the "code" command.\n');
+            console.log(`✓ Total runtime: ${timer.stop()}`);
+            return;
+        }
+
+        const summary = generateDeletionSummary(preferences);
+        console.log('Top Preference Prefixes Being Removed:');
+        summary.topPrefixes.forEach(([prefix, count]) => {
+            const percentage = ((count / summary.total) * 100).toFixed(1);
+            console.log(`  • ${prefix}: ${count} (${percentage}%)`);
+        });
+        console.log('');
+
+        logSectionTitle('STEP 4: Confirm Deletion');
+
+        const confirmAnswers = await inquirer.prompt(confirmPreferenceDeletionPrompt(preferences.length));
+
+        if (!confirmAnswers.confirm) {
+            console.log('\n✓ Preference removal cancelled.\n');
+            console.log(`✓ Total runtime: ${timer.stop()}`);
+            return;
+        }
+
+        logSectionTitle('STEP 5: Verify Backup Exists');
+
+        console.log('Checking for existing backup file...\n');
+
+        // Select realm for backup verification
+        const realmAnswers = await inquirer.prompt(realmByInstanceTypePrompt(instanceType));
+        const realm = realmAnswers.realm;
+
+        console.log(`Instance type: ${instanceType}`);
+        console.log(`Realm: ${realm}`);
+        console.log(`Total preferences to delete: ${preferences.length}\n`);
+
+        try {
+            // Find existing backup file generated during analyze-preferences
+            const backupDir = path.join(process.cwd(), 'backup', instanceType);
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0];
+            const backupFilePath = path.join(backupDir, `${realm}_SitePreferences_backup_${timestamp}.json`);
+
+            // Verify backup file exists
+            const backup = await loadBackupFile(backupFilePath);
+
+            console.log(`\n✓ Backup file found:`);
+            console.log(`  ${backupFilePath}`);
+            console.log(`  Total attributes in backup: ${backup.total_attributes}`);
+            console.log(`  Backup date: ${backup.backup_date}\n`);
+            console.log('Note: This backup was generated during analyze-preferences and can be used to restore preferences if needed.');
+        } catch (error) {
+            console.error(`\n✗ Backup file not found or invalid: ${error.message}`);
+            console.log('\nPlease run analyze-preferences first to generate the backup file.');
+            console.log('Aborting preference removal.\n');
+            console.log(`✓ Total runtime: ${timer.stop()}`);
+            return;
+        }
+
+        console.log('\nNote: Actual preference removal will be implemented in a future step.\n');
+
+        console.log(`✓ Total runtime: ${timer.stop()}`);
     });
 
 program
