@@ -26,7 +26,8 @@ import {
     instanceTypePrompt,
     confirmPreferenceDeletionPrompt,
     runAnalyzePreferencesPrompt,
-    realmByInstanceTypePrompt
+    realmByInstanceTypePrompt,
+    useExistingBackupsForAllRealmsPrompt
 } from './prompts.js';
 import {
     logNoMatrixFiles,
@@ -42,7 +43,7 @@ import {
     logSiteXmlValidationSummary,
     logSectionTitle
 } from './helpers/log.js';
-import { processPreferenceMatrixFiles, executePreferenceSummarization } from './helpers/preferenceHelper.js';
+import { processPreferenceMatrixFiles, executePreferenceSummarization, checkBackupStatusForRealms } from './helpers/preferenceHelper.js';
 import {
     findAllActivePreferencesUsage,
     getActivePreferencesFromMatrices
@@ -145,6 +146,46 @@ program
 
         const { objectType, scope, siteId, includeDefaults } = answers;
 
+        // Check backup status for all realms if includeDefaults is true
+        let useCachedBackup = false;
+        if (includeDefaults) {
+            const backupStatus = await checkBackupStatusForRealms(realmsToProcess, objectType);
+            const validBackups = backupStatus.filter(b => b.exists && !b.tooOld);
+            const tooOldBackups = backupStatus.filter(b => b.exists && b.tooOld);
+
+            if (validBackups.length > 0) {
+                console.log('\n================================================================================');
+                console.log('BACKUP FILES FOUND');
+                console.log('================================================================================\n');
+
+                validBackups.forEach(backup => {
+                    console.log(`  ✓ ${backup.realm}: ${backup.ageInDays} day${backup.ageInDays === 1 ? '' : 's'} old`);
+                });
+
+                if (tooOldBackups.length > 0) {
+                    console.log('\nBackups older than 14 days (will fetch fresh):');
+                    tooOldBackups.forEach(backup => {
+                        console.log(`  ⚠ ${backup.realm}: ${backup.ageInDays} days old`);
+                    });
+                }
+
+                console.log('');
+
+                const backupAnswer = await inquirer.prompt(useExistingBackupsForAllRealmsPrompt({
+                    availableCount: validBackups.length,
+                    totalCount: realmsToProcess.length
+                }));
+
+                useCachedBackup = backupAnswer.useExisting;
+
+                if (useCachedBackup) {
+                    console.log('✓ Will use cached backups where available.\n');
+                } else {
+                    console.log('✓ Will fetch fresh data for all realms.\n');
+                }
+            }
+        }
+
         logSectionTitle('STEP 2: Fetching & Summarizing Preferences');
 
         for (const realm of realmsToProcess) {
@@ -155,7 +196,7 @@ program
                 scope,
                 siteId,
                 includeDefaults,
-                promptFn: inquirer.prompt.bind(inquirer)
+                useCachedBackup
             });
         }
 

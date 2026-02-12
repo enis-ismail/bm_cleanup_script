@@ -195,7 +195,8 @@ export const confirmPreferenceDeletionPrompt = (count) => ([
 export const runAnalyzePreferencesPrompt = (instanceType) => ([
     {
         name: 'runAnalyze',
-        message: `Preferences for deletion file hasn't been generated yet for '${instanceType}'. Would you like to run analyze-preferences to generate this file?`,
+        message: `Preferences for deletion file hasn't been generated yet for '${instanceType}'.
+            Would you like to run analyze-preferences to generate this file?`,
         type: 'confirm',
         default: true
     }
@@ -214,10 +215,18 @@ export const realmByInstanceTypePrompt = (instanceType) => {
     ];
 };
 
-export const useExistingBackupPrompt = (ageInDays, filePath) => ([
+export const useExistingBackupPrompt = (ageInDays) => ([
     {
         name: 'useExisting',
-        message: `Backup file found (${ageInDays} day${ageInDays === 1 ? '' : 's'} old). Use existing backup instead of fetching new data?`,
+        message: `Backup file found (${ageInDays} day${ageInDays === 1 ? '' : 's'} old). Use existing backup data?`,
+        type: 'confirm',
+        default: true
+    }
+]);
+export const useExistingBackupsForAllRealmsPrompt = (backupSummary) => ([
+    {
+        name: 'useExisting',
+        message: `Found backup files for ${backupSummary.availableCount} realm(s). Use cached data for all realms?`,
         type: 'confirm',
         default: true
     }

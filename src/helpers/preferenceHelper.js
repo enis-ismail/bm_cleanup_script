@@ -9,12 +9,16 @@ import {
     logProcessingRealm,
     logEmptyCSV,
     logRealmResults,
-    logError
+    logError,
+    logStatusUpdate,
+    logStatusClear,
+    logRateLimitCountdown
 } from './log.js';
 import {
     getAttributeGroups,
     getAllSites,
-    getSitePreferences
+    getSitePreferences,
+    getAttributeDefinitionById
 } from '../api.js';
 import {
     buildPreferenceMeta,
@@ -23,7 +27,89 @@ import {
 } from './summarize.js';
 import { writeUsageCSV, writeMatrixCSV } from './csv.js';
 import { buildGroupSummaries, filterSitesByScope } from './util.js';
-import { logStatusUpdate, logStatusClear } from './log.js';
+import { processBatch, withLoadShedding } from './batch.js';
+import { getApiConfig } from './constants.js';
+import { checkBackupFileAge } from './preferenceBackup.js';
+
+/**
+ * Check backup file status for multiple realms
+ * @param {Array<string>} realms - List of realm names
+ * @param {string} objectType - Object type (e.g., "SitePreferences")
+ * @returns {Promise<Array<{realm: string, exists: boolean, ageInDays: number, filePath: string}>>}
+ */
+export async function checkBackupStatusForRealms(realms, objectType) {
+    const { getSandboxConfig } = await import('../helpers.js');
+    const results = [];
+
+    for (const realm of realms) {
+        const sandbox = getSandboxConfig(realm);
+        const backupInfo = await checkBackupFileAge(realm, sandbox.instanceType, objectType);
+        
+        results.push({
+            realm,
+            exists: backupInfo.exists,
+            ageInDays: backupInfo.ageInDays,
+            filePath: backupInfo.filePath,
+            tooOld: backupInfo.exists && backupInfo.ageInDays >= 14
+        });
+    }
+
+    return results;
+}
+
+/**
+ * Load backup file and return attributes
+ * @param {string} realm - Realm name
+ * @param {string} instanceType - Instance type
+ * @param {string} objectType - Object type
+ * @returns {Promise<Array|null>} Attributes array or null if not found
+ */
+export async function loadCachedBackup(realm, instanceType, objectType) {
+    const backupInfo = await checkBackupFileAge(realm, instanceType, objectType);
+    
+    if (!backupInfo.exists) {
+        return null;
+    }
+    
+    return backupInfo.backup.attributes;
+}
+
+/**
+ * Fetch detailed attribute definitions with progress tracking
+ * @param {Array} allAttributes - Basic attribute list
+ * @param {string} objectType - Object type
+ * @param {string} realm - Realm name
+ * @param {Object} sandbox - Sandbox configuration
+ * @returns {Promise<Array>} Detailed attribute definitions
+ */
+export async function fetchDetailedAttributes(allAttributes, objectType, realm, sandbox) {
+    console.log('\nFetching full details with default values (parallel batches)...');
+    const startTime = Date.now();
+    const apiConfig = getApiConfig(sandbox.instanceType);
+
+    const detailedAttributes = await withLoadShedding(
+        async () => {
+            return await processBatch(
+                allAttributes,
+                (attr) => getAttributeDefinitionById(objectType, attr.id, realm),
+                apiConfig.batchSize,
+                null,
+                apiConfig.batchDelayMs
+            );
+        },
+        {
+            maxRetries: 2,
+            onRetry: (attempt, delay) => {
+                logRateLimitCountdown(delay, attempt, `batch of ${allAttributes.length} attributes`);
+            }
+        }
+    );
+
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`Completed fetching ${detailedAttributes.length} attributes with full details (${duration}s)`);
+
+    return detailedAttributes;
+}
 
 /**
  * Process a single matrix file and extract unused preferences
@@ -87,7 +173,7 @@ async function fetchPreferenceData(params) {
         params.objectType,
         params.realm,
         params.includeDefaults,
-        params.promptFn
+        params.useCachedBackup
     );
 
     console.log('\nFetching preference groups (no assignments, just IDs)...');

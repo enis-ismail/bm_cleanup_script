@@ -2,8 +2,9 @@ import axios from 'axios';
 import { processBatch, withLoadShedding } from './helpers/batch.js';
 import { getSandboxConfig } from './helpers.js';
 import { getApiConfig } from './helpers/constants.js';
-import { logError, logRateLimitCountdown, logStatusClear } from './helpers/log.js';
-import { generateBackupFromDefinitions, checkBackupFileAge } from './helpers/preferenceBackup.js';
+import { logError, logRateLimitCountdown } from './helpers/log.js';
+import { generateBackupFromDefinitions } from './helpers/preferenceBackup.js';
+import { fetchDetailedAttributes, loadCachedBackup } from './helpers/preferenceHelper.js';
 
 /* eslint-disable no-undef */
 
@@ -159,94 +160,51 @@ export async function getSiteById(siteId, realm) {
  * Fetch all attribute definitions for a system object type with pagination
  * See .github/instructions/function-reference.md for detailed documentation
  * @param {string} objectType - SFCC system object type (e.g., "SitePreferences")
- * @param {Object} sandbox - Sandbox configuration object
+ * @param {string} realm - Realm name
  * @param {boolean} includeDefaults - If true, fetch each attribute individually to get default_value
- * @param {Function} [promptFn] - Optional inquirer.prompt function for user confirmation
+ * @param {boolean} [useCachedBackup] - If true, use cached backup; if false, fetch fresh; if undefined, always fetch
  * @returns {Promise<Array>} Array of attribute definition objects
  */
-export async function getSitePreferences(objectType, realm, includeDefaults = false, promptFn = null) {
+export async function getSitePreferences(objectType, realm, includeDefaults = false, useCachedBackup = undefined) {
     try {
         const sandbox = getSandboxConfig(realm);
 
-        // Check for existing backup file BEFORE any API calls
-        if (includeDefaults && promptFn) {
-            const backupInfo = await checkBackupFileAge(realm, sandbox.instanceType, objectType);
-
-            if (backupInfo.exists) {
-                const ageInDays = backupInfo.ageInDays;
-                
-                // Clear any status logging before prompting user
-                logStatusClear();
-                
-                console.log(`\nFound existing backup file (${ageInDays} day${ageInDays === 1 ? '' : 's'} old)`);
-                console.log(`  ${backupInfo.filePath}`);
-
-                // Auto-use if less than 14 days old and prompt for confirmation
-                if (ageInDays < 14) {
-                    const { useExistingBackupPrompt } = await import('./prompts.js');
-                    const answer = await promptFn(useExistingBackupPrompt(ageInDays, backupInfo.filePath));
-
-                    if (answer.useExisting) {
-                        console.log('\n✓ Using existing backup file (skipping API fetch).\n');
-                        return backupInfo.backup.attributes;
-                    } else {
-                        console.log('\nFetching fresh data...\n');
-                    }
-                } else {
-                    console.log('Backup is older than 14 days, fetching fresh data...\n');
-                }
+        // Try to use cached backup if requested and available
+        if (includeDefaults && useCachedBackup === true) {
+            const cachedAttributes = await loadCachedBackup(realm, sandbox.instanceType, objectType);
+            if (cachedAttributes) {
+                console.log(`\n✓ Using cached backup for ${realm} (skipping API fetch).\n`);
+                return cachedAttributes;
             }
+            // If cache requested but not available, fall through to fetch
+            console.log(`\n⚠ Cached backup not found for ${realm}, fetching fresh data...\n`);
         }
 
-        // Proceed with API fetches only if not using cached backup
+        // Fetch basic attribute list
         const startTime = Date.now();
         const token = await getOAuthToken(sandbox);
         const baseUrl = `https://${sandbox.hostname}/s/-/dw/data/v19_5/system_object_definitions/${objectType}/attribute_definitions`;
         const allAttributes = await paginatedApiFetch(baseUrl, token, 200);
 
-        const listTime = Date.now() - startTime;
-        const duration = (listTime / 1000).toFixed(2);
+        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
         console.log(`Found ${allAttributes.length} total attributes for ${objectType} (${duration}s)`);
 
+        // Return basic list if defaults not needed
         if (!includeDefaults) {
             return allAttributes;
         }
 
-        console.log('\nFetching full details with default values (parallel batches)...');
-        const detailStartTime = Date.now();
-        const apiConfig = getApiConfig(sandbox.instanceType);
+        // Fetch detailed attributes with default values
+        const detailedAttributes = await fetchDetailedAttributes(allAttributes, objectType, realm, sandbox);
 
-        const detailedAttributes = await withLoadShedding(
-            async () => {
-                return await processBatch(
-                    allAttributes,
-                    (attr) => getAttributeDefinitionById(objectType, attr.id, realm),
-                    apiConfig.batchSize,
-                    null,
-                    apiConfig.batchDelayMs
-                );
-            },
-            {
-                maxRetries: 2,
-                onRetry: (attempt, delay) => {
-                    logRateLimitCountdown(delay, attempt, `batch of ${allAttributes.length} attributes`);
-                }
-            }
-        );
-
-        const detailTime = Date.now() - detailStartTime;
-        const detailDuration = (detailTime / 1000).toFixed(2);
-        const count = detailedAttributes.length;
-        console.log(`Completed fetching ${count} attributes with full details (${detailDuration}s)`);
-        
-        // Generate backup file from fetched definitions
+        // Generate backup file for future use
         await generateBackupFromDefinitions(
             objectType,
             detailedAttributes,
             realm,
             sandbox.instanceType
         );
-        
+
         return detailedAttributes;
     } catch (error) {
         logError(`Failed to fetch site preferences: ${error.response?.data?.message || error.message}`);
