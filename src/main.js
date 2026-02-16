@@ -1,6 +1,7 @@
 ﻿import inquirer from 'inquirer';
 import { Command } from 'commander';
 import path from 'path';
+import fs from 'fs';
 import { spawn } from 'child_process';
 import { registerDebugCommands } from './debug.js';
 import {
@@ -9,8 +10,7 @@ import {
     findAllMatrixFiles,
     getAvailableRealms,
     getInstanceType,
-    getBackupConfig,
-    getWebdavConfig
+    getRealmsByInstanceType
 } from './helpers.js';
 import { startTimer } from './helpers/timer.js';
 import { getSiblingRepositories } from './helpers/util.js';
@@ -28,7 +28,6 @@ import {
     instanceTypePrompt,
     confirmPreferenceDeletionPrompt,
     runAnalyzePreferencesPrompt,
-    realmByInstanceTypePrompt,
     useExistingBackupsForAllRealmsPrompt
 } from './prompts.js';
 import {
@@ -55,12 +54,8 @@ import {
     openPreferencesForDeletionInEditor,
     generateDeletionSummary
 } from './helpers/preferenceRemoval.js';
-import { loadBackupFile } from './helpers/preferenceBackup.js';
-import {
-    triggerJobExecution,
-    getJobExecutionStatus,
-    downloadWebdavFile
-} from './api.js';
+import { loadBackupFile, updateBackupFileAttributeGroups } from './helpers/preferenceBackup.js';
+import { refreshMetadataBackupForRealm, getMetadataBackupPathForRealm } from './helpers/backupJob.js';
 
 // ============================================================================
 // CLI ENTRYPOINT
@@ -348,38 +343,95 @@ program
             return;
         }
 
-        logSectionTitle('STEP 5: Verify Backup Exists');
+        logSectionTitle('STEP 5: Verify Backups (Per Realm)');
 
-        console.log('Checking for existing backup file...\n');
+        console.log('Checking for existing backup files...\n');
 
-        // Select realm for backup verification
-        const realmAnswers = await inquirer.prompt(realmByInstanceTypePrompt(instanceType));
-        const realm = realmAnswers.realm;
+        const realmsForInstance = getRealmsByInstanceType(instanceType);
+        if (!realmsForInstance || realmsForInstance.length === 0) {
+            console.log(`No realms found for instance type: ${instanceType}`);
+            console.log(`✓ Total runtime: ${timer.stop()}`);
+            return;
+        }
 
-        console.log(`Instance type: ${instanceType}`);
-        console.log(`Realm: ${realm}`);
-        console.log(`Total preferences to delete: ${preferences.length}\n`);
+        const realmSelection = await inquirer.prompt([
+            {
+                name: 'realms',
+                message: 'Select realms to process:',
+                type: 'checkbox',
+                choices: realmsForInstance,
+                default: realmsForInstance
+            }
+        ]);
 
-        try {
+        const realmsToProcess = realmSelection.realms;
+        if (!realmsToProcess || realmsToProcess.length === 0) {
+            console.log('No realms selected.');
+            console.log(`✓ Total runtime: ${timer.stop()}`);
+            return;
+        }
+
+        const refreshAnswers = await inquirer.prompt([
+            {
+                type: 'confirm',
+                name: 'refreshMetadata',
+                message: 'Trigger backup job and download latest metadata for each selected realm?',
+                default: false
+            }
+        ]);
+
+        for (const realm of realmsToProcess) {
+            console.log(`\nInstance type: ${instanceType}`);
+            console.log(`Realm: ${realm}`);
+            console.log(`Total preferences to delete: ${preferences.length}\n`);
+
             // Find existing backup file generated during analyze-preferences
             const backupDir = path.join(process.cwd(), 'backup', instanceType);
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0];
             const backupFilePath = path.join(backupDir, `${realm}_SitePreferences_backup_${timestamp}.json`);
 
-            // Verify backup file exists
-            const backup = await loadBackupFile(backupFilePath);
+            try {
+                const backup = await loadBackupFile(backupFilePath);
 
-            console.log(`\n✓ Backup file found:`);
-            console.log(`  ${backupFilePath}`);
-            console.log(`  Total attributes in backup: ${backup.total_attributes}`);
-            console.log(`  Backup date: ${backup.backup_date}\n`);
-            console.log('Note: This backup was generated during analyze-preferences and can be used to restore preferences if needed.');
-        } catch (error) {
-            console.error(`\n✗ Backup file not found or invalid: ${error.message}`);
-            console.log('\nPlease run analyze-preferences first to generate the backup file.');
-            console.log('Aborting preference removal.\n');
-            console.log(`✓ Total runtime: ${timer.stop()}`);
-            return;
+                console.log(`✓ Backup file found:`);
+                console.log(`  ${backupFilePath}`);
+                console.log(`  Total attributes in backup: ${backup.total_attributes}`);
+                console.log(`  Backup date: ${backup.backup_date}\n`);
+            } catch (error) {
+                console.error(`✗ Backup file not found or invalid: ${error.message}`);
+                console.log('Please run analyze-preferences first to generate the backup file.');
+                continue;
+            }
+
+            let metadataPath = getMetadataBackupPathForRealm(realm, instanceType);
+
+            if (refreshAnswers.refreshMetadata) {
+                console.log('Triggering backup job and downloading metadata...');
+                const refreshResult = await refreshMetadataBackupForRealm(realm, instanceType);
+
+                if (refreshResult.ok) {
+                    metadataPath = refreshResult.filePath;
+                    console.log(`Downloaded metadata: ${refreshResult.filePath}`);
+                } else {
+                    console.log(`Failed to refresh metadata: ${refreshResult.reason}`);
+                }
+            }
+
+            if (fs.existsSync(metadataPath)) {
+                const updateResult = await updateBackupFileAttributeGroups(
+                    backupFilePath,
+                    metadataPath,
+                    'SitePreferences'
+                );
+
+                if (updateResult) {
+                    console.log(`✓ Backup updated with metadata groups: ${updateResult.filePath}`);
+                } else {
+                    console.log('⚠️  Failed to update backup with metadata groups.');
+                }
+            } else {
+                console.log(`⚠️  Metadata file not found: ${metadataPath}`);
+            }
         }
 
         console.log('\nNote: Actual preference removal will be implemented in a future step.\n');
@@ -394,96 +446,17 @@ program
         const timer = startTimer();
         const realmAnswers = await inquirer.prompt(realmPrompt());
         const realm = realmAnswers.realm;
+        const instanceType = getInstanceType(realm);
 
-        const backupConfig = getBackupConfig();
-        const webdavConfig = getWebdavConfig(realm);
+        console.log('Triggering backup job and downloading metadata...');
+        const refreshResult = await refreshMetadataBackupForRealm(realm, instanceType);
 
-        if (!backupConfig.jobId) {
-            console.log('Missing backup.jobId in config.json.');
+        if (!refreshResult.ok) {
+            console.log(`Failed to refresh metadata: ${refreshResult.reason}`);
             return;
         }
 
-        if (!webdavConfig.username || !webdavConfig.password) {
-            console.log('Missing WebDAV credentials in config.json for this realm.');
-            return;
-        }
-
-        // Step 1: Trigger the backup job
-        console.log(`Triggering job: ${backupConfig.jobId}`);
-        const executionResponse = await triggerJobExecution(
-            backupConfig.jobId,
-            realm,
-            backupConfig.ocapiVersion
-        );
-
-        if (!executionResponse) {
-            console.log('Failed to trigger backup job.');
-            return;
-        }
-
-        const executionId = executionResponse.id ||
-            executionResponse.execution_id ||
-            executionResponse.job_execution_id ||
-            null;
-
-        if (!executionId) {
-            console.log('Could not determine job execution ID from response.');
-            return;
-        }
-
-        // Step 2: Poll until job completes
-        console.log(`Job execution started. Execution ID: ${executionId}`);
-        console.log('Polling job status...');
-
-        const pollStart = Date.now();
-        while (true) {
-            const statusResponse = await getJobExecutionStatus(
-                backupConfig.jobId,
-                executionId,
-                realm,
-                backupConfig.ocapiVersion
-            );
-
-            if (!statusResponse) {
-                console.log('Failed to fetch job status.');
-                return;
-            }
-
-            const status = statusResponse.status ||
-                statusResponse.execution_status ||
-                statusResponse.exit_status ||
-                'UNKNOWN';
-
-            const elapsedMs = Date.now() - pollStart;
-            console.log(`Job status: ${status} (elapsed ${Math.round(elapsedMs / 1000)}s)`);
-
-            if (status === 'OK' || status === 'FINISHED' || status === 'COMPLETED') {
-                break;
-            }
-
-            if (status === 'ERROR' || status === 'FAILED' || status === 'ABORTED') {
-                console.log(`Job failed with status: ${status}`);
-                return;
-            }
-
-            if (elapsedMs >= backupConfig.timeoutMs) {
-                console.log('Job polling timed out.');
-                return;
-            }
-
-            await new Promise(resolve => setTimeout(resolve, backupConfig.pollIntervalMs));
-        }
-
-        // Step 3: Download the ZIP from WebDAV
-        console.log('Downloading backup ZIP from WebDAV...');
-        const outputPath = await downloadWebdavFile(webdavConfig, backupConfig.outputDir);
-
-        if (!outputPath) {
-            console.log('Failed to download backup ZIP.');
-            return;
-        }
-
-        console.log(`Backup downloaded to: ${outputPath}`);
+        console.log(`Backup downloaded to: ${refreshResult.filePath}`);
         console.log(`✓ Total runtime: ${timer.stop()}`);
     });
 

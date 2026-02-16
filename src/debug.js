@@ -7,10 +7,7 @@ import {
     getAttributeDefinitionById,
     assignAttributeToGroup,
     getAttributeGroups,
-    getAttributeGroupById,
-    triggerJobExecution,
-    getJobExecutionStatus,
-    downloadWebdavFile
+    getAttributeGroupById
 } from './api.js';
 import { exportAttributesToCSV } from './helpers/csv.js';
 import { generateBackupFromDefinitions, loadBackupFile, updateBackupFileAttributeGroups } from './helpers/preferenceBackup.js';
@@ -32,12 +29,13 @@ import {
 } from './helpers/log.js';
 import path from 'path';
 import fs from 'fs';
-import { findAllMatrixFiles, getInstanceType, getBackupConfig, getWebdavConfig } from './helpers.js';
+import { findAllMatrixFiles, getInstanceType } from './helpers.js';
 import { processPreferenceMatrixFiles, executePreferenceSummarization } from './helpers/preferenceHelper.js';
 import { getActivePreferencesFromMatrices, findAllActivePreferencesUsage, findPreferenceUsage } from './helpers/preferenceUsage.js';
 import { getSiblingRepositories } from './helpers/util.js';
 import { repositoryPrompt, preferenceIdPrompt } from './prompts.js';
 import { findAttributeInMetaFiles } from './helpers/siteXmlHelper.js';
+import { refreshMetadataBackupForRealm, getMetadataBackupPathForRealm } from './helpers/backupJob.js';
 
 // ============================================================================
 // DEBUG COMMANDS
@@ -628,11 +626,7 @@ export function registerDebugCommands(program) {
             console.log(`✅ Backup created: ${backupFilePath}`);
 
             let activeBackupPath = backupFilePath;
-            let metadataPath = path.join(
-                process.cwd(),
-                'backup_downloads',
-                'meta_data_backup.xml'
-            );
+            let metadataPath = getMetadataBackupPathForRealm(realm, instanceType);
 
             const refreshAnswers = await inquirer.prompt([
                 {
@@ -644,88 +638,14 @@ export function registerDebugCommands(program) {
             ]);
 
             if (refreshAnswers.refreshMetadata) {
-                const backupConfig = getBackupConfig();
-                const webdavConfig = getWebdavConfig(realm);
+                console.log('Triggering backup job and downloading metadata...');
+                const refreshResult = await refreshMetadataBackupForRealm(realm, instanceType);
 
-                if (!backupConfig.jobId) {
-                    console.log('Missing backup.jobId in config.json.');
-                } else if (!webdavConfig.username || !webdavConfig.password) {
-                    console.log('Missing WebDAV credentials in config.json.');
+                if (refreshResult.ok) {
+                    metadataPath = refreshResult.filePath;
+                    console.log(`Downloaded metadata: ${refreshResult.filePath}`);
                 } else {
-                    console.log(`Triggering job: ${backupConfig.jobId}`);
-                    const executionResponse = await triggerJobExecution(
-                        backupConfig.jobId,
-                        realm,
-                        backupConfig.ocapiVersion
-                    );
-
-                    if (executionResponse) {
-                        const executionId = executionResponse.id ||
-                            executionResponse.execution_id ||
-                            executionResponse.job_execution_id ||
-                            null;
-
-                        if (!executionId) {
-                            console.log('Could not determine job execution ID from response.');
-                        } else {
-                            console.log(`Job execution started. Execution ID: ${executionId}`);
-                            console.log('Polling job status...');
-
-                            const pollStart = Date.now();
-                            while (true) {
-                                const statusResponse = await getJobExecutionStatus(
-                                    backupConfig.jobId,
-                                    executionId,
-                                    realm,
-                                    backupConfig.ocapiVersion
-                                );
-
-                                if (!statusResponse) {
-                                    console.log('Failed to fetch job status.');
-                                    break;
-                                }
-
-                                const status = statusResponse.status ||
-                                    statusResponse.execution_status ||
-                                    statusResponse.exit_status ||
-                                    'UNKNOWN';
-
-                                const elapsedMs = Date.now() - pollStart;
-                                console.log(`Job status: ${status} (elapsed ${Math.round(elapsedMs / 1000)}s)`);
-
-                                if (status === 'OK' || status === 'FINISHED' || status === 'COMPLETED') {
-                                    break;
-                                }
-
-                                if (status === 'ERROR' || status === 'FAILED' || status === 'ABORTED') {
-                                    console.log(`Job failed with status: ${status}`);
-                                    break;
-                                }
-
-                                if (elapsedMs >= backupConfig.timeoutMs) {
-                                    console.log('Job polling timed out.');
-                                    break;
-                                }
-
-                                await new Promise(resolve => setTimeout(resolve, backupConfig.pollIntervalMs));
-                            }
-
-                            console.log('Downloading backup XML from WebDAV...');
-                            const outputPath = await downloadWebdavFile(
-                                webdavConfig,
-                                backupConfig.outputDir
-                            );
-
-                            if (outputPath) {
-                                metadataPath = outputPath;
-                                console.log(`Downloaded metadata: ${outputPath}`);
-                            } else {
-                                console.log('Failed to download metadata XML.');
-                            }
-                        }
-                    } else {
-                        console.log('Failed to trigger backup job.');
-                    }
+                    console.log(`Failed to refresh metadata: ${refreshResult.reason}`);
                 }
             }
 
@@ -968,11 +888,7 @@ export function registerDebugCommands(program) {
                 instanceType,
                 `${realm}_${objectType}_backup_${defaultDate}.json`
             );
-            const defaultMetadataPath = path.join(
-                process.cwd(),
-                'backup_downloads',
-                'meta_data_backup.xml'
-            );
+            const defaultMetadataPath = getMetadataBackupPathForRealm(realm, instanceType);
 
             const answers = await inquirer.prompt([
                 {
@@ -1012,93 +928,17 @@ export function registerDebugCommands(program) {
             const timer = startTimer();
             const realmAnswers = await inquirer.prompt(realmPrompt());
             const realm = realmAnswers.realm;
+            const instanceType = getInstanceType(realm);
 
-            const backupConfig = getBackupConfig();
-            const webdavConfig = getWebdavConfig(realm);
+            console.log('Triggering backup job and downloading metadata...');
+            const refreshResult = await refreshMetadataBackupForRealm(realm, instanceType);
 
-            if (!backupConfig.jobId) {
-                console.log('Missing backup.jobId in config.json.');
+            if (!refreshResult.ok) {
+                console.log(`Failed to refresh metadata: ${refreshResult.reason}`);
                 return;
             }
 
-            if (!webdavConfig.username || !webdavConfig.password) {
-                console.log('Missing WebDAV credentials in config.json.');
-                return;
-            }
-
-            console.log(`Triggering job: ${backupConfig.jobId}`);
-            const executionResponse = await triggerJobExecution(
-                backupConfig.jobId,
-                realm,
-                backupConfig.ocapiVersion
-            );
-
-            if (!executionResponse) {
-                console.log('Failed to trigger backup job.');
-                return;
-            }
-
-            const executionId = executionResponse.id ||
-                executionResponse.execution_id ||
-                executionResponse.job_execution_id ||
-                null;
-
-            if (!executionId) {
-                console.log('Could not determine job execution ID from response.');
-                return;
-            }
-
-            console.log(`Job execution started. Execution ID: ${executionId}`);
-            console.log('Polling job status...');
-
-            const pollStart = Date.now();
-            while (true) {
-                const statusResponse = await getJobExecutionStatus(
-                    backupConfig.jobId,
-                    executionId,
-                    realm,
-                    backupConfig.ocapiVersion
-                );
-
-                if (!statusResponse) {
-                    console.log('Failed to fetch job status.');
-                    return;
-                }
-
-                const status = statusResponse.status ||
-                    statusResponse.execution_status ||
-                    statusResponse.exit_status ||
-                    'UNKNOWN';
-
-                const elapsedMs = Date.now() - pollStart;
-                console.log(`Job status: ${status} (elapsed ${Math.round(elapsedMs / 1000)}s)`);
-
-                if (status === 'OK' || status === 'FINISHED' || status === 'COMPLETED') {
-                    break;
-                }
-
-                if (status === 'ERROR' || status === 'FAILED' || status === 'ABORTED') {
-                    console.log(`Job failed with status: ${status}`);
-                    return;
-                }
-
-                if (elapsedMs >= backupConfig.timeoutMs) {
-                    console.log('Job polling timed out.');
-                    return;
-                }
-
-                await new Promise(resolve => setTimeout(resolve, backupConfig.pollIntervalMs));
-            }
-
-            console.log('Downloading backup ZIP from WebDAV...');
-            const outputPath = await downloadWebdavFile(webdavConfig, backupConfig.outputDir);
-
-            if (!outputPath) {
-                console.log('Failed to download backup ZIP.');
-                return;
-            }
-
-            console.log(`Backup downloaded to: ${outputPath}`);
+            console.log(`Backup downloaded to: ${refreshResult.filePath}`);
             console.log(`✓ Total runtime: ${timer.stop()}`);
         });
 }
