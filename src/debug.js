@@ -59,6 +59,31 @@ function validateRealmsSelection(realmsToProcess) {
 }
 
 /**
+ * Find the latest usage CSV file for a realm
+ * @param {string} realm - Realm name
+ * @param {string} instanceType - Instance type
+ * @returns {string|null} Path to latest usage CSV or null
+ * @private
+ */
+function findLatestUsageCsv(realm, instanceType) {
+    const realmDir = path.join(process.cwd(), 'results', instanceType, realm);
+    if (!fs.existsSync(realmDir)) {
+        return null;
+    }
+
+    const candidates = fs.readdirSync(realmDir)
+        .filter(name => name.endsWith('_preferences_usage.csv'))
+        .map(name => path.join(realmDir, name));
+
+    if (candidates.length === 0) {
+        return null;
+    }
+
+    candidates.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+    return candidates[0];
+}
+
+/**
  * Register deprecated debug commands with the CLI program
  * @param {Command} program - Commander.js program instance
  */
@@ -586,14 +611,144 @@ export function registerDebugCommands(program) {
             console.log(`   Mandatory: ${originalAttribute.mandatory}`);
 
             console.log('\n💾 STEP 2: Create Backup File\n');
+            const usageFilePath = findLatestUsageCsv(realm, instanceType);
+            if (usageFilePath) {
+                console.log(`Using usage CSV: ${usageFilePath}`);
+            } else {
+                console.log('No usage CSV found. Site values will not be included.');
+            }
             const backupFilePath = await generateBackupFromDefinitions(
                 objectType,
                 [originalAttribute],
                 realm,
-                instanceType
+                instanceType,
+                usageFilePath
             );
 
             console.log(`✅ Backup created: ${backupFilePath}`);
+
+            let activeBackupPath = backupFilePath;
+            let metadataPath = path.join(
+                process.cwd(),
+                'backup_downloads',
+                'meta_data_backup.xml'
+            );
+
+            const refreshAnswers = await inquirer.prompt([
+                {
+                    type: 'confirm',
+                    name: 'refreshMetadata',
+                    message: 'Trigger backup job and download latest metadata file? (BM/WebDAV)',
+                    default: false
+                }
+            ]);
+
+            if (refreshAnswers.refreshMetadata) {
+                const backupConfig = getBackupConfig();
+                const webdavConfig = getWebdavConfig(realm);
+
+                if (!backupConfig.jobId) {
+                    console.log('Missing backup.jobId in config.json.');
+                } else if (!webdavConfig.username || !webdavConfig.password) {
+                    console.log('Missing WebDAV credentials in config.json.');
+                } else {
+                    console.log(`Triggering job: ${backupConfig.jobId}`);
+                    const executionResponse = await triggerJobExecution(
+                        backupConfig.jobId,
+                        realm,
+                        backupConfig.ocapiVersion
+                    );
+
+                    if (executionResponse) {
+                        const executionId = executionResponse.id ||
+                            executionResponse.execution_id ||
+                            executionResponse.job_execution_id ||
+                            null;
+
+                        if (!executionId) {
+                            console.log('Could not determine job execution ID from response.');
+                        } else {
+                            console.log(`Job execution started. Execution ID: ${executionId}`);
+                            console.log('Polling job status...');
+
+                            const pollStart = Date.now();
+                            while (true) {
+                                const statusResponse = await getJobExecutionStatus(
+                                    backupConfig.jobId,
+                                    executionId,
+                                    realm,
+                                    backupConfig.ocapiVersion
+                                );
+
+                                if (!statusResponse) {
+                                    console.log('Failed to fetch job status.');
+                                    break;
+                                }
+
+                                const status = statusResponse.status ||
+                                    statusResponse.execution_status ||
+                                    statusResponse.exit_status ||
+                                    'UNKNOWN';
+
+                                const elapsedMs = Date.now() - pollStart;
+                                console.log(`Job status: ${status} (elapsed ${Math.round(elapsedMs / 1000)}s)`);
+
+                                if (status === 'OK' || status === 'FINISHED' || status === 'COMPLETED') {
+                                    break;
+                                }
+
+                                if (status === 'ERROR' || status === 'FAILED' || status === 'ABORTED') {
+                                    console.log(`Job failed with status: ${status}`);
+                                    break;
+                                }
+
+                                if (elapsedMs >= backupConfig.timeoutMs) {
+                                    console.log('Job polling timed out.');
+                                    break;
+                                }
+
+                                await new Promise(resolve => setTimeout(resolve, backupConfig.pollIntervalMs));
+                            }
+
+                            console.log('Downloading backup XML from WebDAV...');
+                            const outputPath = await downloadWebdavFile(
+                                webdavConfig,
+                                backupConfig.outputDir
+                            );
+
+                            if (outputPath) {
+                                metadataPath = outputPath;
+                                console.log(`Downloaded metadata: ${outputPath}`);
+                            } else {
+                                console.log('Failed to download metadata XML.');
+                            }
+                        }
+                    } else {
+                        console.log('Failed to trigger backup job.');
+                    }
+                }
+            }
+
+            if (fs.existsSync(metadataPath)) {
+                console.log('\n📎 STEP 2b: Update Backup with Metadata Groups\n');
+                const updateResult = await updateBackupFileAttributeGroups(
+                    backupFilePath,
+                    metadataPath,
+                    objectType
+                );
+
+                if (updateResult) {
+                    activeBackupPath = updateResult.filePath;
+                    console.log(`✅ Backup updated: ${updateResult.filePath}`);
+                    console.log(`   Groups added: ${updateResult.groupCount}`);
+                    console.log(`   Attributes mapped: ${updateResult.attributeCount}`);
+                } else {
+                    console.log('⚠️  Failed to update backup with metadata groups.');
+                }
+            } else {
+                console.log('\n⚠️  Metadata file not found. Skipping group update.');
+                console.log(`   Expected: ${metadataPath}`);
+            }
 
             console.log('\n⚠️  STEP 3: Delete Attribute\n');
             const deleteConfirm = await inquirer.prompt([
@@ -652,7 +807,7 @@ export function registerDebugCommands(program) {
                 return;
             }
 
-            const backup = await loadBackupFile(backupFilePath);
+            const backup = await loadBackupFile(activeBackupPath);
             const attributeToRestore = backup.attributes.find(attr => attr.id === attributeId);
 
             if (!attributeToRestore) {

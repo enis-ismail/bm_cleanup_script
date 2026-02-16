@@ -369,16 +369,55 @@ export function findAllMatrixFiles() {
 export function parseCSVToNestedArray(filePath) {
     try {
         const fileContent = fs.readFileSync(filePath, 'utf-8');
-        const lines = fileContent.split('\n').filter(line => line.trim() !== '');
+        const rows = [];
+        let row = [];
+        let field = '';
+        let inQuotes = false;
 
-        return lines.map(line =>
-            line.split(',').map(value => {
-                const trimmed = value.trim();
-                return (trimmed.startsWith('"') && trimmed.endsWith('"'))
-                    ? trimmed.slice(1, -1)
-                    : trimmed;
-            })
-        );
+        for (let i = 0; i < fileContent.length; i++) {
+            const char = fileContent[i];
+            const next = fileContent[i + 1];
+
+            if (char === '"') {
+                if (inQuotes && next === '"') {
+                    field += '"';
+                    i += 1;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+                continue;
+            }
+
+            if (char === ',' && !inQuotes) {
+                row.push(field);
+                field = '';
+                continue;
+            }
+
+            if ((char === '\n' || char === '\r') && !inQuotes) {
+                if (char === '\r' && next === '\n') {
+                    i += 1;
+                }
+
+                if (field.length > 0 || row.length > 0) {
+                    row.push(field);
+                    rows.push(row);
+                }
+
+                row = [];
+                field = '';
+                continue;
+            }
+
+            field += char;
+        }
+
+        if (field.length > 0 || row.length > 0) {
+            row.push(field);
+            rows.push(row);
+        }
+
+        return rows.filter(r => r.some(value => String(value).trim() !== ''));
     } catch (error) {
         logError(`Failed to parse CSV file: ${error.message}`);
         return [];
