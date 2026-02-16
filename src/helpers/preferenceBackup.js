@@ -6,6 +6,8 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { getAttributeGroups } from '../api.js';
+import { parseCSVToNestedArray } from '../helpers.js';
+import { fetchAttributeGroupsFromMeta, getAttributeGroupsFromMetadataFile } from './siteXmlHelper.js';
 
 /**
  * Fields that are valid for creating new attribute definitions
@@ -54,9 +56,18 @@ function buildCreateSafeBody(attributeDefinition) {
  * @param {string} objectType - SFCC system object type (e.g., "SitePreferences")
  * @param {string} realm - Realm name
  * @param {Array<string>} attributeIds - List of attribute IDs to filter
+ * @param {string} [repoPath] - Optional local repository path for meta.xml parsing
  * @returns {Promise<Array>} Array of group objects with assigned attributes
  */
-async function fetchAttributeGroupAssignments(objectType, realm, attributeIds) {
+async function fetchAttributeGroupAssignments(objectType, realm, attributeIds, repoPath = null) {
+    // Use local meta.xml files if repository path provided
+    if (repoPath) {
+        console.log('Using local meta.xml files for group assignments...');
+        return await fetchAttributeGroupsFromMeta(repoPath, attributeIds);
+    }
+    
+    // Fall back to OCAPI
+    console.log('Fetching group assignments via OCAPI...');
     const allGroups = await getAttributeGroups(objectType, realm);
     const attributeIdSet = new Set(attributeIds);
     const groupAssignments = [];
@@ -80,25 +91,98 @@ async function fetchAttributeGroupAssignments(objectType, realm, attributeIds) {
 }
 
 /**
+ * Parse site values from usage CSV file
+ * @param {string} usageFilePath - Path to usage CSV file
+ * @param {Array<string>} attributeIds - Filter to only include these attribute IDs
+ * @returns {Object} Map of preferenceId -> { groupId, siteValues: { siteId: value } }
+ * @private
+ */
+function parseSiteValuesFromUsageCSV(usageFilePath, attributeIds) {
+    const siteValues = {};
+    const attributeIdSet = new Set(attributeIds);
+
+    try {
+        const csvData = parseCSVToNestedArray(usageFilePath);
+        if (csvData.length === 0) return siteValues;
+
+        const headers = csvData[0];
+        const groupIdIndex = headers.indexOf('groupId');
+        const preferenceIdIndex = headers.indexOf('preferenceId');
+
+        // Find all value_* columns
+        const siteValueColumns = headers
+            .map((header, index) => ({ header, index }))
+            .filter(({ header }) => header.startsWith('value_'))
+            .map(({ header, index }) => ({
+                siteId: header.replace('value_', ''),
+                index
+            }));
+
+        // Parse each row
+        for (let i = 1; i < csvData.length; i++) {
+            const row = csvData[i];
+            const csvPreferenceId = row[preferenceIdIndex];
+            const groupId = row[groupIdIndex];
+
+            // Normalize: CSV has "c_ThisTestAttribute" but attributeIds has "ThisTestAttribute"
+            // Strip "c_" prefix if present to match against attribute definition IDs
+            const normalizedId = csvPreferenceId.startsWith('c_')
+                ? csvPreferenceId.substring(2)
+                : csvPreferenceId;
+
+            if (!attributeIdSet.has(normalizedId)) continue;
+
+            const siteData = {};
+            for (const { siteId, index } of siteValueColumns) {
+                const value = row[index];
+                if (value && value.trim() !== '') {
+                    siteData[siteId] = value;
+                }
+            }
+
+            // Store using normalized ID (matching attribute definition ID)
+            siteValues[normalizedId] = {
+                groupId,
+                siteValues: siteData
+            };
+        }
+    } catch (error) {
+        console.warn(`Warning: Could not parse site values from ${usageFilePath}: ${error.message}`);
+    }
+
+    return siteValues;
+}
+
+/**
  * Generate backup file from already-fetched attribute definitions
  * Use this when you already have the full attribute definitions to avoid redundant API calls
  * @param {string} objectType - SFCC system object type (e.g., "SitePreferences")
  * @param {Array<Object>} attributeDefinitions - Already-fetched attribute definitions
  * @param {string} realm - Realm name for file naming
  * @param {string} instanceType - Instance type for directory structure
+ * @param {string} [usageFilePath] - Optional path to usage CSV for site values
+ * @param {string} [repoPath] - Optional local repository path for meta.xml parsing
  * @returns {Promise<string>} Path to generated backup file
  */
-export async function generateBackupFromDefinitions(objectType, attributeDefinitions, realm, instanceType) {
+export async function generateBackupFromDefinitions(objectType, attributeDefinitions, realm, instanceType, usageFilePath = null, repoPath = null) {
     console.log(`\nGenerating backup file from ${attributeDefinitions.length} attribute definitions...`);
 
     // Transform to create-safe bodies
     const createSafeAttributes = attributeDefinitions.map(def => buildCreateSafeBody(def));
     const attributeIds = attributeDefinitions.map(def => def.id);
 
-    // Fetch attribute group assignments
-    console.log('Fetching attribute group assignments...');
-    const groupAssignments = await fetchAttributeGroupAssignments(objectType, realm, attributeIds);
+    // Fetch attribute group assignments (from meta.xml if repo path provided, otherwise OCAPI)
+    const groupAssignments = await fetchAttributeGroupAssignments(objectType, realm, attributeIds, repoPath);
     console.log(`Found ${groupAssignments.length} group(s) with assigned attributes\n`);
+
+    // Parse site values from usage CSV if provided
+    let siteValues = {};
+    if (usageFilePath) {
+        console.log('Extracting site values from usage CSV...');
+        siteValues = parseSiteValuesFromUsageCSV(usageFilePath, attributeIds);
+        const prefsWithValues = Object.keys(siteValues).length;
+        console.log(`Found site values for ${prefsWithValues} preference(s)\n`);
+    }
 
     // Build backup structure
     const backup = {
@@ -108,7 +192,8 @@ export async function generateBackupFromDefinitions(objectType, attributeDefinit
         object_type: objectType,
         total_attributes: createSafeAttributes.length,
         attributes: createSafeAttributes,
-        attribute_groups: groupAssignments
+        attribute_groups: groupAssignments,
+        site_values: siteValues
     };
 
     // Ensure backup directory exists
@@ -120,6 +205,14 @@ export async function generateBackupFromDefinitions(objectType, attributeDefinit
     const filename = `${realm}_${objectType}_backup_${timestamp}.json`;
     const filePath = path.join(backupDir, filename);
 
+    try {
+        await fs.access(filePath);
+        console.log(`✓ Backup already exists: ${filePath}`);
+        return filePath;
+    } catch {
+        // File does not exist; proceed
+    }
+
     await fs.writeFile(filePath, JSON.stringify(backup, null, 2), 'utf-8');
 
     console.log(`✓ Backup file created: ${filePath}`);
@@ -127,6 +220,52 @@ export async function generateBackupFromDefinitions(objectType, attributeDefinit
     console.log(`  Total groups included: ${groupAssignments.length}\n`);
 
     return filePath;
+}
+
+/**
+ * Update a backup file with attribute group assignments from metadata XML
+ * @param {string} backupFilePath - Path to backup JSON
+ * @param {string} metadataFilePath - Path to meta_data_backup.xml
+ * @param {string} [objectTypeOverride] - Optional object type override
+ * @returns {Promise<Object|null>} Summary of updates or null on failure
+ */
+export async function updateBackupFileAttributeGroups(backupFilePath, metadataFilePath, objectTypeOverride = null) {
+    try {
+        const backup = await loadBackupFile(backupFilePath);
+        const objectType = objectTypeOverride || backup.object_type || 'SitePreferences';
+        const attributeIds = backup.attributes.map(attr => attr.id);
+        const attributeIdSet = new Set(attributeIds);
+
+        const groups = await getAttributeGroupsFromMetadataFile(metadataFilePath, objectType);
+        const filteredGroups = groups
+            .map(group => {
+                const matched = group.attributes.filter(id => attributeIdSet.has(id));
+                if (matched.length === 0) {
+                    return null;
+                }
+                return {
+                    group_id: group.group_id,
+                    group_display_name: group.group_display_name,
+                    attributes: matched
+                };
+            })
+            .filter(Boolean);
+
+        backup.attribute_groups = filteredGroups;
+
+        await fs.writeFile(backupFilePath, JSON.stringify(backup, null, 2), 'utf-8');
+
+        const attributeCount = filteredGroups.reduce((sum, group) => sum + group.attributes.length, 0);
+
+        return {
+            filePath: backupFilePath,
+            groupCount: filteredGroups.length,
+            attributeCount
+        };
+    } catch (error) {
+        console.error(`Failed to update backup file: ${error.message}`);
+        return null;
+    }
 }
 
 /**

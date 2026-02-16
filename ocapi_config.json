@@ -32,7 +32,7 @@
     },
     {
       "resource_id": "/system_object_definitions/*/attribute_groups/*/attribute_definitions/*",
-      "methods": ["delete"],
+      "methods": ["delete", "put"],
       "read_attributes": "()",
       "write_attributes": "()"
     },

@@ -7,9 +7,9 @@
     "default": "default name",
     "es": "nombre"
   },
-  "id": "testAttribute",
+  "id": "ThisTestAttribute",
   "key": false,
-  "link": "https://bcwr-080.sandbox.sfcc.com/s/-/dw/data/v25_6/system_object_definitions/SitePreferences/attribute_definitions/testAttribute",
+  "link": "https://bcwr-080.sandbox.sfcc.com/s/-/dw/data/v25_6/system_object_definitions/SitePreferences/attribute_definitions/ThisTestAttribute",
   "localizable": false,
   "mandatory": false,
   "queryable": true,

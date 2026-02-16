@@ -214,6 +214,7 @@ export function writeUsageCSV(realmDir, realm, instanceType, usageRows, preferen
     const csvFile = path.join(realmDir, `${realm}_${instanceType}_preferences_usage.csv`);
 
     writeCSVFile(csvFile, csv);
+    return csvFile; // Return file path for backup generation
 }
 
 /**

@@ -29,7 +29,7 @@ import { writeUsageCSV, writeMatrixCSV } from './csv.js';
 import { buildGroupSummaries, filterSitesByScope } from './util.js';
 import { processBatch, withLoadShedding } from './batch.js';
 import { getApiConfig } from './constants.js';
-import { checkBackupFileAge } from './preferenceBackup.js';
+import { checkBackupFileAge, generateBackupFromDefinitions } from './preferenceBackup.js';
 
 /**
  * Check backup file status for multiple realms
@@ -244,16 +244,32 @@ async function buildPreferenceMatrices(data, realm, params) {
 }
 
 /**
- * Export preference analysis results to CSV files
+ * Export preference analysis results to CSV files and generate backup
  * @param {string} realmDir - Realm directory path
  * @param {string} realm - Realm name
  * @param {Object} results - Results object with usageRows, allSiteIds, preferenceMatrix
  * @param {string} instanceType - Instance type
+ * @param {string} objectType - Object type
+ * @param {Array} preferenceDefinitions - Full attribute definitions for backup
+ * @returns {Promise<string>} Path to usage CSV file
  * @private
  */
-function exportResults(realmDir, realm, results, instanceType) {
-    writeUsageCSV(realmDir, realm, instanceType, results.usageRows, results.preferenceMeta);
+async function exportResults(realmDir, realm, results, instanceType, objectType, preferenceDefinitions) {
+    const usageFilePath = writeUsageCSV(realmDir, realm, instanceType, results.usageRows, results.preferenceMeta);
     writeMatrixCSV(realmDir, realm, instanceType, results.preferenceMatrix, results.allSiteIds);
+    
+    // Generate backup file with site values from usage CSV
+    if (preferenceDefinitions && preferenceDefinitions.length > 0) {
+        await generateBackupFromDefinitions(
+            objectType,
+            preferenceDefinitions,
+            realm,
+            instanceType,
+            usageFilePath
+        );
+    }
+    
+    return usageFilePath;
 }
 
 /**
@@ -265,6 +281,7 @@ function exportResults(realmDir, realm, results, instanceType) {
  * @param {string} params.scope - Scope (all/single)
  * @param {string} params.siteId - Site ID (if scope is single)
  * @param {boolean} params.includeDefaults - Include default values
+ * @param {string} [params.repositoryPath] - Optional local repository path for meta.xml parsing
  * @returns {Promise<Object>} Object with realmDir and success flag
  */
 export async function executePreferenceSummarization(params) {
@@ -289,7 +306,15 @@ export async function executePreferenceSummarization(params) {
     };
 
     const results = await buildPreferenceMatrices(processData, params.realm, params);
-    exportResults(realmDir, params.realm, results, params.instanceType);
+    await exportResults(
+        realmDir,
+        params.realm,
+        results,
+        params.instanceType,
+        params.objectType,
+        apiData.preferenceDefinitions,
+        params.repositoryPath
+    );
 
     logStatusClear();
     return { realmDir, success: true };

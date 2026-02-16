@@ -1,4 +1,7 @@
 import axios from 'axios';
+import fs from 'fs';
+import fsPromises from 'fs/promises';
+import path from 'path';
 import { processBatch, withLoadShedding } from './helpers/batch.js';
 import { getSandboxConfig } from './helpers.js';
 import { getApiConfig } from './helpers/constants.js';
@@ -101,6 +104,95 @@ export async function getOAuthToken(sandbox) {
             }
         }
     );
+}
+
+// ============================================================================
+// JOB EXECUTION
+// Trigger and poll SFCC job executions
+// ============================================================================
+
+/**
+ * Trigger a job execution in Business Manager
+ * @param {string} jobId - Job ID
+ * @param {string} realm - Realm name
+ * @param {string} ocapiVersion - OCAPI version (e.g., "v25_6")
+ * @returns {Promise<Object|null>} Job execution response
+ */
+export async function triggerJobExecution(jobId, realm, ocapiVersion = 'v25_6') {
+    try {
+        const sandbox = getSandboxConfig(realm);
+        const token = await getOAuthToken(sandbox);
+        const url = `https://${sandbox.hostname}/s/-/dw/data/${ocapiVersion}/jobs/${encodeURIComponent(jobId)}/executions`;
+        const headers = buildApiHeaders(token);
+        const response = await axios.post(url, {}, { headers });
+        return response.data;
+    } catch (error) {
+        logError(`Failed to trigger job ${jobId}: ${error.response?.data?.message || error.message}`);
+        return null;
+    }
+}
+
+/**
+ * Get status of a job execution
+ * @param {string} jobId - Job ID
+ * @param {string} executionId - Job execution ID
+ * @param {string} realm - Realm name
+ * @param {string} ocapiVersion - OCAPI version (e.g., "v25_6")
+ * @returns {Promise<Object|null>} Job execution status
+ */
+export async function getJobExecutionStatus(jobId, executionId, realm, ocapiVersion = 'v25_6') {
+    try {
+        const sandbox = getSandboxConfig(realm);
+        const token = await getOAuthToken(sandbox);
+        const url = `https://${sandbox.hostname}/s/-/dw/data/${ocapiVersion}/jobs/${encodeURIComponent(jobId)}/executions/${encodeURIComponent(executionId)}`;
+        const headers = buildApiHeaders(token);
+        const response = await axios.get(url, { headers });
+        return response.data;
+    } catch (error) {
+        logError(`Failed to fetch job status for ${jobId}: ${error.response?.data?.message || error.message}`);
+        return null;
+    }
+}
+
+/**
+ * Download file from WebDAV
+ * @param {Object} webdavConfig - WebDAV config
+ * @param {string} outputDir - Local output directory
+ * @returns {Promise<string|null>} Local file path
+ */
+export async function downloadWebdavFile(webdavConfig, outputDir) {
+    try {
+        const { hostname, username, password, filePath } = webdavConfig;
+        if (!hostname || !filePath) {
+            throw new Error('WebDAV hostname and file path are required');
+        }
+        if (!username || !password) {
+            throw new Error('WebDAV username and password are required');
+        }
+
+        const url = `https://${hostname}${filePath}`;
+        const fileName = path.basename(filePath);
+        const outputPath = path.join(outputDir, fileName);
+
+        await fsPromises.mkdir(outputDir, { recursive: true });
+
+        const response = await axios.get(url, {
+            auth: { username, password },
+            responseType: 'stream'
+        });
+
+        await new Promise((resolve, reject) => {
+            const writer = fs.createWriteStream(outputPath);
+            response.data.pipe(writer);
+            writer.on('finish', resolve);
+            writer.on('error', reject);
+        });
+
+        return outputPath;
+    } catch (error) {
+        logError(`Failed to download WebDAV file: ${error.message}`);
+        return null;
+    }
 }
 
 // ============================================================================
@@ -345,6 +437,53 @@ export async function getAttributeGroups(objectType, realm) {
     } catch (error) {
         logError(`Failed to fetch attribute groups: ${error.response?.data?.message || error.message}`);
         return [];
+    }
+}
+
+/**
+ * Fetch a single attribute group by ID with full details including attribute_definitions
+ * @param {string} objectType - SFCC system object type (e.g., "SitePreferences")
+ * @param {string} groupId - Attribute group ID to retrieve
+ * @param {string} realm - Realm name
+ * @returns {Promise<Object|null>} Attribute group object with full details
+ */
+export async function getAttributeGroupById(objectType, groupId, realm) {
+    try {
+        const sandbox = getSandboxConfig(realm);
+        const token = await getOAuthToken(sandbox);
+        const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_groups/${encodeURIComponent(groupId)}/attribute_definitions/*`;
+        const headers = buildApiHeaders(token);
+        const response = await axios.get(url, { headers });
+        return response.data;
+    } catch (error) {
+        const msg = error.response?.data?.message || error.message;
+        logError(`Failed to fetch attribute group ${groupId}: ${msg}`);
+        console.error('Full error response:', error.response?.data || error);
+        return null;
+    }
+}
+
+/**
+ * Assign an attribute definition to an attribute group
+ * @param {string} objectType - SFCC system object type (e.g., "SitePreferences")
+ * @param {string} groupId - Attribute group ID to assign to
+ * @param {string} attributeId - Attribute definition ID to assign
+ * @param {string} realm - Realm name
+ * @returns {Promise<Object|null>} Assignment response or null on failure
+ */
+export async function assignAttributeToGroup(objectType, groupId, attributeId, realm) {
+    try {
+        const sandbox = getSandboxConfig(realm);
+        const token = await getOAuthToken(sandbox);
+        const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_groups/${encodeURIComponent(groupId)}/attribute_definitions/${encodeURIComponent(attributeId)}`;
+        const headers = buildApiHeaders(token);
+        const response = await axios.put(url, {}, { headers });
+        return response.data;
+    } catch (error) {
+        const msg = error.response?.data?.message || error.message;
+        logError(`Failed to assign attribute ${attributeId} to group ${groupId}: ${msg}`);
+        console.error('Full error response:', error.response?.data || error);
+        return null;
     }
 }
 

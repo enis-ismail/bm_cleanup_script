@@ -8,7 +8,9 @@ import {
     removeRealmFromConfig,
     findAllMatrixFiles,
     getAvailableRealms,
-    getInstanceType
+    getInstanceType,
+    getBackupConfig,
+    getWebdavConfig
 } from './helpers.js';
 import { startTimer } from './helpers/timer.js';
 import { getSiblingRepositories } from './helpers/util.js';
@@ -54,6 +56,11 @@ import {
     generateDeletionSummary
 } from './helpers/preferenceRemoval.js';
 import { loadBackupFile } from './helpers/preferenceBackup.js';
+import {
+    triggerJobExecution,
+    getJobExecutionStatus,
+    downloadWebdavFile
+} from './api.js';
 
 // ============================================================================
 // CLI ENTRYPOINT
@@ -196,7 +203,8 @@ program
                 scope,
                 siteId,
                 includeDefaults,
-                useCachedBackup
+                useCachedBackup,
+                repositoryPath
             });
         }
 
@@ -376,6 +384,106 @@ program
 
         console.log('\nNote: Actual preference removal will be implemented in a future step.\n');
 
+        console.log(`✓ Total runtime: ${timer.stop()}`);
+    });
+
+program
+    .command('backup-site-preferences')
+    .description('Trigger site preferences backup job and download the ZIP from WebDAV')
+    .action(async () => {
+        const timer = startTimer();
+        const realmAnswers = await inquirer.prompt(realmPrompt());
+        const realm = realmAnswers.realm;
+
+        const backupConfig = getBackupConfig();
+        const webdavConfig = getWebdavConfig(realm);
+
+        if (!backupConfig.jobId) {
+            console.log('Missing backup.jobId in config.json.');
+            return;
+        }
+
+        if (!webdavConfig.username || !webdavConfig.password) {
+            console.log('Missing WebDAV credentials in config.json for this realm.');
+            return;
+        }
+
+        // Step 1: Trigger the backup job
+        console.log(`Triggering job: ${backupConfig.jobId}`);
+        const executionResponse = await triggerJobExecution(
+            backupConfig.jobId,
+            realm,
+            backupConfig.ocapiVersion
+        );
+
+        if (!executionResponse) {
+            console.log('Failed to trigger backup job.');
+            return;
+        }
+
+        const executionId = executionResponse.id ||
+            executionResponse.execution_id ||
+            executionResponse.job_execution_id ||
+            null;
+
+        if (!executionId) {
+            console.log('Could not determine job execution ID from response.');
+            return;
+        }
+
+        // Step 2: Poll until job completes
+        console.log(`Job execution started. Execution ID: ${executionId}`);
+        console.log('Polling job status...');
+
+        const pollStart = Date.now();
+        while (true) {
+            const statusResponse = await getJobExecutionStatus(
+                backupConfig.jobId,
+                executionId,
+                realm,
+                backupConfig.ocapiVersion
+            );
+
+            if (!statusResponse) {
+                console.log('Failed to fetch job status.');
+                return;
+            }
+
+            const status = statusResponse.status ||
+                statusResponse.execution_status ||
+                statusResponse.exit_status ||
+                'UNKNOWN';
+
+            const elapsedMs = Date.now() - pollStart;
+            console.log(`Job status: ${status} (elapsed ${Math.round(elapsedMs / 1000)}s)`);
+
+            if (status === 'OK' || status === 'FINISHED' || status === 'COMPLETED') {
+                break;
+            }
+
+            if (status === 'ERROR' || status === 'FAILED' || status === 'ABORTED') {
+                console.log(`Job failed with status: ${status}`);
+                return;
+            }
+
+            if (elapsedMs >= backupConfig.timeoutMs) {
+                console.log('Job polling timed out.');
+                return;
+            }
+
+            await new Promise(resolve => setTimeout(resolve, backupConfig.pollIntervalMs));
+        }
+
+        // Step 3: Download the ZIP from WebDAV
+        console.log('Downloading backup ZIP from WebDAV...');
+        const outputPath = await downloadWebdavFile(webdavConfig, backupConfig.outputDir);
+
+        if (!outputPath) {
+            console.log('Failed to download backup ZIP.');
+            return;
+        }
+
+        console.log(`Backup downloaded to: ${outputPath}`);
         console.log(`✓ Total runtime: ${timer.stop()}`);
     });
 

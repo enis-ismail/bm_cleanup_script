@@ -19,5 +19,15 @@
       "siteTemplatesPath": "sites/site_template_production",
       "instanceType": "production"
     }
-  ]
+  ],
+  "backup": {
+    "jobId": "site preferecnes - BACKUP",
+    "pollIntervalMs": 5000,
+    "timeoutMs": 600000,
+    "ocapiVersion": "v25_6",
+    "webdavUsername": "bm-username",
+    "webdavPassword": "bm-password",
+    "webdavFilePath": "/on/demandware.servlet/webdav/Sites/Impex/src/meta_data_backup.xml",
+    "outputDir": "./backup_downloads"
+  }
 }

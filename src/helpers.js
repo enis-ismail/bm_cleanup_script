@@ -127,6 +127,47 @@ export function getValidationConfig() {
 }
 
 /**
+ * Get backup job configuration settings
+ * @returns {Object} Backup configuration
+ */
+export function getBackupConfig() {
+    const config = loadConfig();
+    const backup = config.backup || {};
+
+    return {
+        jobId: backup.jobId || 'site_preferences - BACKUP',
+        pollIntervalMs: backup.pollIntervalMs || 5000,
+        timeoutMs: backup.timeoutMs || 10 * 60 * 1000,
+        ocapiVersion: backup.ocapiVersion || 'v25_6',
+        webdavFilePath: backup.webdavFilePath || '/on/demandware.servlet/webdav/Sites/Impex/src/meta_data_backup.zip',
+        outputDir: backup.outputDir || './backup_downloads'
+    };
+}
+
+/**
+ * Get WebDAV configuration for a realm
+ * @param {string} realmName - Name of the realm
+ * @returns {Object} WebDAV configuration
+ */
+export function getWebdavConfig(realmName) {
+    const config = loadConfig();
+    const realm = findRealmInConfig(realmName, config);
+
+    if (!realm) {
+        throw new Error(`Realm '${realmName}' not found in config.json`);
+    }
+
+    const backup = config.backup || {};
+
+    return {
+        hostname: realm.hostname,
+        username: backup.webdavUsername || '',
+        password: backup.webdavPassword || '',
+        filePath: backup.webdavFilePath || ''
+    };
+}
+
+/**
  * Extract realm name from a hostname URL
  * See .github/instructions/function-reference.md for detailed documentation
  * @param {string} hostname - Full hostname URL
