@@ -100,19 +100,64 @@ OAuth credentials (Client ID and Client Secret) must be configured for each real
 
 ## Output Files
 
-When running commands that export data, files are organized in a `results` folder by realm:
+Files are organized by realm and instance type:
 
+### Backup Files
+```
+backup/
+├── development/
+│   ├── APAC_SitePreferences_backup_2026-02-12.json
+│   ├── EU05_SitePreferences_backup_2026-02-12.json
+│   └── ...
+├── sandbox/
+│   └── bcwr-080_SitePreferences_backup_2026-02-16.json
+└── staging/
+    └── ...
+```
+
+### Backup Downloads (Metadata XML)
+```
+backup_downloads/
+└── sandbox_bcwr-080.dx.commercecloud.salesforce.com_meta_data_backup.xml
+```
+
+### Results Files
 ```
 results/
-└── your-realm-name/
-    ├── active_site_cartridges_list.csv       # Site IDs and their cartridge paths
-    ├── sandbox_preferences_summary.json      # Summary of all preference groups
-    ├── sandbox_preferences_usage.csv         # Preferences × Sites matrix (X marks explicit values)
-    ├── sandbox_preferences_matrix.csv        # All preferences with their attributes
-    └── site_preferences.csv                  # Detailed site preference values
+├── development/
+│   ├── ALL_REALMS/
+│   │   ├── ALL_REALMS_cartridge_comparison.txt
+│   │   ├── ALL_REALMS_unused_preferences.txt
+│   │   ├── development_cartridge_preferences.txt
+│   │   ├── development_preference_usage.txt
+│   │   ├── development_preferences_for_deletion.txt  ← DELETION LIST
+│   │   └── development_unused_preferences.txt
+│   ├── APAC/
+│   │   ├── APAC_active_site_cartridges_list.csv
+│   │   ├── APAC_development_preferences_matrix.csv
+│   │   ├── APAC_development_preferences_usage.csv
+│   │   ├── APAC_unused_preferences.txt
+│   │   └── APAC_used_preferences.txt
+│   ├── EU05/
+│   │   └── ...
+│   └── ...
+├── sandbox/
+│   ├── ALL_REALMS/
+│   │   └── sandbox_preferences_for_deletion.txt  ← DELETION LIST
+│   └── bcwr-080/
+│       └── ...
+└── staging/
+    └── ...
 ```
 
-Each realm creates its own folder within `results/`, allowing you to work with multiple sandboxes simultaneously. The `results` folder is created automatically when you run export commands.
+**Key Files:**
+- `*_preferences_matrix.csv` - Matrix showing which sites use which preferences ("X" marks)
+- `*_preferences_usage.csv` - Actual preference values per site
+- `*_unused_preferences.txt` - Preferences with no values anywhere
+- `*_cartridge_preferences.txt` - Which cartridges reference which preferences
+- `*_preferences_for_deletion.txt` - **Safe to delete** (unused + not in code)
+
+Each realm creates its own folder within `results/`, organized by instance type.
 
 ## API Capabilities
 
@@ -171,28 +216,93 @@ node src/main.js remove-realm
 Remove a realm from config.json.
 
 ### Core Commands
+
+#### analyze-preferences
+```bash
+node src/main.js analyze-preferences
+```
+**Full preference analysis workflow** (fetch → summarize → analyze → check usage):
+
+**Step 1:** Configure scope and options
+- Select sibling repository (cartridge folder to scan)
+- Select realm(s): single, by instance type, or ALL
+- Configure: objectType, scope (ALL_SITES/specific site), includeDefaults
+- Option to reuse existing backups (<14 days old)
+
+**Step 2:** Fetch and summarize preferences
+- Fetches all sites and attribute groups via OCAPI
+- Gets site preferences for each site/group combination
+- Optionally fetches detailed definitions (with default values)
+- **Creates backup:** `backup/{instanceType}/{realm}_SitePreferences_backup_{date}.json`
+- Generates matrix CSV ("X" marks where preference has value)
+- Generates usage CSV (actual values per site)
+- Identifies unused preferences (no values + no defaults)
+
+**Step 3:** Check preference usage in cartridge code
+- Scans repository cartridges for ALL active preferences
+- Excludes: sites folder, .git, node_modules, deprecated cartridges
+- Records which cartridges reference each preference
+
+**Step 4:** Generate deletion candidates
+A preference is marked for deletion if:
+- No site has a value (no "X" in matrix)
+- No default value exists
+- Not referenced in any active cartridge code
+- OR only referenced in deprecated cartridges
+
+**Output Files:**
+- `{instance}_unused_preferences.txt` - Preferences with no cartridge usage
+- `{instance}_cartridge_preferences.txt` - Mapping of preferences → cartridges
+- `{instance}_preferences_for_deletion.txt` - **THE DELETION LIST**
+
+#### remove-preferences
+```bash
+node src/main.js remove-preferences
+```
+**Remove preferences marked for deletion** from site preferences:
+
+**Step 1:** Load deletion list
+- Select instance type (development/staging/production)
+- Load `{instance}_preferences_for_deletion.txt`
+- If missing, offers to run analyze-preferences first
+
+**Step 2:** Review and confirm
+- Opens deletion file in VS Code for manual review
+- Shows summary (total count, top prefixes being removed)
+- Requires confirmation before proceeding
+
+**Step 3:** Verify backups (per realm)
+- Checks for backup file from analyze step
+- Optional: Trigger backup job on SFCC + download metadata
+- Updates backup file with attribute group metadata from XML
+
+**Step 4:** Remove preferences (⚠️ NOT YET IMPLEMENTED)
+- Will call OCAPI to remove preferences
+- Logs success/failure for each preference
+- Keeps terminal open for monitoring
+
+#### backup-site-preferences
+```bash
+node src/main.js backup-site-preferences
+```
+Trigger site preferences backup job on SFCC and download the ZIP from WebDAV.
+
+#### list-sites
 ```bash
 node src/main.js list-sites
 ```
-Lists all sites and exports cartridge paths to CSV.
+List all sites and export cartridge paths to CSV.
 
-```bash
-node src/main.js get-preferences
-```
-Retrieves site preferences from OCAPI.
+### Work-in-Progress Commands
 
+#### validate-cartridges-all
 ```bash
-node src/main.js summarize-preferences
+node src/main.js validate-cartridges-all
 ```
-Builds a comprehensive export of preference groups, preferences across all sites, and site-specific preference values into CSV files.
+[WIP] Validate cartridges across ALL configured realms in parallel.
 
-### Testing Commands
+#### validate-site-xml
 ```bash
-node src/main.js test-preference-search
+node src/main.js validate-site-xml
 ```
-Tests the preference search endpoint with a specific preference group.
-
-```bash
-node src/main.js test-site-preferences-group
-```
-Tests retrieving site-specific preference values for a group.
+[WIP] Validate that site.xml files match live SFCC cartridge paths.
