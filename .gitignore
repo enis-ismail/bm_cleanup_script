@@ -7,11 +7,8 @@ config.json
 !config.example.json
 
 # Generated realm folders with outputs
-*/
-!src/
-!src/helpers/
-bcwr-080/
-test-runs/
+/results
+/backup*
 
 # Environment files
 .env

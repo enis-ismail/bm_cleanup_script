@@ -91,7 +91,35 @@ Copy the `resources` array from [ocapi_config.json](ocapi_config.json) and add t
 | `/system_object_definitions/*/attribute_definitions/*` | GET, DELETE, PUT, PATCH | Read/write individual attributes |
 | `/system_object_definitions/*/attribute_groups` | GET | List attribute groups |
 | `/system_object_definitions/*/attribute_groups/*` | GET | Get group details |
+| `/system_object_definitions/*/attribute_groups/*/attribute_definitions/*` | PUT | Assign attributes to groups |
 | `/sites/*/site_preferences/preference_groups/*/*` | GET, PATCH | Read/write site preferences |
+
+**Technical Endpoint Reference:**
+
+For developers implementing additional integrations, here are the exact API calls made by this tool:
+
+**Authentication:**
+- `POST https://account.demandware.com/dwsso/oauth2/access_token` (obtain OAuth bearer token)
+
+**analyze-preferences Command:**
+1. `GET https://{hostname}/s/-/dw/data/v19_5/sites` (list all sites)
+2. `GET https://{hostname}/s/-/dw/data/v19_5/sites/{siteId}` (get site details)
+3. `GET https://{hostname}/s/-/dw/data/v19_5/system_object_definitions/SitePreferences/attribute_definitions` (paginated: `?start=0&count=200`)
+4. `GET https://{hostname}/s/-/dw/data/v25_6/system_object_definitions/SitePreferences/attribute_definitions/{id}` (individual attrs for defaults)
+5. `GET https://{hostname}/s/-/dw/data/v25_6/system_object_definitions/SitePreferences/attribute_groups`
+6. `GET https://{hostname}/s/-/dw/data/v25_6/system_object_definitions/SitePreferences/attribute_groups/{groupId}/attribute_definitions/*`
+7. `GET https://{hostname}/s/-/dw/data/v25_6/sites/{siteId}/site_preferences/preference_groups/{groupId}/{instanceType}` (per site × group)
+
+**remove-preferences Command (extends analyze-preferences):**
+8. `POST https://{hostname}/s/-/dw/job/v24_5/jobs/{jobId}/executions` (trigger backup job)
+9. `GET https://{hostname}/s/-/dw/job/v24_5/jobs/{jobId}/executions/{executionId}` (poll status)
+10. WebDAV download: `GET https://{webdavUrl}/{path}` (download metadata XML backup)
+11. `DELETE https://{hostname}/s/-/dw/data/v25_6/system_object_definitions/SitePreferences/attribute_definitions/{preferenceId}` (delete preferences)
+
+**restore-preferences Command (optional restore from backup):**
+12. `PUT https://{hostname}/s/-/dw/data/v25_6/system_object_definitions/SitePreferences/attribute_definitions/{preferenceId}` (restore attribute definition)
+13. `PUT https://{hostname}/s/-/dw/data/v25_6/system_object_definitions/SitePreferences/attribute_groups/{groupId}/attribute_definitions/{preferenceId}` (assign to group)
+14. `PATCH https://{hostname}/s/-/dw/data/v25_6/sites/{siteId}/site_preferences/preference_groups/{groupId}/{instanceType}` (restore site values)
 
 **Attribute Permissions:**
 - Set `read_attributes` to `(**)` (read all attributes)
@@ -105,6 +133,71 @@ Administration
       → Client Applications
         → [Your Client]
           → Resources (add here)
+```
+
+**OCAPI Resources JSON for Business Manager:**
+
+Copy-paste this into your Business Manager OCAPI Data API configuration:
+
+```json
+{
+  "resources": [
+    {
+      "resource_id": "/sites",
+      "methods": ["get"],
+      "read_attributes": ["(**)"  ],
+      "write_attributes": ["(**)"  ]
+    },
+    {
+      "resource_id": "/sites/*",
+      "methods": ["get"],
+      "read_attributes": ["(**)"  ],
+      "write_attributes": ["(**)"  ]
+    },
+    {
+      "resource_id": "/system_object_definitions/*",
+      "methods": ["get"],
+      "read_attributes": ["(**)"  ],
+      "write_attributes": ["(**)"  ]
+    },
+    {
+      "resource_id": "/system_object_definitions/*/attribute_definitions",
+      "methods": ["get"],
+      "read_attributes": ["(**)"  ],
+      "write_attributes": ["(**)"  ]
+    },
+    {
+      "resource_id": "/system_object_definitions/*/attribute_definitions/*",
+      "methods": ["get", "delete", "put", "patch"],
+      "read_attributes": ["(**)"  ],
+      "write_attributes": ["(**)"  ]
+    },
+    {
+      "resource_id": "/system_object_definitions/*/attribute_groups",
+      "methods": ["get"],
+      "read_attributes": ["(**)"  ],
+      "write_attributes": ["(**)"  ]
+    },
+    {
+      "resource_id": "/system_object_definitions/*/attribute_groups/*",
+      "methods": ["get"],
+      "read_attributes": ["(**)"  ],
+      "write_attributes": ["(**)"  ]
+    },
+    {
+      "resource_id": "/system_object_definitions/*/attribute_groups/*/attribute_definitions/*",
+      "methods": ["put"],
+      "read_attributes": ["(**)"  ],
+      "write_attributes": ["(**)"  ]
+    },
+    {
+      "resource_id": "/sites/*/site_preferences/preference_groups/*/*",
+      "methods": ["get", "patch"],
+      "read_attributes": ["(**)"  ],
+      "write_attributes": ["(**)"  ]
+    }
+  ]
+}
 ```
 
 ---
