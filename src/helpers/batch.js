@@ -3,7 +3,7 @@
  * Handles parallel batch processing with progress tracking and rate limiting
  */
 
-/* eslint-disable no-undef */
+
 
 /**
  * Process a single item with automatic retry and exponential backoff
@@ -74,14 +74,14 @@ export async function processBatch(
 
     for (let i = 0; i < items.length; i += batchSize) {
         const batch = items.slice(i, i + batchSize);
-        
+
         // Process each item in batch with retry logic
         const batchPromises = batch.map(item =>
             processItemWithRetry(item, processFn, maxRetries, initialDelay)
         );
-        
+
         const batchResults = await Promise.allSettled(batchPromises);
-        
+
         // Collect successful results
         for (const result of batchResults) {
             if (result.status === 'fulfilled' && result.value !== null) {

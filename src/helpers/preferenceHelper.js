@@ -1,4 +1,5 @@
 import path from 'path';
+import fs from 'fs';
 import {
     parseCSVToNestedArray,
     findUnusedPreferences,
@@ -29,7 +30,9 @@ import { writeUsageCSV, writeMatrixCSV } from './csv.js';
 import { buildGroupSummaries, filterSitesByScope } from './util.js';
 import { processBatch, withLoadShedding } from './batch.js';
 import { getApiConfig } from './constants.js';
-import { checkBackupFileAge, generateBackupFromDefinitions } from './preferenceBackup.js';
+import { checkBackupFileAge } from './preferenceBackup.js';
+import { generate as generateSitePreferencesBackup } from './generateSitePreferencesJSON.js';
+import { getMetadataBackupPathForRealm } from './backupJob.js';
 
 /**
  * Check backup file status for multiple realms
@@ -44,7 +47,7 @@ export async function checkBackupStatusForRealms(realms, objectType) {
     for (const realm of realms) {
         const sandbox = getSandboxConfig(realm);
         const backupInfo = await checkBackupFileAge(realm, sandbox.instanceType, objectType);
-        
+
         results.push({
             realm,
             exists: backupInfo.exists,
@@ -66,11 +69,11 @@ export async function checkBackupStatusForRealms(realms, objectType) {
  */
 export async function loadCachedBackup(realm, instanceType, objectType) {
     const backupInfo = await checkBackupFileAge(realm, instanceType, objectType);
-    
+
     if (!backupInfo.exists) {
         return null;
     }
-    
+
     return backupInfo.backup.attributes;
 }
 
@@ -250,25 +253,48 @@ async function buildPreferenceMatrices(data, realm, params) {
  * @param {Object} results - Results object with usageRows, allSiteIds, preferenceMatrix
  * @param {string} instanceType - Instance type
  * @param {string} objectType - Object type
- * @param {Array} preferenceDefinitions - Full attribute definitions for backup
  * @returns {Promise<string>} Path to usage CSV file
  * @private
  */
-async function exportResults(realmDir, realm, results, instanceType, objectType, preferenceDefinitions) {
+async function exportResults(realmDir, realm, results, instanceType, objectType) {
     const usageFilePath = writeUsageCSV(realmDir, realm, instanceType, results.usageRows, results.preferenceMeta);
     writeMatrixCSV(realmDir, realm, instanceType, results.preferenceMatrix, results.allSiteIds);
-    
-    // Generate backup file with site values from usage CSV
-    if (preferenceDefinitions && preferenceDefinitions.length > 0) {
-        await generateBackupFromDefinitions(
-            objectType,
-            preferenceDefinitions,
-            realm,
-            instanceType,
-            usageFilePath
-        );
+
+    const matrixFilePath = path.join(
+        realmDir,
+        `${realm}_${instanceType}_preferences_matrix.csv`
+    );
+    const matrixData = parseCSVToNestedArray(matrixFilePath);
+    const unusedPreferences = findUnusedPreferences(matrixData);
+    const unusedPreferencesFile = writeUnusedPreferencesFile(
+        realmDir,
+        realm,
+        unusedPreferences
+    );
+
+    const backupDir = path.join(process.cwd(), 'backup', instanceType);
+    if (!fs.existsSync(backupDir)) {
+        fs.mkdirSync(backupDir, { recursive: true });
     }
-    
+
+    const backupDate = new Date().toISOString().split('T')[0];
+    const backupFilePath = path.join(
+        backupDir,
+        `${realm}_${objectType}_backup_${backupDate}.json`
+    );
+    const metadataPath = getMetadataBackupPathForRealm(realm, instanceType);
+
+    await generateSitePreferencesBackup({
+        unusedPreferencesFile,
+        csvFile: usageFilePath,
+        xmlMetadataFile: metadataPath,
+        outputFile: backupFilePath,
+        realm,
+        instanceType,
+        objectType,
+        verbose: true
+    });
+
     return usageFilePath;
 }
 
@@ -311,9 +337,7 @@ export async function executePreferenceSummarization(params) {
         params.realm,
         results,
         params.instanceType,
-        params.objectType,
-        apiData.preferenceDefinitions,
-        params.repositoryPath
+        params.objectType
     );
 
     logStatusClear();

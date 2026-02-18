@@ -266,17 +266,28 @@ node src/main.js remove-preferences
 - Load `{instance}_preferences_for_deletion.txt`
 - If missing, offers to run analyze-preferences first
 
-**Step 2:** Review and confirm
+**Step 2:** Review preferences
 - Opens deletion file in VS Code for manual review
 - Shows summary (total count, top prefixes being removed)
-- Requires confirmation before proceeding
 
-**Step 3:** Verify backups (per realm)
-- Checks for backup file from analyze step
-- Optional: Trigger backup job on SFCC + download metadata
-- Updates backup file with attribute group metadata from XML
+**Step 3:** Select realms to process
+- Choose which realms to create backups for
+- Can select multiple realms at once
 
-**Step 4:** Remove preferences (⚠️ NOT YET IMPLEMENTED)
+**Step 4:** Create backups (per realm)
+- Downloads metadata XML from SFCC (if not already fresh)
+- Extracts attribute definitions directly from metadata
+- Creates backup JSON file with all definitions
+- Adds attribute group assignments from metadata
+- **No OCAPI fetching** - uses offline metadata parsing
+- Backups created BEFORE deletion confirmation
+
+**Step 5:** Confirm deletion
+- Reviews backup summary
+- Final confirmation AFTER backups are ready
+- Can cancel without deleting (backups preserved)
+
+**Step 6:** Remove preferences (⚠️ NOT YET IMPLEMENTED)
 - Will call OCAPI to remove preferences
 - Logs success/failure for each preference
 - Keeps terminal open for monitoring

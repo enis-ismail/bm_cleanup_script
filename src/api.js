@@ -2,11 +2,9 @@ import axios from 'axios';
 import fs from 'fs';
 import fsPromises from 'fs/promises';
 import path from 'path';
-import { processBatch, withLoadShedding } from './helpers/batch.js';
+import { withLoadShedding } from './helpers/batch.js';
 import { getSandboxConfig } from './helpers.js';
-import { getApiConfig } from './helpers/constants.js';
 import { logError, logRateLimitCountdown } from './helpers/log.js';
-import { generateBackupFromDefinitions } from './helpers/preferenceBackup.js';
 import { fetchDetailedAttributes, loadCachedBackup } from './helpers/preferenceHelper.js';
 
 /* eslint-disable no-undef */
@@ -288,14 +286,6 @@ export async function getSitePreferences(objectType, realm, includeDefaults = fa
 
         // Fetch detailed attributes with default values
         const detailedAttributes = await fetchDetailedAttributes(allAttributes, objectType, realm, sandbox);
-
-        // Generate backup file for future use
-        await generateBackupFromDefinitions(
-            objectType,
-            detailedAttributes,
-            realm,
-            sandbox.instanceType
-        );
 
         return detailedAttributes;
     } catch (error) {

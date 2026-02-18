@@ -193,9 +193,11 @@ A preference is SAFE TO DELETE IF:
 
 2. remove-preferences
    ↓
-   Load deletion list → Review in VS Code → Confirm
+   Load deletion list → Review in VS Code
    ↓
-   Verify backups → Remove preferences via OCAPI (TODO)
+   Select realms → Create backups (per realm)
+   ↓
+   Confirm deletion → Remove preferences via OCAPI (TODO)
 ```
 
 ---

@@ -39,7 +39,7 @@ const CREATE_SAFE_FIELDS = [
  * @param {Object} attributeDefinition - Full attribute definition from OCAPI
  * @returns {Object} Create-safe attribute definition
  */
-function buildCreateSafeBody(attributeDefinition) {
+export function buildCreateSafeBody(attributeDefinition) {
     const createSafeBody = {};
 
     for (const field of CREATE_SAFE_FIELDS) {
@@ -65,7 +65,7 @@ async function fetchAttributeGroupAssignments(objectType, realm, attributeIds, r
         console.log('Using local meta.xml files for group assignments...');
         return await fetchAttributeGroupsFromMeta(repoPath, attributeIds);
     }
-    
+
     // Fall back to OCAPI
     console.log('Fetching group assignments via OCAPI...');
     const allGroups = await getAttributeGroups(objectType, realm);
@@ -164,7 +164,14 @@ function parseSiteValuesFromUsageCSV(usageFilePath, attributeIds) {
  * @param {string} [repoPath] - Optional local repository path for meta.xml parsing
  * @returns {Promise<string>} Path to generated backup file
  */
-export async function generateBackupFromDefinitions(objectType, attributeDefinitions, realm, instanceType, usageFilePath = null, repoPath = null) {
+export async function generateBackupFromDefinitions(
+    objectType,
+    attributeDefinitions,
+    realm,
+    instanceType,
+    usageFilePath = null,
+    repoPath = null
+) {
     console.log(`\nGenerating backup file from ${attributeDefinitions.length} attribute definitions...`);
 
     // Transform to create-safe bodies
@@ -205,14 +212,7 @@ export async function generateBackupFromDefinitions(objectType, attributeDefinit
     const filename = `${realm}_${objectType}_backup_${timestamp}.json`;
     const filePath = path.join(backupDir, filename);
 
-    try {
-        await fs.access(filePath);
-        console.log(`✓ Backup already exists: ${filePath}`);
-        return filePath;
-    } catch {
-        // File does not exist; proceed
-    }
-
+    // Always overwrite - backup should be regenerated with latest data
     await fs.writeFile(filePath, JSON.stringify(backup, null, 2), 'utf-8');
 
     console.log(`✓ Backup file created: ${filePath}`);

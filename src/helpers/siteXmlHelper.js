@@ -261,23 +261,23 @@ async function parseXmlContent(xmlContent) {
  */
 function extractAttributeGroupsFromMeta(parsedXml) {
     const groups = [];
-    
+
     try {
         // Navigate XML structure: metadata > type-extension > group-definitions > attribute-group
         const metadata = parsedXml.metadata;
         if (!metadata || !metadata['type-extension']) {
             return groups;
         }
-        
+
         const typeExtension = Array.isArray(metadata['type-extension'])
             ? metadata['type-extension'][0]
             : metadata['type-extension'];
-        
+
         groups.push(...extractAttributeGroupsFromTypeExtension(typeExtension));
     } catch (error) {
         logError(`Failed to extract attribute groups from XML: ${error.message}`);
     }
-    
+
     return groups;
 }
 
@@ -381,36 +381,36 @@ export async function getAttributeGroupsFromMetadataFile(metadataFilePath, objec
 function findMetaXmlFiles(repoPath) {
     const metaFiles = [];
     const sitesDir = path.join(repoPath, 'sites');
-    
+
     if (!fs.existsSync(sitesDir)) {
         logError(`Sites directory not found: ${sitesDir}`);
         return metaFiles;
     }
-    
+
     try {
         const siteSubdirs = fs.readdirSync(sitesDir, { withFileTypes: true })
             .filter(entry => entry.isDirectory() && !entry.name.startsWith('.'));
-        
+
         for (const subdir of siteSubdirs) {
             const metaDir = path.join(sitesDir, subdir.name, 'meta');
-            
+
             if (!fs.existsSync(metaDir)) {
                 continue;
             }
-            
+
             const xmlFiles = fs.readdirSync(metaDir)
                 .filter(file => file.endsWith('.xml'))
                 .map(file => ({
                     path: path.join(metaDir, file),
                     siteFolder: subdir.name
                 }));
-            
+
             metaFiles.push(...xmlFiles);
         }
     } catch (error) {
         logError(`Error scanning sites directory ${sitesDir}: ${error.message}`);
     }
-    
+
     return metaFiles;
 }
 
@@ -425,24 +425,24 @@ export async function fetchAttributeGroupsFromMeta(repoPath, attributeIds) {
     const attributeIdSet = new Set(attributeIds);
     const groupMap = new Map();
     const metaFiles = findMetaXmlFiles(repoPath);
-    
+
     if (metaFiles.length === 0) {
         console.log('[!] No meta.xml files found in repository');
         return [];
     }
-    
+
     console.log(`Scanning ${metaFiles.length} meta.xml file(s) for attribute group assignments...`);
-    
+
     for (const { path: metaFilePath, siteFolder } of metaFiles) {
         try {
             const xmlContent = fs.readFileSync(metaFilePath, 'utf-8');
             const parsed = await parseXmlContent(xmlContent);
             const groups = extractAttributeGroupsFromMeta(parsed);
-            
+
             // Merge groups across files, collecting all attributes
             for (const group of groups) {
                 const filteredAttributes = group.attributes.filter(id => attributeIdSet.has(id));
-                
+
                 if (filteredAttributes.length > 0) {
                     if (!groupMap.has(group.group_id)) {
                         groupMap.set(group.group_id, {
@@ -451,7 +451,7 @@ export async function fetchAttributeGroupsFromMeta(repoPath, attributeIds) {
                             attributes: new Set()
                         });
                     }
-                    
+
                     const existingGroup = groupMap.get(group.group_id);
                     filteredAttributes.forEach(attr => existingGroup.attributes.add(attr));
                 }
@@ -459,19 +459,19 @@ export async function fetchAttributeGroupsFromMeta(repoPath, attributeIds) {
         } catch (error) {
             logError(`Failed to parse ${path.basename(metaFilePath)} in ${siteFolder}: ${error.message}`);
             console.log(`   File: ${metaFilePath}`);
-            console.log(`   Skipping this file and continuing...`);
+            console.log('   Skipping this file and continuing...');
         }
     }
-    
+
     // Convert Map to array and Set to array
     const groupAssignments = Array.from(groupMap.values()).map(group => ({
         group_id: group.group_id,
         group_display_name: group.group_display_name,
         attributes: Array.from(group.attributes)
     }));
-    
+
     console.log(`Found ${groupAssignments.length} group(s) with matching attributes`);
-    
+
     return groupAssignments;
 }
 
@@ -484,22 +484,22 @@ export async function fetchAttributeGroupsFromMeta(repoPath, attributeIds) {
 export async function findAttributeInMetaFiles(repoPath, attributeId) {
     const results = [];
     const metaFiles = findMetaXmlFiles(repoPath);
-    
+
     if (metaFiles.length === 0) {
         console.log('[!] No meta.xml files found in repository');
         return results;
     }
-    
+
     for (const { path: metaFilePath, siteFolder } of metaFiles) {
         try {
             const xmlContent = fs.readFileSync(metaFilePath, 'utf-8');
             const parsed = await parseXmlContent(xmlContent);
             const groups = extractAttributeGroupsFromMeta(parsed);
-            
+
             for (const group of groups) {
-                const hasAttribute = group.attributes.includes(attributeId) || 
+                const hasAttribute = group.attributes.includes(attributeId) ||
                                    group.attributes.includes(`c_${attributeId}`);
-                
+
                 if (hasAttribute) {
                     results.push({
                         filePath: metaFilePath,
@@ -513,9 +513,279 @@ export async function findAttributeInMetaFiles(repoPath, attributeId) {
         } catch (error) {
             logError(`Failed to parse ${path.basename(metaFilePath)} in ${siteFolder}: ${error.message}`);
             console.log(`   File: ${metaFilePath}`);
-            console.log(`   Skipping this file and continuing...`);
+            console.log('   Skipping this file and continuing...');
         }
     }
-    
+
     return results;
+}
+
+/**
+ * Extract attribute definitions from metadata XML file
+ * @param {string} metadataFilePath - Path to meta_data_backup.xml
+ * @param {string} objectType - SFCC object type (e.g., "SitePreferences")
+ * @param {Array<string>} attributeIds - List of attribute IDs to extract
+ * @returns {Promise<Array<Object>>} Array of attribute definition objects
+ */
+export async function getAttributeDefinitionsFromMetadata(metadataFilePath, objectType, attributeIds) {
+    if (!fs.existsSync(metadataFilePath)) {
+        throw new Error(`Metadata file not found: ${metadataFilePath}`);
+    }
+
+    const attributeIdSet = new Set(attributeIds);
+    const definitions = [];
+
+    try {
+        const xmlContent = fs.readFileSync(metadataFilePath, 'utf-8');
+        const parsed = await parseXmlContent(xmlContent);
+        const metadata = parsed.metadata;
+
+        if (!metadata || !metadata['type-extension']) {
+            throw new Error('Metadata XML missing type-extension nodes');
+        }
+
+        const typeExtensions = Array.isArray(metadata['type-extension'])
+            ? metadata['type-extension']
+            : [metadata['type-extension']];
+
+        const matching = typeExtensions.find(ext => ext.$?.['type-id'] === objectType);
+        if (!matching) {
+            throw new Error(`No type-extension found for type-id '${objectType}' in metadata file`);
+        }
+
+        // Extract custom attribute definitions
+        let customAttrs = matching['custom-attribute-definitions'];
+        if (!customAttrs) {
+            return definitions; // No custom attributes defined
+        }
+
+        // xml2js may parse custom-attribute-definitions as an array - take first element if so
+        if (Array.isArray(customAttrs)) {
+            customAttrs = customAttrs[0];
+        }
+
+        if (customAttrs && customAttrs['attribute-definition']) {
+            const attrDefs = Array.isArray(customAttrs['attribute-definition'])
+                ? customAttrs['attribute-definition']
+                : [customAttrs['attribute-definition']];
+
+            for (const attrDef of attrDefs) {
+                const id = attrDef.$?.['attribute-id'];
+                if (!id || !attributeIdSet.has(id)) {
+                    continue;
+                }
+
+                // Convert XML structure to OCAPI-compatible format
+                // Extract and clean description for localization
+                let descriptionObj = null;
+                if (attrDef.description) {
+                    const descriptions = Array.isArray(attrDef.description)
+                        ? attrDef.description
+                        : [attrDef.description];
+                    descriptionObj = {};
+                    for (const descNode of descriptions) {
+                        if (!descNode) continue;
+                        const lang = descNode.$?.['xml:lang'] || 'default';
+                        const text = extractText(descNode);
+                        if (text) {
+                            descriptionObj[lang] = text;
+                        }
+                    }
+                    if (Object.keys(descriptionObj).length === 0) {
+                        descriptionObj = null;
+                    }
+                }
+                
+                const definition = {
+                    id,
+                    display_name: extractDisplayName(attrDef),
+                    description: descriptionObj,
+                    value_type: mapXmlTypeToOcapiType(extractText(attrDef.type)),
+                    mandatory: extractBoolean(attrDef['mandatory-flag']),
+                    localizable: extractBoolean(attrDef['localizable-flag']),
+                    site_specific: false, // Site preferences are always site-specific
+                    visible: extractBoolean(attrDef['visible-flag']) ?? true,
+                    searchable: extractBoolean(attrDef['searchable-flag']) ?? false
+                };
+
+                // Only include optional fields if they have meaningful values
+                const minLength = extractNumber(attrDef['min-length']);
+                if (minLength !== null) definition.min_length = minLength;
+                const maxLength = extractNumber(attrDef['max-length']);
+                if (maxLength !== null) definition.max_length = maxLength;
+                const minValue = extractNumber(attrDef['min-value']);
+                if (minValue !== null) definition.min_value = minValue;
+                const maxValue = extractNumber(attrDef['max-value']);
+                if (maxValue !== null) definition.max_value = maxValue;
+                const defaultValue = extractDefaultValue(attrDef['default-value'], definition.value_type);
+                if (defaultValue !== null) definition.default_value = defaultValue;
+
+                // Add enum values if present
+                if (attrDef['value-definitions']) {
+                    definition.value_definitions = extractValueDefinitions(attrDef['value-definitions']);
+                }
+
+                definitions.push(definition);
+            }
+        }
+
+        return definitions;
+    } catch (error) {
+        throw new Error(`Failed to parse metadata file: ${error.message}`);
+    }
+}
+
+/**
+ * Extract display name from XML attribute definition
+ * @param {Object} attrDef - XML attribute definition
+ * @returns {string|null}
+ * @private
+ */
+function extractDisplayName(attrDef) {
+    if (!attrDef['display-name']) return null;
+    const displayNames = Array.isArray(attrDef['display-name'])
+        ? attrDef['display-name']
+        : [attrDef['display-name']];
+    
+    // Extract text from each localized name
+    const result = {};
+    for (const nameNode of displayNames) {
+        if (!nameNode) continue;
+        const lang = nameNode.$?.['xml:lang'] || 'default';
+        const text = nameNode._ || nameNode || '';
+        result[lang] = text.trim();
+    }
+    
+    return Object.keys(result).length > 0 ? result : null;
+}
+
+/**
+ * Extract text content from XML node
+ * Handles xml2js structure with _ (text) and $ (attributes)
+ * @param {*} node - XML node
+ * @returns {string|null}
+ * @private
+ */
+function extractText(node) {
+    if (!node) return null;
+    if (typeof node === 'string') return node;
+    if (Array.isArray(node)) return extractText(node[0]);
+    // xml2js stores text content in _ property
+    const text = node._ || node || null;
+    // Remove xml2js artifacts and trim whitespace
+    if (typeof text === 'string') {
+        return text.trim() || null;
+    }
+    return null;
+}
+
+/**
+ * Extract boolean from XML flag node
+ * @param {*} node - XML node
+ * @returns {boolean|null}
+ * @private
+ */
+function extractBoolean(node) {
+    const text = extractText(node);
+    if (text === null) return null;
+    return text === 'true' || text === true;
+}
+
+/**
+ * Extract number from XML node
+ * @param {*} node - XML node
+ * @returns {number|null}
+ * @private
+ */
+function extractNumber(node) {
+    const text = extractText(node);
+    if (text === null) return null;
+    const num = Number(text);
+    return isNaN(num) ? null : num;
+}
+
+/**
+ * Extract default value from XML node
+ * Returns typed object {value: <properlyTypedValue>} or null
+ * @param {*} node - XML node
+ * @param {string} valueType - OCAPI value type (string, int, double, boolean, etc)
+ * @returns {Object|null}
+ * @private
+ */
+function extractDefaultValue(node, valueType) {
+    if (!node) return null;
+
+    const defaultValues = Array.isArray(node) ? node : [node];
+    let textValue = null;
+
+    // Extract text from first default-value node
+    for (const defNode of defaultValues) {
+        if (!defNode) continue;
+        textValue = extractText(defNode);
+        if (textValue) break;
+    }
+
+    if (!textValue) return null;
+
+    // Convert based on value type
+    let typedValue = textValue;
+    if (valueType === 'int' || valueType === 'integer') {
+        typedValue = parseInt(textValue, 10);
+    } else if (valueType === 'double' || valueType === 'decimal') {
+        typedValue = parseFloat(textValue);
+    } else if (valueType === 'boolean') {
+        typedValue = textValue === 'true' || textValue === true;
+    }
+    // For string and other types, keep as-is
+
+    return { value: typedValue };
+}
+
+/**
+ * Extract value definitions (enum values) from XML
+ * @param {Object} valueDefsNode - XML value-definitions node
+ * @returns {Array<Object>}
+ * @private
+ */
+function extractValueDefinitions(valueDefsNode) {
+    if (!valueDefsNode || !valueDefsNode['value-definition']) return [];
+    const valueDefs = Array.isArray(valueDefsNode['value-definition'])
+        ? valueDefsNode['value-definition']
+        : [valueDefsNode['value-definition']];
+
+    return valueDefs.map((def, index) => ({
+        id: def.$?.value || `value_${index}`,
+        value: def.$?.value || null,
+        display: extractDisplayName(def),
+        position: extractNumber(def.position) ?? index
+    }));
+}
+
+/**
+ * Map XML type to OCAPI value_type
+ * @param {string} xmlType - XML type string
+ * @returns {string}
+ * @private
+ */
+function mapXmlTypeToOcapiType(xmlType) {
+    const typeMap = {
+        'string': 'string',
+        'text': 'text',
+        'html': 'html',
+        'number': 'number',
+        'int': 'int',
+        'double': 'double',
+        'boolean': 'boolean',
+        'date': 'date',
+        'datetime': 'datetime',
+        'email': 'email',
+        'password': 'password',
+        'set-of-string': 'set_of_string',
+        'set-of-int': 'set_of_int',
+        'set-of-double': 'set_of_double',
+        'enum-of-string': 'enum_of_string',
+        'enum-of-int': 'enum_of_int'
+    };
+
+    return typeMap[xmlType] || xmlType;
 }

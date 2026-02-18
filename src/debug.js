@@ -10,7 +10,7 @@ import {
     getAttributeGroupById
 } from './api.js';
 import { exportAttributesToCSV } from './helpers/csv.js';
-import { generateBackupFromDefinitions, loadBackupFile, updateBackupFileAttributeGroups } from './helpers/preferenceBackup.js';
+import { loadBackupFile } from './helpers/preferenceBackup.js';
 import {
     realmPrompt,
     objectTypePrompt,
@@ -29,7 +29,7 @@ import {
 } from './helpers/log.js';
 import path from 'path';
 import fs from 'fs';
-import { findAllMatrixFiles, getInstanceType } from './helpers.js';
+import { findAllMatrixFiles, getInstanceType, getRealmsByInstanceType } from './helpers.js';
 import { processPreferenceMatrixFiles, executePreferenceSummarization } from './helpers/preferenceHelper.js';
 import { getActivePreferencesFromMatrices, findAllActivePreferencesUsage, findPreferenceUsage } from './helpers/preferenceUsage.js';
 import { getSiblingRepositories } from './helpers/util.js';
@@ -102,7 +102,7 @@ export function registerDebugCommands(program) {
                 realmName,
                 answers.includeDefaults
             );
-            
+
             console.log('\n================================================================================');
             console.log('FULL RESPONSE OF FIRST ATTRIBUTE:');
             console.log('================================================================================\n');
@@ -113,7 +113,7 @@ export function registerDebugCommands(program) {
                 console.log('No attributes found.');
                 console.log('\n================================================================================\n');
             }
-            
+
             await exportAttributesToCSV(allAttributes, realmName);
         });
 
@@ -144,13 +144,13 @@ export function registerDebugCommands(program) {
 
             console.log(`\nFound ${groups.length} group(s):`);
             console.log(`Written to: ${filePath}\n`);
-            
+
             if (options.verbose && groups.length > 0) {
                 console.log('First group full JSON:');
                 console.log(JSON.stringify(groups[0], null, 2));
                 console.log('');
             }
-            
+
             groups.forEach((group) => {
                 const name = group.display_name || group.name || group.id;
                 const count = Array.isArray(group.attribute_definitions)
@@ -393,7 +393,7 @@ export function registerDebugCommands(program) {
                         try {
                             JSON.parse(input);
                             return true;
-                        } catch (e) {
+                        } catch {
                             return 'Invalid JSON format';
                         }
                     }
@@ -401,7 +401,9 @@ export function registerDebugCommands(program) {
             ]);
 
             const payload = JSON.parse(payloadAnswers.payloadJson);
-            console.log(`\nPatching attribute "${attributeAnswers.attributeId}" in "${objectTypeAnswers.objectType}" on realm "${realmAnswers.realm}"...`);
+            const patchMessage = `\nPatching attribute "${attributeAnswers.attributeId}" in `
+                + `"${objectTypeAnswers.objectType}" on realm "${realmAnswers.realm}"...`;
+            console.log(patchMessage);
             const result = await updateAttributeDefinitionById(
                 objectTypeAnswers.objectType,
                 attributeAnswers.attributeId,
@@ -439,7 +441,7 @@ export function registerDebugCommands(program) {
                         try {
                             JSON.parse(input);
                             return true;
-                        } catch (e) {
+                        } catch {
                             return 'Invalid JSON format';
                         }
                     }
@@ -447,7 +449,9 @@ export function registerDebugCommands(program) {
             ]);
 
             const payload = JSON.parse(payloadAnswers.payloadJson);
-            console.log(`\nReplacing attribute "${attributeAnswers.attributeId}" in "${objectTypeAnswers.objectType}" on realm "${realmAnswers.realm}"...`);
+            const replaceMessage = `\nReplacing attribute "${attributeAnswers.attributeId}" in `
+                + `"${objectTypeAnswers.objectType}" on realm "${realmAnswers.realm}"...`;
+            console.log(replaceMessage);
             const result = await updateAttributeDefinitionById(
                 objectTypeAnswers.objectType,
                 attributeAnswers.attributeId,
@@ -481,7 +485,8 @@ export function registerDebugCommands(program) {
                 {
                     type: 'confirm',
                     name: 'confirm',
-                    message: `⚠️  Are you sure you want to DELETE attribute "${attributeAnswers.attributeId}"? This cannot be undone.`,
+                    message: `⚠️  Are you sure you want to DELETE attribute "${attributeAnswers.attributeId}"? `
+                        + 'This cannot be undone.',
                     default: false
                 }
             ]);
@@ -491,7 +496,9 @@ export function registerDebugCommands(program) {
                 return;
             }
 
-            console.log(`\nDeleting attribute "${attributeAnswers.attributeId}" from "${objectTypeAnswers.objectType}" on realm "${realmAnswers.realm}"...`);
+            const deleteMessage = `\nDeleting attribute "${attributeAnswers.attributeId}" from `
+                + `"${objectTypeAnswers.objectType}" on realm "${realmAnswers.realm}"...`;
+            console.log(deleteMessage);
             const success = await updateAttributeDefinitionById(
                 objectTypeAnswers.objectType,
                 attributeAnswers.attributeId,
@@ -549,7 +556,9 @@ export function registerDebugCommands(program) {
                 [attributeKey]: prefAnswers.value
             };
 
-            console.log(`\nSetting preference "${prefAnswers.attributeId}" = "${prefAnswers.value}" for site "${siteAnswers.siteId}" in group "${groupAnswers.groupId}"...`);
+            const setMessage = `\nSetting preference "${prefAnswers.attributeId}" = "${prefAnswers.value}" `
+                + `for site "${siteAnswers.siteId}" in group "${groupAnswers.groupId}"...`;
+            console.log(setMessage);
             const result = await patchSitePreferencesGroup(
                 siteAnswers.siteId,
                 groupAnswers.groupId,
@@ -609,25 +618,8 @@ export function registerDebugCommands(program) {
             console.log(`   Mandatory: ${originalAttribute.mandatory}`);
 
             console.log('\n💾 STEP 2: Create Backup File\n');
-            const usageFilePath = findLatestUsageCsv(realm, instanceType);
-            if (usageFilePath) {
-                console.log(`Using usage CSV: ${usageFilePath}`);
-            } else {
-                console.log('No usage CSV found. Site values will not be included.');
-            }
-            const backupFilePath = await generateBackupFromDefinitions(
-                objectType,
-                [originalAttribute],
-                realm,
-                instanceType,
-                usageFilePath
-            );
 
-            console.log(`✅ Backup created: ${backupFilePath}`);
-
-            let activeBackupPath = backupFilePath;
             let metadataPath = getMetadataBackupPathForRealm(realm, instanceType);
-
             const refreshAnswers = await inquirer.prompt([
                 {
                     type: 'confirm',
@@ -649,26 +641,67 @@ export function registerDebugCommands(program) {
                 }
             }
 
-            if (fs.existsSync(metadataPath)) {
-                console.log('\n📎 STEP 2b: Update Backup with Metadata Groups\n');
-                const updateResult = await updateBackupFileAttributeGroups(
-                    backupFilePath,
-                    metadataPath,
-                    objectType
-                );
-
-                if (updateResult) {
-                    activeBackupPath = updateResult.filePath;
-                    console.log(`✅ Backup updated: ${updateResult.filePath}`);
-                    console.log(`   Groups added: ${updateResult.groupCount}`);
-                    console.log(`   Attributes mapped: ${updateResult.attributeCount}`);
-                } else {
-                    console.log('⚠️  Failed to update backup with metadata groups.');
-                }
-            } else {
-                console.log('\n⚠️  Metadata file not found. Skipping group update.');
+            if (!fs.existsSync(metadataPath)) {
+                console.log('\n⚠️  Metadata file not found. Groups may be missing.');
                 console.log(`   Expected: ${metadataPath}`);
             }
+
+            const usageFilePath = findLatestUsageCsv(realm, instanceType);
+            if (usageFilePath) {
+                console.log(`Using usage CSV: ${usageFilePath}`);
+            } else {
+                console.log('No usage CSV found. Site values will not be included.');
+            }
+
+            const backupDir = path.join(process.cwd(), 'backup', instanceType);
+            if (!fs.existsSync(backupDir)) {
+                fs.mkdirSync(backupDir, { recursive: true });
+            }
+
+            const backupDate = new Date().toISOString().split('T')[0];
+            const backupFilePath = path.join(
+                backupDir,
+                `${realm}_${objectType}_backup_${backupDate}.json`
+            );
+
+            const unusedDir = path.join(process.cwd(), 'results', instanceType, realm);
+            if (!fs.existsSync(unusedDir)) {
+                fs.mkdirSync(unusedDir, { recursive: true });
+            }
+            const unusedPreferencesFile = path.join(
+                unusedDir,
+                `${realm}_debug_unused_preferences.txt`
+            );
+            const unusedLines = [
+                `Unused Preferences for Realm: ${realm}`,
+                `Generated: ${new Date().toISOString()}`,
+                'Total Unused: 1',
+                '',
+                '--- Preference IDs ---',
+                attributeId
+            ];
+            fs.writeFileSync(unusedPreferencesFile, unusedLines.join('\n'), 'utf-8');
+
+            const { generate } = await import('./helpers/generateSitePreferencesJSON.js');
+            const backupResult = await generate({
+                unusedPreferencesFile,
+                csvFile: usageFilePath,
+                xmlMetadataFile: metadataPath,
+                outputFile: backupFilePath,
+                realm,
+                instanceType,
+                objectType,
+                verbose: true
+            });
+
+            if (!backupResult.success) {
+                console.log(`❌ Failed to create backup: ${backupResult.error}`);
+                console.log(`✓ Total runtime: ${timer.stop()}`);
+                return;
+            }
+
+            console.log(`✅ Backup created: ${backupResult.outputPath}`);
+            let activeBackupPath = backupResult.outputPath;
 
             console.log('\n⚠️  STEP 3: Delete Attribute\n');
             const deleteConfirm = await inquirer.prompt([
@@ -695,20 +728,20 @@ export function registerDebugCommands(program) {
             );
 
             if (!deleteSuccess) {
-                console.log(`❌ Failed to delete attribute. Aborting test.`);
+                console.log('❌ Failed to delete attribute. Aborting test.');
                 console.log(`✓ Total runtime: ${timer.stop()}`);
                 return;
             }
 
-            console.log(`✅ Attribute deleted successfully`);
+            console.log('✅ Attribute deleted successfully');
             console.log('Delete response: true');
 
             console.log('\n🔄 STEP 4: Verify Deletion\n');
             const verifyDeleted = await getAttributeDefinitionById(objectType, attributeId, realm);
             if (verifyDeleted) {
-                console.log(`⚠️  Warning: Attribute still exists after deletion attempt`);
+                console.log('⚠️  Warning: Attribute still exists after deletion attempt');
             } else {
-                console.log(`✅ Confirmed: Attribute no longer exists`);
+                console.log('✅ Confirmed: Attribute no longer exists');
             }
 
             console.log('\n♻️  STEP 5: Restore from Backup\n');
@@ -731,7 +764,7 @@ export function registerDebugCommands(program) {
             const attributeToRestore = backup.attributes.find(attr => attr.id === attributeId);
 
             if (!attributeToRestore) {
-                console.log(`❌ Attribute not found in backup file. Cannot restore.`);
+                console.log('❌ Attribute not found in backup file. Cannot restore.');
                 console.log(`✓ Total runtime: ${timer.stop()}`);
                 return;
             }
@@ -746,18 +779,18 @@ export function registerDebugCommands(program) {
             );
 
             if (!restored) {
-                console.log(`❌ Failed to restore attribute from backup.`);
+                console.log('❌ Failed to restore attribute from backup.');
                 console.log(`✓ Total runtime: ${timer.stop()}`);
                 return;
             }
 
-            console.log(`✅ Attribute restored successfully`);
+            console.log('✅ Attribute restored successfully');
             console.log('PUT response:');
             console.log(JSON.stringify(restored, null, 2));
 
             // Restore group membership
             console.log('\n📎 Restoring group membership...');
-            const groupsToRestore = backup.attribute_groups.filter(group => 
+            const groupsToRestore = backup.attribute_groups.filter(group =>
                 group.attributes.includes(attributeId)
             );
 
@@ -821,14 +854,14 @@ export function registerDebugCommands(program) {
             console.log('\n✅ STEP 6: Verify Restoration\n');
             const verifyRestored = await getAttributeDefinitionById(objectType, attributeId, realm);
             if (verifyRestored) {
-                console.log(`✅ Attribute exists after restoration`);
+                console.log('✅ Attribute exists after restoration');
                 console.log('Full restored attribute:');
                 console.log(JSON.stringify(verifyRestored, null, 2));
                 console.log(`   Display Name: ${verifyRestored.display_name || '(none)'}`);
                 console.log(`   Value Type: ${verifyRestored.value_type}`);
                 console.log(`   Mandatory: ${verifyRestored.mandatory}`);
             } else {
-                console.log(`❌ Attribute not found after restoration attempt`);
+                console.log('❌ Attribute not found after restoration attempt');
             }
 
             console.log('\n========================================');
@@ -873,72 +906,93 @@ export function registerDebugCommands(program) {
         });
 
     program
-        .command('update-backup-from-metadata')
-        .description('(Debug) Update backup attribute groups from meta_data_backup.xml')
+        .command('test-generate-backup-json')
+        .description('[TEST] Generate SitePreferences backup JSON from unused preferences list and usage CSV')
         .action(async () => {
-            const realmAnswers = await inquirer.prompt(realmPrompt());
-            const realm = realmAnswers.realm;
-            const objectTypeAnswers = await inquirer.prompt(objectTypePrompt('SitePreferences'));
-            const objectType = objectTypeAnswers.objectType;
-            const instanceType = getInstanceType(realm);
-            const defaultDate = new Date().toISOString().split('T')[0];
-            const defaultBackupPath = path.join(
-                process.cwd(),
-                'backup',
-                instanceType,
-                `${realm}_${objectType}_backup_${defaultDate}.json`
-            );
-            const defaultMetadataPath = getMetadataBackupPathForRealm(realm, instanceType);
+            const timer = startTimer();
 
-            const answers = await inquirer.prompt([
+            console.log('\n📋 STEP 1: Select Instance Type\n');
+
+            const instanceTypeAnswers = await inquirer.prompt(instanceTypePrompt('sandbox'));
+            const { instanceType } = instanceTypeAnswers;
+
+            console.log('\n📋 STEP 2: Select Realms to Process\n');
+
+            const realmsForInstance = getRealmsByInstanceType(instanceType);
+            if (!realmsForInstance || realmsForInstance.length === 0) {
+                console.log(`No realms found for instance type: ${instanceType}`);
+                console.log(`✓ Total runtime: ${timer.stop()}`);
+                return;
+            }
+
+            const realmSelection = await inquirer.prompt([
                 {
-                    name: 'backupFilePath',
-                    message: 'Backup file path?',
-                    default: defaultBackupPath,
-                    validate: (input) => fs.existsSync(input) ? true : 'Backup file not found'
-                },
-                {
-                    name: 'metadataFilePath',
-                    message: 'Metadata XML path?',
-                    default: defaultMetadataPath,
-                    validate: (input) => fs.existsSync(input) ? true : 'Metadata file not found'
+                    name: 'realms',
+                    message: 'Select realms to process:',
+                    type: 'checkbox',
+                    choices: realmsForInstance,
+                    default: realmsForInstance
                 }
             ]);
 
-            const result = await updateBackupFileAttributeGroups(
-                answers.backupFilePath,
-                answers.metadataFilePath,
-                objectType
-            );
-
-            if (!result) {
-                console.log('Failed to update backup file.');
+            const realmsToProcess = realmSelection.realms;
+            if (!realmsToProcess || realmsToProcess.length === 0) {
+                console.log('No realms selected.');
+                console.log(`✓ Total runtime: ${timer.stop()}`);
                 return;
             }
 
-            console.log(`Updated backup file: ${result.filePath}`);
-            console.log(`Groups added: ${result.groupCount}`);
-            console.log(`Attributes mapped: ${result.attributeCount}`);
-        });
+            console.log('\n📋 STEP 3: Generate Backup JSON from CSV\n');
 
-    program
-        .command('test-backup-job')
-        .description('(Debug) Trigger SitePreferences backup job and download WebDAV ZIP')
-        .action(async () => {
-            const timer = startTimer();
-            const realmAnswers = await inquirer.prompt(realmPrompt());
-            const realm = realmAnswers.realm;
-            const instanceType = getInstanceType(realm);
+            // Import the generation script
+            const { generate } = await import('./helpers/generateSitePreferencesJSON.js');
 
-            console.log('Triggering backup job and downloading metadata...');
-            const refreshResult = await refreshMetadataBackupForRealm(realm, instanceType);
+            // Process each realm
+            for (const realm of realmsToProcess) {
+                console.log('\n================================================================================');
+                console.log(`Realm: ${realm}`);
+                console.log(`Instance type: ${instanceType}`);
+                console.log('================================================================================\n');
 
-            if (!refreshResult.ok) {
-                console.log(`Failed to refresh metadata: ${refreshResult.reason}`);
-                return;
+                const defaultUnusedPrefsFile = `./results/${instanceType}/ALL_REALMS/`
+                    + `${instanceType}_unused_preferences.txt`;
+                const defaultCsvFile = `./results/${instanceType}/${realm}/`
+                    + `${realm}_${instanceType}_preferences_usage.csv`;
+                const defaultXmlMetadataFile = getMetadataBackupPathForRealm(realm, instanceType);
+                const defaultOutputFile = `./backup/${instanceType}/${realm}_SitePreferences_generated_`
+                    + `${new Date().toISOString().split('T')[0]}.json`;
+
+                console.log('🔧 Configuration:');
+                console.log(`  Unused Prefs: ${defaultUnusedPrefsFile}`);
+                console.log(`  Usage CSV: ${defaultCsvFile}`);
+                console.log(`  XML Metadata: ${defaultXmlMetadataFile}`);
+                console.log(`  Output: ${defaultOutputFile}\n`);
+
+                const result = await generate({
+                    unusedPreferencesFile: defaultUnusedPrefsFile,
+                    csvFile: defaultCsvFile,
+                    xmlMetadataFile: defaultXmlMetadataFile,
+                    outputFile: defaultOutputFile,
+                    realm,
+                    instanceType,
+                    objectType: 'SitePreferences',
+                    verbose: true
+                });
+
+                if (result.success) {
+                    console.log('\n✅ Backup JSON generated successfully!\n');
+                    console.log('📊 Statistics:');
+                    console.log(`  Total attributes: ${result.stats.total}`);
+                    console.log(`  From CSV data: ${result.stats.fromCsv}`);
+                    console.log(`  Minimal (no CSV): ${result.stats.minimal}`);
+                    console.log(`  Groups: ${result.stats.groups}`);
+                    console.log(`  With site values: ${result.stats.withValues}\n`);
+                    console.log(`📁 Output: ${result.outputPath}`);
+                } else {
+                    console.log(`\n❌ Generation failed: ${result.error}`);
+                }
             }
 
-            console.log(`Backup downloaded to: ${refreshResult.filePath}`);
-            console.log(`✓ Total runtime: ${timer.stop()}`);
+            console.log(`\n✓ Total runtime: ${timer.stop()}`);
         });
 }

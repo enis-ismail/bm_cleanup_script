@@ -16,28 +16,14 @@ export function buildMetadataBackupFileName(instanceType, realmHostname) {
 }
 
 /**
- * Resolve a unique metadata backup file path
+ * Resolve metadata backup file path (overwrites existing file)
  * @param {string} outputDir - Output directory
  * @param {string} fileName - Desired file name
- * @returns {Promise<string>} Unique file path
+ * @returns {Promise<string>} File path
  * @private
  */
 async function resolveUniqueMetadataPath(outputDir, fileName) {
-    let outputPath = path.join(outputDir, fileName);
-    let ext;
-    let base;
-    let stamp;
-
-    try {
-        await fs.access(outputPath);
-        ext = path.extname(fileName) || '.xml';
-        base = outputPath.slice(0, outputPath.length - ext.length);
-        stamp = new Date().toISOString().replace(/[:.]/g, '-');
-        outputPath = `${base}_${stamp}${ext}`;
-    } catch {
-        // Path is available
-    }
-
+    const outputPath = path.join(outputDir, fileName);
     return outputPath;
 }
 

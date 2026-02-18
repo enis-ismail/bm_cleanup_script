@@ -54,8 +54,10 @@ import {
     openPreferencesForDeletionInEditor,
     generateDeletionSummary
 } from './helpers/preferenceRemoval.js';
-import { loadBackupFile, updateBackupFileAttributeGroups } from './helpers/preferenceBackup.js';
+import { loadBackupFile, buildCreateSafeBody } from './helpers/preferenceBackup.js';
+import { generate as generateSitePreferencesBackup } from './helpers/generateSitePreferencesJSON.js';
 import { refreshMetadataBackupForRealm, getMetadataBackupPathForRealm } from './helpers/backupJob.js';
+import { updateAttributeDefinitionById, assignAttributeToGroup, patchSitePreferencesGroup } from './api.js';
 
 // ============================================================================
 // CLI ENTRYPOINT
@@ -90,6 +92,31 @@ async function selectRepositoryPath(siblings) {
 
     const siblingAnswers = await inquirer.prompt(await repositoryPrompt(siblings));
     return path.join(path.dirname(process.cwd()), siblingAnswers.repository);
+}
+
+/**
+ * Find the latest usage CSV file for a realm
+ * @param {string} realm - Realm name
+ * @param {string} instanceType - Instance type
+ * @returns {string|null} Path to latest usage CSV or null
+ * @private
+ */
+function findLatestUsageCsv(realm, instanceType) {
+    const realmDir = path.join(process.cwd(), 'results', instanceType, realm);
+    if (!fs.existsSync(realmDir)) {
+        return null;
+    }
+
+    const candidates = fs.readdirSync(realmDir)
+        .filter(name => name.endsWith('_preferences_usage.csv'))
+        .map(name => path.join(realmDir, name));
+
+    if (candidates.length === 0) {
+        return null;
+    }
+
+    candidates.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+    return candidates[0];
 }
 const program = new Command();
 
@@ -315,6 +342,14 @@ program
 
         logSectionTitle('STEP 3: Review Preferences for Deletion');
 
+        const preferencesFilePath = path.join(
+            process.cwd(),
+            'results',
+            instanceType,
+            'ALL_REALMS',
+            `${instanceType}_preferences_for_deletion.txt`
+        );
+
         try {
             const filePath = await openPreferencesForDeletionInEditor(instanceType);
             console.log(`✓ Opened preferences file in VS Code: ${filePath}\n`);
@@ -333,19 +368,7 @@ program
         });
         console.log('');
 
-        logSectionTitle('STEP 4: Confirm Deletion');
-
-        const confirmAnswers = await inquirer.prompt(confirmPreferenceDeletionPrompt(preferences.length));
-
-        if (!confirmAnswers.confirm) {
-            console.log('\n✓ Preference removal cancelled.\n');
-            console.log(`✓ Total runtime: ${timer.stop()}`);
-            return;
-        }
-
-        logSectionTitle('STEP 5: Verify Backups (Per Realm)');
-
-        console.log('Checking for existing backup files...\n');
+        logSectionTitle('STEP 4: Select Realms to Process');
 
         const realmsForInstance = getRealmsByInstanceType(instanceType);
         if (!realmsForInstance || realmsForInstance.length === 0) {
@@ -371,6 +394,9 @@ program
             return;
         }
 
+        logSectionTitle('STEP 5: Create Backups (Per Realm)');
+
+        const objectType = 'SitePreferences';
         const refreshAnswers = await inquirer.prompt([
             {
                 type: 'confirm',
@@ -381,62 +407,284 @@ program
         ]);
 
         for (const realm of realmsToProcess) {
-            console.log(`\nInstance type: ${instanceType}`);
+            console.log('\n================================================================================');
             console.log(`Realm: ${realm}`);
-            console.log(`Total preferences to delete: ${preferences.length}\n`);
-
-            // Find existing backup file generated during analyze-preferences
-            const backupDir = path.join(process.cwd(), 'backup', instanceType);
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0];
-            const backupFilePath = path.join(backupDir, `${realm}_SitePreferences_backup_${timestamp}.json`);
-
-            try {
-                const backup = await loadBackupFile(backupFilePath);
-
-                console.log(`✓ Backup file found:`);
-                console.log(`  ${backupFilePath}`);
-                console.log(`  Total attributes in backup: ${backup.total_attributes}`);
-                console.log(`  Backup date: ${backup.backup_date}\n`);
-            } catch (error) {
-                console.error(`✗ Backup file not found or invalid: ${error.message}`);
-                console.log('Please run analyze-preferences first to generate the backup file.');
-                continue;
-            }
+            console.log(`Instance type: ${instanceType}`);
+            console.log('================================================================================\n');
 
             let metadataPath = getMetadataBackupPathForRealm(realm, instanceType);
 
-            if (refreshAnswers.refreshMetadata) {
+            if (refreshAnswers.refreshMetadata || !fs.existsSync(metadataPath)) {
+                console.log('📎 STEP 5.1: Download Metadata Backup\n');
+                if (!fs.existsSync(metadataPath)) {
+                    console.log('⚠ No existing metadata file found. Triggering backup job...\n');
+                }
                 console.log('Triggering backup job and downloading metadata...');
                 const refreshResult = await refreshMetadataBackupForRealm(realm, instanceType);
 
                 if (refreshResult.ok) {
                     metadataPath = refreshResult.filePath;
-                    console.log(`Downloaded metadata: ${refreshResult.filePath}`);
+                    console.log(`✓ Downloaded metadata: ${refreshResult.filePath}\n`);
                 } else {
-                    console.log(`Failed to refresh metadata: ${refreshResult.reason}`);
-                }
-            }
-
-            if (fs.existsSync(metadataPath)) {
-                const updateResult = await updateBackupFileAttributeGroups(
-                    backupFilePath,
-                    metadataPath,
-                    'SitePreferences'
-                );
-
-                if (updateResult) {
-                    console.log(`✓ Backup updated with metadata groups: ${updateResult.filePath}`);
-                } else {
-                    console.log('⚠️  Failed to update backup with metadata groups.');
+                    console.log(`⚠ Failed to download metadata: ${refreshResult.reason}`);
+                    console.log('Cannot create backup without metadata. Skipping this realm.\n');
+                    continue;
                 }
             } else {
-                console.log(`⚠️  Metadata file not found: ${metadataPath}`);
+                console.log('📎 STEP 5.1: Using Existing Metadata\n');
+                console.log(`✓ Found metadata: ${metadataPath}\n`);
             }
+
+            console.log('📋 STEP 5.2: Generate Backup from CSV + Metadata\n');
+
+            const usageFilePath = findLatestUsageCsv(realm, instanceType);
+            if (usageFilePath) {
+                console.log(`Using usage CSV: ${path.basename(usageFilePath)}`);
+            } else {
+                console.log('⚠️  No usage CSV found. Site values will not be included in backup.');
+            }
+
+            const backupDir = path.join(process.cwd(), 'backup', instanceType);
+            if (!fs.existsSync(backupDir)) {
+                fs.mkdirSync(backupDir, { recursive: true });
+            }
+
+            const backupDate = new Date().toISOString().split('T')[0];
+            const backupFilePath = path.join(
+                backupDir,
+                `${realm}_${objectType}_backup_${backupDate}.json`
+            );
+
+            const backupResult = await generateSitePreferencesBackup({
+                unusedPreferencesFile: preferencesFilePath,
+                csvFile: usageFilePath,
+                xmlMetadataFile: metadataPath,
+                outputFile: backupFilePath,
+                realm,
+                instanceType,
+                objectType,
+                verbose: true
+            });
+
+            if (!backupResult.success) {
+                console.log(`⚠ Failed to create backup file: ${backupResult.error}`);
+                console.log('Skipping this realm.\n');
+                continue;
+            }
+
+            console.log(`✓ Backup created: ${backupResult.outputPath}`);
+            console.log(`   Total attributes: ${backupResult.stats.total}`);
+            console.log(`   Groups added: ${backupResult.stats.groups}`);
+            console.log(`   Preferences with site values: ${backupResult.stats.withValues}\n`);
         }
 
-        console.log('\nNote: Actual preference removal will be implemented in a future step.\n');
+        logSectionTitle('STEP 6: Confirm Deletion');
+
+        console.log('Backup Summary:');
+        console.log(`  • Realms processed: ${realmsToProcess.length}`);
+        console.log(`  • Preferences backed up: ${preferences.length}`);
+        console.log('  • Backup files ready for restore if needed\n');
+
+        const confirmAnswers = await inquirer.prompt(confirmPreferenceDeletionPrompt(preferences.length));
+
+        if (!confirmAnswers.confirm) {
+            console.log('\n✓ Preference removal cancelled.');
+            console.log('✓ Backup files have been preserved for future use.\n');
+            console.log(`✓ Total runtime: ${timer.stop()}`);
+            return;
+        }
+
+        logSectionTitle('STEP 7: Remove Preferences');
+
+        console.log(`Deleting ${preferences.length} preferences from ${realmsToProcess.length} realm(s)...\n`);
+
+        let totalDeleted = 0;
+        let totalFailed = 0;
+
+        for (const realm of realmsToProcess) {
+            console.log(`📎 Processing realm: ${realm}\n`);
+
+            let realmDeleted = 0;
+            let realmFailed = 0;
+
+            for (const preferenceId of preferences) {
+                const result = await updateAttributeDefinitionById(
+                    objectType,
+                    preferenceId,
+                    'delete',
+                    null,
+                    realm
+                );
+
+                if (result || result === true) {
+                    realmDeleted++;
+                    totalDeleted++;
+                    console.log(`  ✓ Deleted: ${preferenceId}`);
+                } else {
+                    realmFailed++;
+                    totalFailed++;
+                    console.log(`  ✗ Failed to delete: ${preferenceId}`);
+                }
+            }
+
+            console.log(`\n  Realm summary: ${realmDeleted} deleted, ${realmFailed} failed`);
+            console.log('');
+        }
+
+        console.log('================================================================================');
+        console.log('DELETION SUMMARY');
+        console.log('================================================================================\n');
+        console.log(`✓ Total preferences deleted: ${totalDeleted}`);
+        console.log(`✗ Total preferences failed: ${totalFailed}`);
+        console.log(`  Realms processed: ${realmsToProcess.length}\n`);
+
+        if (totalDeleted > 0) {
+            console.log('✅ Preferences successfully removed from SFCC.');
+            console.log('   Backup files are available for restore if needed.\n');
+        } else if (totalFailed > 0) {
+            console.log('⚠️  No preferences were deleted.');
+            console.log('   Check error messages above for details.\n');
+        }
 
         console.log(`✓ Total runtime: ${timer.stop()}`);
+
+        // STEP 8: Restore from Backups
+        logSectionTitle('STEP 8: Restore from Backups (Optional)');
+
+        const restoreAnswers = await inquirer.prompt([
+            {
+                type: 'confirm',
+                name: 'restore',
+                message: 'Would you like to restore the preferences from backups?',
+                default: false
+            }
+        ]);
+
+        if (!restoreAnswers.restore) {
+            console.log('\n✓ Restore skipped. Deleted preferences remain removed.\n');
+            return;
+        }
+
+        console.log('\nRestoring preferences from backups...\n');
+
+        let totalRestored = 0;
+        let totalRestoreFailed = 0;
+
+        for (const realm of realmsToProcess) {
+            console.log(`📎 Restoring realm: ${realm}\n`);
+
+            const backupDate = new Date().toISOString().split('T')[0];
+            const backupFilePath = path.join(
+                process.cwd(),
+                'backup',
+                instanceType,
+                `${realm}_${objectType}_backup_${backupDate}.json`
+            );
+
+            if (!fs.existsSync(backupFilePath)) {
+                console.log(`⚠️  Backup file not found at: ${backupFilePath}`);
+                console.log('   Skipping this realm...\n');
+                continue;
+            }
+
+            console.log(`Loading backup: ${path.basename(backupFilePath)}`);
+            const backup = await loadBackupFile(backupFilePath);
+
+            let realmRestored = 0;
+            let realmRestoreFailed = 0;
+
+            // Restore each preference
+            for (const preferenceId of preferences) {
+                const attributeToRestore = backup.attributes.find(attr => attr.id === preferenceId);
+
+                if (!attributeToRestore) {
+                    console.log(`  ⚠️  ${preferenceId} not found in backup. Skipping...`);
+                    realmRestoreFailed++;
+                    continue;
+                }
+
+                // Restore attribute definition (filtered to safe fields only)
+                const safeRestoreBody = buildCreateSafeBody(attributeToRestore);
+                const restored = await updateAttributeDefinitionById(
+                    objectType,
+                    preferenceId,
+                    'put',
+                    safeRestoreBody,
+                    realm
+                );
+
+                if (!restored) {
+                    realmRestoreFailed++;
+                    totalRestoreFailed++;
+                    console.log(`  ✗ Failed to restore: ${preferenceId}`);
+                    continue;
+                }
+
+                realmRestored++;
+                totalRestored++;
+                console.log(`  ✓ Restored: ${preferenceId}`);
+
+                // Restore group membership
+                const groupsToRestore = backup.attribute_groups.filter(group =>
+                    group.attributes.includes(preferenceId)
+                );
+
+                for (const group of groupsToRestore) {
+                    const assigned = await assignAttributeToGroup(
+                        objectType,
+                        group.group_id,
+                        preferenceId,
+                        realm
+                    );
+                    if (assigned) {
+                        console.log(`    ✓ Assigned to group: ${group.group_id}`);
+                    } else {
+                        console.log(`    ✗ Failed to assign to group: ${group.group_id}`);
+                    }
+                }
+
+                // Restore site values
+                const siteValueData = backup.site_values?.[preferenceId];
+
+                if (siteValueData && siteValueData.siteValues && Object.keys(siteValueData.siteValues).length > 0) {
+                    const { groupId: groupId, siteValues: siteValues } = siteValueData;
+                    const attributeKey = preferenceId.startsWith('c_') ? preferenceId : `c_${preferenceId}`;
+
+                    for (const [siteId, value] of Object.entries(siteValues)) {
+                        const payload = {
+                            [attributeKey]: value
+                        };
+                        const result = await patchSitePreferencesGroup(
+                            siteId,
+                            groupId,
+                            instanceType,
+                            payload,
+                            realm
+                        );
+                        if (result) {
+                            console.log(`    ✓ Restored value for ${siteId}: "${value}"`);
+                        } else {
+                            console.log(`    ✗ Failed to restore value for ${siteId}`);
+                        }
+                    }
+                }
+            }
+
+            console.log(`\n  Realm summary: ${realmRestored} restored, ${realmRestoreFailed} failed\n`);
+        }
+
+        console.log('================================================================================');
+        console.log('RESTORE SUMMARY');
+        console.log('================================================================================\n');
+        console.log(`✓ Total preferences restored: ${totalRestored}`);
+        console.log(`✗ Total restoration failures: ${totalRestoreFailed}`);
+        console.log(`  Realms processed: ${realmsToProcess.length}\n`);
+
+        if (totalRestored > 0) {
+            console.log('✅ Preferences successfully restored from backups.\n');
+        } else if (totalRestoreFailed > 0) {
+            console.log('⚠️  Restoration encountered errors. Check messages above.\n');
+        }
     });
 
 program
@@ -557,6 +805,332 @@ program
         }
 
         logSiteXmlValidationSummary(result.stats);
+    });
+
+// ============================================================================
+// RESTORE PREFERENCES COMMAND
+// Restore preferences from backup files
+// ============================================================================
+
+/**
+ * Find the latest backup file for a given realm
+ * @param {string} realm - Realm name
+ * @param {string} objectType - Object type (default: SitePreferences)
+ * @returns {string|null} Path to latest backup file or null if not found
+ * @private
+ */
+function findLatestBackupFile(realm, objectType = 'SitePreferences') {
+    const instanceType = getInstanceType(realm);
+    const backupDir = path.join(process.cwd(), 'backup', instanceType);
+    
+    if (!fs.existsSync(backupDir)) {
+        return null;
+    }
+    
+    const files = fs.readdirSync(backupDir)
+        .filter(f => f.startsWith(`${realm}_${objectType}_backup_`) && f.endsWith('.json'))
+        .sort()
+        .reverse(); // Sort descending to get latest first
+    
+    return files.length > 0
+        ? path.join(backupDir, files[0])
+        : null;
+}
+
+/**
+ * Validate and correct backup attribute definitions
+ * Ensures all fields are in proper OCAPI format (objects for localized fields, etc)
+ * @param {Object} backup - Backup object
+ * @returns {Object} {corrected: boolean, corrections: string[], backup: correctedBackup}
+ * @private
+ */
+function validateAndCorrectBackup(backup) {
+    const corrections = [];
+    const correctedBackup = JSON.parse(JSON.stringify(backup)); // Deep clone
+    
+    for (let i = 0; i < correctedBackup.attributes.length; i++) {
+        const attr = correctedBackup.attributes[i];
+        
+        // Check display_name
+        if (attr.display_name && typeof attr.display_name === 'string') {
+            corrections.push(`  • Fixed display_name for "${attr.id}": string → object`);
+            attr.display_name = { default: attr.display_name };
+        }
+        
+        // Check description
+        if (attr.description) {
+            if (typeof attr.description === 'string') {
+                corrections.push(`  • Fixed description for "${attr.id}": string → object`);
+                attr.description = { default: attr.description };
+            } else if (typeof attr.description === 'object' && (attr.description._ || attr.description.$)) {
+                // Remove xml2js artifacts
+                const cleanDesc = {};
+                const descriptions = attr.description._
+                    ? { default: attr.description._ }
+                    : attr.description;
+                Object.keys(descriptions).forEach(key => {
+                    if (key !== '_' && key !== '$') {
+                        cleanDesc[key] = descriptions[key];
+                    }
+                });
+                if (Object.keys(cleanDesc).length > 0) {
+                    corrections.push(`  • Cleaned description for "${attr.id}": removed xml2js artifacts`);
+                    attr.description = cleanDesc;
+                } else {
+                    attr.description = null;
+                }
+            }
+        }
+
+        // Check default_value - should be {value: <typedValue>}
+        if (attr.default_value) {
+            let needsFix = false;
+            let typedValue = attr.default_value;
+
+            if (typeof attr.default_value === 'string') {
+                // Convert string to typed value based on value_type
+                needsFix = true;
+                const valueType = attr.value_type;
+                if (valueType === 'int' || valueType === 'integer') {
+                    typedValue = parseInt(attr.default_value, 10);
+                } else if (valueType === 'double' || valueType === 'decimal') {
+                    typedValue = parseFloat(attr.default_value);
+                } else if (valueType === 'boolean') {
+                    typedValue = attr.default_value === 'true' || attr.default_value === true;
+                }
+                // else keep as string for string type
+                attr.default_value = { value: typedValue };
+            } else if (typeof attr.default_value === 'object') {
+                // Check if it has wrong structure (with _ or $ or using 'default' key)
+                if (attr.default_value._ || attr.default_value.$ || ('default' in attr.default_value && !('value' in attr.default_value))) {
+                    needsFix = true;
+                    // Extract the raw value
+                    let rawValue = attr.default_value._ || attr.default_value.default || Object.values(attr.default_value).find(v => typeof v !== 'object') || null;
+                    if (rawValue !== null) {
+                        // Convert based on value type
+                        const valueType = attr.value_type;
+                        if (valueType === 'int' || valueType === 'integer') {
+                            typedValue = parseInt(rawValue, 10);
+                        } else if (valueType === 'double' || valueType === 'decimal') {
+                            typedValue = parseFloat(rawValue);
+                        } else if (valueType === 'boolean') {
+                            typedValue = rawValue === 'true' || rawValue === true;
+                        } else {
+                            typedValue = rawValue;
+                        }
+                        attr.default_value = { value: typedValue };
+                    } else {
+                        attr.default_value = null;
+                    }
+                }
+            }
+
+            if (needsFix) {
+                corrections.push(`  • Fixed default_value for "${attr.id}": converted to {value: <typed>}`);
+            }
+        }
+
+        // Clean any lingering xml2js artifacts
+        const xmljsKeys = Object.keys(attr).filter(k => k === '_' || k === '$');
+        if (xmljsKeys.length > 0) {
+            corrections.push(`  • Removed xml2js artifacts from "${attr.id}"`);
+            xmljsKeys.forEach(k => delete attr[k]);
+        }
+    }
+    
+    return {
+        corrected: corrections.length > 0,
+        corrections,
+        backup: correctedBackup
+    };
+}
+
+
+program
+    .command('restore-preferences')
+    .description('Restore site preferences from backup file')
+    .action(async () => {
+        const timer = startTimer();
+        logSectionTitle('Restore Preferences from Backup');
+
+        // Get available realms
+        const availableRealms = getAvailableRealms();
+        if (availableRealms.length === 0) {
+            console.log('⚠️  No realms configured. Run "add-realm" first.\n');
+            return;
+        }
+
+        // Prompt for realm selection
+        const realmAnswers = await inquirer.prompt([
+            {
+                type: 'list',
+                name: 'realm',
+                message: 'Select realm to restore:',
+                choices: availableRealms
+            }
+        ]);
+
+        const realm = realmAnswers.realm;
+        const objectType = 'SitePreferences';
+        const instanceType = getInstanceType(realm);
+
+        console.log(`\n📎 Looking for latest backup for realm: ${realm}\n`);
+
+        // Find latest backup file
+        const backupFilePath = findLatestBackupFile(realm, objectType);
+
+        if (!backupFilePath || !fs.existsSync(backupFilePath)) {
+            console.log(`⚠️  No backup file found for realm: ${realm}`);
+            console.log(`   Expected location: backup/${instanceType}/${realm}_${objectType}_backup_*.json\n`);
+            console.log(`✓ Total runtime: ${timer.stop()}`);
+            return;
+        }
+
+        console.log(`✓ Found backup: ${path.basename(backupFilePath)}\n`);
+
+        // Confirm restore
+        const confirmAnswers = await inquirer.prompt([
+            {
+                type: 'confirm',
+                name: 'proceed',
+                message: 'Proceed with restoration?',
+                default: false
+            }
+        ]);
+
+        if (!confirmAnswers.proceed) {
+            console.log('\n✓ Restore cancelled.\n');
+            console.log(`✓ Total runtime: ${timer.stop()}`);
+            return;
+        }
+
+        console.log('\nRestoring preferences from backup...\n');
+
+        // Load backup
+        console.log('Loading backup file...');
+        let backup = await loadBackupFile(backupFilePath);
+        console.log(`✓ Loaded ${backup.attributes.length} preference(s)\n`);
+
+        // Validate and correct backup
+        console.log('Validating backup structure...');
+        const validation = validateAndCorrectBackup(backup);
+        
+        if (validation.corrected) {
+            console.log('⚠️  Found issues in backup file:\n');
+            validation.corrections.forEach(msg => console.log(msg));
+            
+            const correctAnswers = await inquirer.prompt([
+                {
+                    type: 'confirm',
+                    name: 'applyCorrections',
+                    message: '\nApply these corrections before restore?',
+                    default: true
+                }
+            ]);
+
+            if (correctAnswers.applyCorrections) {
+                backup = validation.backup;
+                console.log('\n✓ Corrections applied to backup\n');
+            } else {
+                console.log('\n⚠️  Proceeding with original backup (may cause errors).\n');
+            }
+        } else {
+            console.log('✓ Backup structure is valid\n');
+        }
+
+        const preferences = backup.attributes.map(attr => attr.id);
+        let totalRestored = 0;
+        let totalRestoreFailed = 0;
+
+        // Restore each preference
+        for (const preferenceId of preferences) {
+            const attributeToRestore = backup.attributes.find(attr => attr.id === preferenceId);
+
+            if (!attributeToRestore) {
+                console.log(`  ⚠️  ${preferenceId} not found in backup. Skipping...`);
+                totalRestoreFailed++;
+                continue;
+            }
+
+            // Restore attribute definition (filtered to safe fields only)
+            const safeRestoreBody = buildCreateSafeBody(attributeToRestore);
+            const restored = await updateAttributeDefinitionById(
+                objectType,
+                preferenceId,
+                'put',
+                safeRestoreBody,
+                realm
+            );
+
+            if (!restored) {
+                totalRestoreFailed++;
+                console.log(`  ✗ Failed to restore: ${preferenceId}`);
+                continue;
+            }
+
+            totalRestored++;
+            console.log(`  ✓ Restored: ${preferenceId}`);
+
+            // Restore group membership
+            const groupsToRestore = backup.attribute_groups.filter(group =>
+                group.attributes.includes(preferenceId)
+            );
+
+            for (const group of groupsToRestore) {
+                const assigned = await assignAttributeToGroup(
+                    objectType,
+                    group.group_id,
+                    preferenceId,
+                    realm
+                );
+                if (assigned) {
+                    console.log(`    ✓ Assigned to group: ${group.group_id}`);
+                } else {
+                    console.log(`    ✗ Failed to assign to group: ${group.group_id}`);
+                }
+            }
+
+            // Restore site values
+            const siteValueData = backup.site_values?.[preferenceId];
+
+            if (siteValueData && siteValueData.siteValues && Object.keys(siteValueData.siteValues).length > 0) {
+                const { groupId: groupId, siteValues: siteValues } = siteValueData;
+                const attributeKey = preferenceId.startsWith('c_') ? preferenceId : `c_${preferenceId}`;
+
+                for (const [siteId, value] of Object.entries(siteValues)) {
+                    const payload = {
+                        [attributeKey]: value
+                    };
+                    const result = await patchSitePreferencesGroup(
+                        siteId,
+                        groupId,
+                        instanceType,
+                        payload,
+                        realm
+                    );
+                    if (result) {
+                        console.log(`    ✓ Restored value for ${siteId}: "${value}"`);
+                    } else {
+                        console.log(`    ✗ Failed to restore value for ${siteId}`);
+                    }
+                }
+            }
+        }
+
+        console.log('\n================================================================================');
+        console.log('RESTORE SUMMARY');
+        console.log('================================================================================\n');
+        console.log(`✓ Total preferences restored: ${totalRestored}`);
+        console.log(`✗ Total restoration failures: ${totalRestoreFailed}`);
+        console.log(`  Realm: ${realm}\n`);
+
+        if (totalRestored > 0) {
+            console.log('✅ Preferences successfully restored from backup.\n');
+        } else if (totalRestoreFailed > 0) {
+            console.log('⚠️  Restoration encountered errors. Check messages above.\n');
+        }
+
+        console.log(`✓ Total runtime: ${timer.stop()}`);
     });
 
 // ============================================================================
