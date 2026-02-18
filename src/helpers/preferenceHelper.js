@@ -1,5 +1,4 @@
 import path from 'path';
-import fs from 'fs';
 import {
     parseCSVToNestedArray,
     findUnusedPreferences,
@@ -31,8 +30,6 @@ import { buildGroupSummaries, filterSitesByScope } from './util.js';
 import { processBatch, withLoadShedding } from './batch.js';
 import { getApiConfig } from './constants.js';
 import { checkBackupFileAge } from './preferenceBackup.js';
-import { generate as generateSitePreferencesBackup } from './generateSitePreferencesJSON.js';
-import { getMetadataBackupPathForRealm } from './backupJob.js';
 
 /**
  * Check backup file status for multiple realms
@@ -247,16 +244,16 @@ async function buildPreferenceMatrices(data, realm, params) {
 }
 
 /**
- * Export preference analysis results to CSV files and generate backup
+ * Export preference analysis results to CSV files
  * @param {string} realmDir - Realm directory path
  * @param {string} realm - Realm name
  * @param {Object} results - Results object with usageRows, allSiteIds, preferenceMatrix
  * @param {string} instanceType - Instance type
- * @param {string} objectType - Object type
+ * @param {string} _objectType - Object type (unused)
  * @returns {Promise<string>} Path to usage CSV file
  * @private
  */
-async function exportResults(realmDir, realm, results, instanceType, objectType) {
+async function exportResults(realmDir, realm, results, instanceType, _objectType) {
     const usageFilePath = writeUsageCSV(realmDir, realm, instanceType, results.usageRows, results.preferenceMeta);
     writeMatrixCSV(realmDir, realm, instanceType, results.preferenceMatrix, results.allSiteIds);
 
@@ -266,34 +263,11 @@ async function exportResults(realmDir, realm, results, instanceType, objectType)
     );
     const matrixData = parseCSVToNestedArray(matrixFilePath);
     const unusedPreferences = findUnusedPreferences(matrixData);
-    const unusedPreferencesFile = writeUnusedPreferencesFile(
+    writeUnusedPreferencesFile(
         realmDir,
         realm,
         unusedPreferences
     );
-
-    const backupDir = path.join(process.cwd(), 'backup', instanceType);
-    if (!fs.existsSync(backupDir)) {
-        fs.mkdirSync(backupDir, { recursive: true });
-    }
-
-    const backupDate = new Date().toISOString().split('T')[0];
-    const backupFilePath = path.join(
-        backupDir,
-        `${realm}_${objectType}_backup_${backupDate}.json`
-    );
-    const metadataPath = getMetadataBackupPathForRealm(realm, instanceType);
-
-    await generateSitePreferencesBackup({
-        unusedPreferencesFile,
-        csvFile: usageFilePath,
-        xmlMetadataFile: metadataPath,
-        outputFile: backupFilePath,
-        realm,
-        instanceType,
-        objectType,
-        verbose: true
-    });
 
     return usageFilePath;
 }

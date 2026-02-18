@@ -259,9 +259,6 @@ program
         const count = activePreferences.length;
 
         console.log(`Active Preferences (${count}):\n`);
-        activePreferences.forEach((pref) => {
-            console.log(`  • ${pref}`);
-        });
 
         logSectionTitle('STEP 5: Finding Preference Usage in Cartridges');
 
@@ -397,85 +394,151 @@ program
         logSectionTitle('STEP 5: Create Backups (Per Realm)');
 
         const objectType = 'SitePreferences';
-        const refreshAnswers = await inquirer.prompt([
-            {
-                type: 'confirm',
-                name: 'refreshMetadata',
-                message: 'Trigger backup job and download latest metadata for each selected realm?',
-                default: false
-            }
-        ]);
+
+        // First, check which realms already have backups for today
+        const realmsWithBackups = [];
+        const realmsWithoutBackups = [];
 
         for (const realm of realmsToProcess) {
-            console.log('\n================================================================================');
-            console.log(`Realm: ${realm}`);
-            console.log(`Instance type: ${instanceType}`);
-            console.log('================================================================================\n');
-
-            let metadataPath = getMetadataBackupPathForRealm(realm, instanceType);
-
-            if (refreshAnswers.refreshMetadata || !fs.existsSync(metadataPath)) {
-                console.log('📎 STEP 5.1: Download Metadata Backup\n');
-                if (!fs.existsSync(metadataPath)) {
-                    console.log('⚠ No existing metadata file found. Triggering backup job...\n');
-                }
-                console.log('Triggering backup job and downloading metadata...');
-                const refreshResult = await refreshMetadataBackupForRealm(realm, instanceType);
-
-                if (refreshResult.ok) {
-                    metadataPath = refreshResult.filePath;
-                    console.log(`✓ Downloaded metadata: ${refreshResult.filePath}\n`);
-                } else {
-                    console.log(`⚠ Failed to download metadata: ${refreshResult.reason}`);
-                    console.log('Cannot create backup without metadata. Skipping this realm.\n');
-                    continue;
-                }
-            } else {
-                console.log('📎 STEP 5.1: Using Existing Metadata\n');
-                console.log(`✓ Found metadata: ${metadataPath}\n`);
-            }
-
-            console.log('📋 STEP 5.2: Generate Backup from CSV + Metadata\n');
-
-            const usageFilePath = findLatestUsageCsv(realm, instanceType);
-            if (usageFilePath) {
-                console.log(`Using usage CSV: ${path.basename(usageFilePath)}`);
-            } else {
-                console.log('⚠️  No usage CSV found. Site values will not be included in backup.');
-            }
-
-            const backupDir = path.join(process.cwd(), 'backup', instanceType);
-            if (!fs.existsSync(backupDir)) {
-                fs.mkdirSync(backupDir, { recursive: true });
-            }
-
             const backupDate = new Date().toISOString().split('T')[0];
             const backupFilePath = path.join(
-                backupDir,
+                process.cwd(),
+                'backup',
+                instanceType,
                 `${realm}_${objectType}_backup_${backupDate}.json`
             );
 
-            const backupResult = await generateSitePreferencesBackup({
-                unusedPreferencesFile: preferencesFilePath,
-                csvFile: usageFilePath,
-                xmlMetadataFile: metadataPath,
-                outputFile: backupFilePath,
-                realm,
-                instanceType,
-                objectType,
-                verbose: true
-            });
-
-            if (!backupResult.success) {
-                console.log(`⚠ Failed to create backup file: ${backupResult.error}`);
-                console.log('Skipping this realm.\n');
-                continue;
+            if (fs.existsSync(backupFilePath)) {
+                realmsWithBackups.push(realm);
+            } else {
+                realmsWithoutBackups.push(realm);
             }
+        }
 
-            console.log(`✓ Backup created: ${backupResult.outputPath}`);
-            console.log(`   Total attributes: ${backupResult.stats.total}`);
-            console.log(`   Groups added: ${backupResult.stats.groups}`);
-            console.log(`   Preferences with site values: ${backupResult.stats.withValues}\n`);
+        // Show backup status
+        if (realmsWithBackups.length > 0) {
+            console.log('\n================================================================================');
+            console.log('EXISTING BACKUP FILES FOUND');
+            console.log('================================================================================\n');
+            realmsWithBackups.forEach(realm => {
+                console.log(`  ✓ ${realm}: Backup exists for today's date`);
+            });
+            console.log('');
+        }
+
+        if (realmsWithoutBackups.length > 0) {
+            console.log('Realms needing backup:');
+            realmsWithoutBackups.forEach(realm => {
+                console.log(`  • ${realm}: No backup found, will create`);
+            });
+            console.log('');
+        }
+
+        // Determine which realms to create backups for
+        let realmsToBackup = realmsWithoutBackups;
+
+        if (realmsWithBackups.length > 0) {
+            const overwriteAnswers = await inquirer.prompt([
+                {
+                    type: 'confirm',
+                    name: 'createNew',
+                    message: realmsWithBackups.length + ' realm(s) already have backup files. Create new ones anyway?',
+                    default: false
+                }
+            ]);
+
+            if (overwriteAnswers.createNew) {
+                console.log('✓ Will create new backups for all realms.\n');
+                realmsToBackup = realmsToProcess;
+            } else {
+                console.log('✓ Will skip realms that already have backups.\n');
+            }
+        }
+
+        if (realmsToBackup.length === 0) {
+            console.log('No realms need backup creation. All realms already have up-to-date backups.\n');
+        } else {
+            // Ask about metadata refresh only if we're creating backups
+            const refreshAnswers = await inquirer.prompt([
+                {
+                    type: 'confirm',
+                    name: 'refreshMetadata',
+                    message: 'Trigger backup job and download latest metadata for realms needing backup?',
+                    default: false
+                }
+            ]);
+
+            for (const realm of realmsToBackup) {
+                console.log('\n================================================================================');
+                console.log(`Realm: ${realm}`);
+                console.log(`Instance type: ${instanceType}`);
+                console.log('================================================================================\n');
+
+                let metadataPath = getMetadataBackupPathForRealm(realm, instanceType);
+
+                if (refreshAnswers.refreshMetadata || !fs.existsSync(metadataPath)) {
+                    console.log('📎 STEP 5.1: Download Metadata Backup\n');
+                    if (!fs.existsSync(metadataPath)) {
+                        console.log('⚠ No existing metadata file found. Triggering backup job...\n');
+                    }
+                    console.log('Triggering backup job and downloading metadata...');
+                    const refreshResult = await refreshMetadataBackupForRealm(realm, instanceType);
+
+                    if (refreshResult.ok) {
+                        metadataPath = refreshResult.filePath;
+                        console.log(`✓ Downloaded metadata: ${refreshResult.filePath}\n`);
+                    } else {
+                        console.log(`⚠ Failed to download metadata: ${refreshResult.reason}`);
+                        console.log('Cannot create backup without metadata. Skipping this realm.\n');
+                        continue;
+                    }
+                } else {
+                    console.log('📎 STEP 5.1: Using Existing Metadata\n');
+                    console.log(`✓ Found metadata: ${metadataPath}\n`);
+                }
+
+                console.log('📋 STEP 5.2: Generate Backup from CSV + Metadata\n');
+
+                const usageFilePath = findLatestUsageCsv(realm, instanceType);
+                if (usageFilePath) {
+                    console.log(`Using usage CSV: ${path.basename(usageFilePath)}`);
+                } else {
+                    console.log('⚠️  No usage CSV found. Site values will not be included in backup.');
+                }
+
+                const backupDir = path.join(process.cwd(), 'backup', instanceType);
+                if (!fs.existsSync(backupDir)) {
+                    fs.mkdirSync(backupDir, { recursive: true });
+                }
+
+                const backupDate = new Date().toISOString().split('T')[0];
+                const backupFilePath = path.join(
+                    backupDir,
+                    `${realm}_${objectType}_backup_${backupDate}.json`
+                );
+
+                const backupResult = await generateSitePreferencesBackup({
+                    unusedPreferencesFile: preferencesFilePath,
+                    csvFile: usageFilePath,
+                    xmlMetadataFile: metadataPath,
+                    outputFile: backupFilePath,
+                    realm,
+                    instanceType,
+                    objectType,
+                    verbose: true
+                });
+
+                if (!backupResult.success) {
+                    console.log(`⚠ Failed to create backup file: ${backupResult.error}`);
+                    console.log('Skipping this realm.\n');
+                    continue;
+                }
+
+                console.log(`✓ Backup created: ${backupResult.outputPath}`);
+                console.log(`   Total attributes: ${backupResult.stats.total}`);
+                console.log(`   Groups added: ${backupResult.stats.groups}`);
+                console.log(`   Preferences with site values: ${backupResult.stats.withValues}\n`);
+            }
         }
 
         logSectionTitle('STEP 6: Confirm Deletion');
