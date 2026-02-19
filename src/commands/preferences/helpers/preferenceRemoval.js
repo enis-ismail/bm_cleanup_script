@@ -6,7 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
-import { ensureResultsDir } from './util.js';
+import { ensureResultsDir } from '../../../helpers/util.js';
 
 /**
  * Load preferences marked for deletion from file
@@ -126,4 +126,3 @@ export function generateDeletionSummary(preferences) {
         topPrefixes: sortedPrefixes
     };
 }
-

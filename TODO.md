@@ -153,16 +153,7 @@ results/                    ✅ Implemented
 
 ---
 
-## 🔍 Testing & Validation
-
-### Unit Testing
-- [ ] Add unit tests for core functions
-  - Preference detection logic
-  - CSV parsing and generation
-  - Backup file validation
-- [ ] Add integration tests
-  - End-to-end workflow testing
-  - OCAPI mock server for testing
+## 🔍 Validation
 
 ### Manual Testing Checklist
 - [x] Single realm analysis
@@ -171,8 +162,9 @@ results/                    ✅ Implemented
 - [x] Deprecated cartridge filtering
 - [x] Backup file generation
 - [x] Backup age checking
-- [ ] Actual preference deletion (not implemented)
-- [ ] Rollback from backup (not implemented)
+- [x] Actual preference deletion
+- [x] Rollback from backup
+- [ ] fix logging issues and improve batch progress visibility
 
 ---
 

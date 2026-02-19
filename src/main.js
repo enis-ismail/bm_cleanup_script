@@ -1,69 +1,14 @@
-﻿import inquirer from 'inquirer';
-import { Command } from 'commander';
-import path from 'path';
+﻿import { Command } from 'commander';
 import { registerDebugCommands } from './debug.js';
 import { registerPreferenceCommands } from './commands/preferences/preferences.js';
-import {
-    addRealmToConfig,
-    removeRealmFromConfig,
-    getAvailableRealms,
-    getInstanceType
-} from './helpers.js';
-import { startTimer } from './helpers/timer.js';
-import { getSiblingRepositories } from './helpers/util.js';
-import { executeListSites, executeValidateCartridgesAll, executeValidateSiteXml } from './helpers/cartridgeCommands.js';
-import {
-    realmPrompt,
-    addRealmPrompts,
-    selectRealmToRemovePrompt,
-    confirmRealmRemovalPrompt,
-    repositoryPrompt,
-    resolveRealmScopeSelection
-} from './prompts.js';
-import {
-    logCartridgeValidationSummaryHeader,
-    logRealmsProcessed,
-    logCartridgeValidationStats,
-    logCartridgeValidationWarning,
-    logCartridgeValidationSummaryFooter,
-    logSiteXmlValidationSummary
-} from './helpers/log.js';
-import { refreshMetadataBackupForRealm } from './helpers/backupJob.js';
+import { registerCartridgeCommands } from './commands/cartridges/cartridges.js';
+import { registerSetupCommands } from './commands/setup/setup.js';
 
 // ============================================================================
 // CLI ENTRYPOINT
 // Central command registry for OCAPI tooling
 // ============================================================================
 
-/**
- * Validate realm selection and return list to process
- * @param {Array<string>} realmsToProcess - List of realms from selection
- * @returns {boolean} True if realms are valid, false otherwise
- * @private
- */
-function validateRealmsSelection(realmsToProcess) {
-    if (!realmsToProcess || realmsToProcess.length === 0) {
-        console.log('No realms found for the selected scope.');
-        return false;
-    }
-    return true;
-}
-
-/**
- * Get target repository path from sibling repositories
- * @param {Array<string>} siblings - List of sibling repository names
- * @returns {Promise<string|null>} Target path or null if cancelled/invalid
- * @private
- */
-async function selectRepositoryPath(siblings) {
-    if (siblings.length === 0) {
-        console.log('No sibling repositories found.');
-        return null;
-    }
-
-    const siblingAnswers = await inquirer.prompt(await repositoryPrompt(siblings));
-    return path.join(path.dirname(process.cwd()), siblingAnswers.repository);
-}
 const program = new Command();
 
 // Command to list sites and export cartridge paths
@@ -73,156 +18,43 @@ program
     .version('1.0.0');
 
 // ============================================================================
-// CORE COMMANDS
-// Primary workflows intended for regular use
+// REGISTER SETUP COMMANDS
 // ============================================================================
+// Location: src/commands/setup/setup.js
+// Commands:
+//   - add-realm: Add a new realm to config.json
+//   - remove-realm: Remove a realm from config.json
 
-program
-    .command('list-sites')
-    .description('List all sites and export cartridge paths to CSV')
-    .action(async () => {
-        const selection = await resolveRealmScopeSelection(inquirer.prompt);
-        const realmsToProcess = selection.realmList;
-
-        if (!realmsToProcess || realmsToProcess.length === 0) {
-            console.log('No realms found for the selected scope.');
-            return;
-        }
-
-        for (const realm of realmsToProcess) {
-            await executeListSites(realm);
-        }
-    });
-
-program
-    .command('backup-site-preferences')
-    .description('Trigger site preferences backup job and download the ZIP from WebDAV')
-    .action(async () => {
-        const timer = startTimer();
-        const realmAnswers = await inquirer.prompt(realmPrompt());
-        const realm = realmAnswers.realm;
-        const instanceType = getInstanceType(realm);
-
-        console.log('Triggering backup job and downloading metadata...');
-        const refreshResult = await refreshMetadataBackupForRealm(realm, instanceType);
-
-        if (!refreshResult.ok) {
-            console.log(`Failed to refresh metadata: ${refreshResult.reason}`);
-            return;
-        }
-
-        console.log(`Backup downloaded to: ${refreshResult.filePath}`);
-        console.log(`✓ Total runtime: ${timer.stop()}`);
-    });
-
-program
-    .command('add-realm')
-    .description('Add a new realm to config.json')
-    .action(async () => {
-        const answers = await inquirer.prompt(addRealmPrompts());
-        const { name, hostname, clientId, clientSecret, siteTemplatesPath, instanceType } = answers;
-        addRealmToConfig(name, hostname, clientId, clientSecret, siteTemplatesPath, instanceType);
-    });
-
-program
-    .command('remove-realm')
-    .description('Remove a realm from config.json')
-    .action(async () => {
-        const realms = getAvailableRealms();
-        if (realms.length === 0) {
-            console.log('No realms available to remove.');
-            return;
-        }
-
-        const selectAnswer = await inquirer.prompt(selectRealmToRemovePrompt(realms));
-        const confirmAnswer = await inquirer.prompt(
-            confirmRealmRemovalPrompt(selectAnswer.realmToRemove)
-        );
-
-        if (confirmAnswer.confirm) {
-            await removeRealmFromConfig(selectAnswer.realmToRemove);
-        } else {
-            console.log('Realm removal cancelled.');
-        }
-    });
+registerSetupCommands(program);
 
 // ============================================================================
-// WIP COMMANDS (Work In Progress)
-// Experimental commands being developed
+// REGISTER CARTRIDGE COMMANDS
 // ============================================================================
+// Location: src/commands/cartridges/cartridges.js
+// Commands:
+//   - list-sites: List all sites and export cartridge paths to CSV
+//   - validate-cartridges-all: [WIP] Validate cartridges across all realms
+//   - validate-site-xml: [WIP] Validate site.xml files match live SFCC
 
-program
-    .command('validate-cartridges-all')
-    .description('[WIP] Validate cartridges across ALL configured realms (parallel)')
-    .action(async () => {
-        const selection = await resolveRealmScopeSelection(inquirer.prompt);
-        const { realmList, instanceTypeOverride } = selection;
-
-        if (!validateRealmsSelection(realmList)) {
-            return;
-        }
-
-        const siblings = await getSiblingRepositories();
-        const targetPath = await selectRepositoryPath(siblings);
-
-        if (!targetPath) {
-            return;
-        }
-
-        const result = await executeValidateCartridgesAll(
-            targetPath,
-            realmList,
-            instanceTypeOverride
-        );
-
-        if (!result) {
-            return;
-        }
-
-        logCartridgeValidationSummaryHeader();
-        logRealmsProcessed(result.realmSummary);
-        logCartridgeValidationStats(result);
-
-        if (result.comparisonResult.unused.length > 0) {
-            logCartridgeValidationWarning(
-                result.comparisonResult.unused.length,
-                result.consolidatedFilePath
-            );
-        }
-
-        logCartridgeValidationSummaryFooter();
-    });
-
-program
-    .command('validate-site-xml')
-    .description('[WIP] Validate that site.xml files match live SFCC cartridge paths')
-    .action(async () => {
-        const siblings = await getSiblingRepositories();
-        const targetPath = await selectRepositoryPath(siblings);
-
-        if (!targetPath) {
-            return;
-        }
-
-        const realmAnswers = await inquirer.prompt(realmPrompt());
-        const result = await executeValidateSiteXml(targetPath, realmAnswers.realm);
-
-        if (!result) {
-            return;
-        }
-
-        logSiteXmlValidationSummary(result.stats);
-    });
+registerCartridgeCommands(program);
 
 // ============================================================================
 // REGISTER PREFERENCE COMMANDS
 // ============================================================================
+// Location: src/commands/preferences/preferences.js
+// Commands:
+//   - analyze-preferences: Full preference analysis workflow
+//   - remove-preferences: Remove preferences marked for deletion
+//   - restore-preferences: Restore site preferences from backup
+//   - backup-site-preferences: Trigger backup job and download metadata
 
 registerPreferenceCommands(program);
 
 // ============================================================================
 // REGISTER DEBUG COMMANDS
 // ============================================================================
+// Location: src/debug.js
+// Commands: Various debug/test commands for development and troubleshooting
 
 registerDebugCommands(program);
 

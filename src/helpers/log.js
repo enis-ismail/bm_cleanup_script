@@ -1,7 +1,7 @@
 import path from 'path';
 import chalk from 'chalk';
 import ora from 'ora';
-import { LOG_PREFIX, SEPARATOR } from './constants.js';
+import { LOG_PREFIX, SEPARATOR } from '../config/constants.js';
 
 /**
  * Logger utilities for console output

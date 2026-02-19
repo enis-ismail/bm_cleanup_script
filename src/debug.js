@@ -18,7 +18,7 @@ import {
     includeDefaultsPrompt,
     resolveRealmScopeSelection,
     instanceTypePrompt
-} from './prompts.js';
+} from './commands/prompts/index.js';
 import {
     logCheckPreferencesStart,
     logNoMatrixFiles,
@@ -33,7 +33,7 @@ import { findAllMatrixFiles, getInstanceType, getRealmsByInstanceType } from './
 import { processPreferenceMatrixFiles, executePreferenceSummarization } from './helpers/preferenceHelper.js';
 import { getActivePreferencesFromMatrices, findAllActivePreferencesUsage, findPreferenceUsage } from './helpers/preferenceUsage.js';
 import { getSiblingRepositories } from './helpers/util.js';
-import { repositoryPrompt, preferenceIdPrompt } from './prompts.js';
+import { repositoryPrompt, preferenceIdPrompt } from './commands/prompts/index.js';
 import { findAttributeInMetaFiles } from './helpers/siteXmlHelper.js';
 import { refreshMetadataBackupForRealm, getMetadataBackupPathForRealm } from './helpers/backupJob.js';
 

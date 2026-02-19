@@ -28,7 +28,7 @@ import {
 import { writeUsageCSV, writeMatrixCSV } from './csv.js';
 import { buildGroupSummaries, filterSitesByScope } from './util.js';
 import { processBatch, withLoadShedding } from './batch.js';
-import { getApiConfig } from './constants.js';
+import { getApiConfig } from '../config/constants.js';
 import { checkBackupFileAge } from './preferenceBackup.js';
 
 /**

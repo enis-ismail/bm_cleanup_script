@@ -19,8 +19,10 @@ import {
     instanceTypePrompt,
     confirmPreferenceDeletionPrompt,
     runAnalyzePreferencesPrompt,
-    useExistingBackupsForAllRealmsPrompt
-} from '../../prompts.js';
+    useExistingBackupsForAllRealmsPrompt,
+    realmPrompt
+} from '../../commands/prompts/index.js';
+import { LOG_PREFIX, SEPARATOR } from '../../config/constants.js';
 import {
     logNoMatrixFiles,
     logMatrixFilesFound,
@@ -38,14 +40,15 @@ import {
     loadPreferencesForDeletion,
     openPreferencesForDeletionInEditor,
     generateDeletionSummary
-} from '../../helpers/preferenceRemoval.js';
-import { loadBackupFile, buildCreateSafeBody } from '../../helpers/preferenceBackup.js';
-import { generate as generateSitePreferencesBackup } from '../../helpers/generateSitePreferencesJSON.js';
+} from './helpers/preferenceRemoval.js';
+import { loadBackupFile } from '../../helpers/preferenceBackup.js';
+import { generate as generateSitePreferencesBackup } from './helpers/generateSitePreferences.js';
 import { refreshMetadataBackupForRealm, getMetadataBackupPathForRealm } from '../../helpers/backupJob.js';
-import { updateAttributeDefinitionById, assignAttributeToGroup, patchSitePreferencesGroup } from '../../api.js';
+import { updateAttributeDefinitionById } from '../../api.js';
 import { validateRealmsSelection } from './helpers/realmHelpers.js';
 import { findLatestUsageCsv } from './helpers/csvHelpers.js';
 import { findLatestBackupFile, validateAndCorrectBackup } from './helpers/backupHelpers.js';
+import { restorePreferencesForRealm } from './helpers/restoreHelper.js';
 
 // ============================================================================
 // PREFERENCE COMMANDS REGISTRATION
@@ -88,18 +91,16 @@ export function registerPreferenceCommands(program) {
                 const tooOldBackups = backupStatus.filter(b => b.exists && b.tooOld);
 
                 if (validBackups.length > 0) {
-                    console.log('\n================================================================================');
-                    console.log('BACKUP FILES FOUND');
-                    console.log('================================================================================\n');
+                    logSectionTitle('BACKUP FILES FOUND');
 
                     validBackups.forEach(backup => {
-                        console.log(`  OK ${backup.realm}: ${backup.ageInDays} day${backup.ageInDays === 1 ? '' : 's'} old`);
+                        console.log(`  ${LOG_PREFIX.INFO} ${backup.realm}: ${backup.ageInDays} day${backup.ageInDays === 1 ? '' : 's'} old`);
                     });
 
                     if (tooOldBackups.length > 0) {
                         console.log('\nBackups older than 14 days (will fetch fresh):');
                         tooOldBackups.forEach(backup => {
-                            console.log(`  WARN ${backup.realm}: ${backup.ageInDays} days old`);
+                            console.log(`  ${LOG_PREFIX.WARNING} ${backup.realm}: ${backup.ageInDays} days old`);
                         });
                     }
 
@@ -113,9 +114,9 @@ export function registerPreferenceCommands(program) {
                     useCachedBackup = backupAnswer.useExisting;
 
                     if (useCachedBackup) {
-                        console.log('OK Will use cached backups where available.\n');
+                        console.log(`${LOG_PREFIX.INFO} Will use cached backups where available.\n`);
                     } else {
-                        console.log('OK Will fetch fresh data for all realms.\n');
+                        console.log(`${LOG_PREFIX.INFO} Will fetch fresh data for all realms.\n`);
                     }
                 }
             }
@@ -193,18 +194,19 @@ export function registerPreferenceCommands(program) {
             let preferences = loadPreferencesForDeletion(instanceType);
 
             if (!preferences) {
-                console.log(`\nWARN Preferences for deletion file not found for instance type: ${instanceType}\n`);
+                const msg = `Preferences for deletion file not found for instance type: ${instanceType}`;
+                console.log(`\n${LOG_PREFIX.WARNING} ${msg}\n`);
 
                 const analyzeAnswers = await inquirer.prompt(runAnalyzePreferencesPrompt(instanceType));
 
                 if (!analyzeAnswers.runAnalyze) {
-                    console.log('\nOK Preference removal cancelled.\n');
-                    console.log(`OK Total runtime: ${timer.stop()}`);
+                    console.log(`\n${LOG_PREFIX.INFO} Preference removal cancelled.\n`);
+                    console.log(`${LOG_PREFIX.INFO} Total runtime: ${timer.stop()}`);
                     return;
                 }
 
                 console.log('\nRunning analyze-preferences command...\n');
-                console.log('================================================================================\n');
+                console.log(`${SEPARATOR}\n`);
 
                 await new Promise((resolve, reject) => {
                     const analyzeProcess = spawn('node', ['src/main.js', 'analyze-preferences'], {
@@ -213,9 +215,9 @@ export function registerPreferenceCommands(program) {
                     });
 
                     analyzeProcess.on('close', (code) => {
-                        console.log('\n================================================================================\n');
+                        console.log(`\n${SEPARATOR}\n`);
                         if (code === 0) {
-                            console.log('OK analyze-preferences completed successfully!\n');
+                            console.log(`${LOG_PREFIX.INFO} analyze-preferences completed successfully!\n`);
                             resolve();
                         } else {
                             reject(new Error(`analyze-preferences exited with code ${code}`));
@@ -227,14 +229,15 @@ export function registerPreferenceCommands(program) {
                     });
                 }).catch((error) => {
                     console.log(`\nERROR: ${error.message}`);
-                    console.log(`OK Total runtime: ${timer.stop()}`);
+                    console.log(`${LOG_PREFIX.INFO} Total runtime: ${timer.stop()}`);
                     return;
                 });
 
                 preferences = loadPreferencesForDeletion(instanceType);
                 if (!preferences) {
-                    console.log('\nWARN Preferences file still not found. Please check the analyze-preferences output.\n');
-                    console.log(`OK Total runtime: ${timer.stop()}`);
+                    console.log(`\n${LOG_PREFIX.WARNING} Preferences file still not found.`
+                        + ' Please check the analyze-preferences output.\n');
+                    console.log(`${LOG_PREFIX.INFO} Total runtime: ${timer.stop()}`);
                     return;
                 }
             }
@@ -251,11 +254,11 @@ export function registerPreferenceCommands(program) {
 
             try {
                 const filePath = await openPreferencesForDeletionInEditor(instanceType);
-                console.log(`OK Opened preferences file in VS Code: ${filePath}\n`);
+                console.log(`${LOG_PREFIX.INFO} Opened preferences file in VS Code: ${filePath}\n`);
             } catch (error) {
-                console.log(`WARN Could not open file in VS Code: ${error.message}`);
+                console.log(`${LOG_PREFIX.WARNING} Could not open file in VS Code: ${error.message}`);
                 console.log('  Make sure VS Code is installed and accessible via the "code" command.\n');
-                console.log(`OK Total runtime: ${timer.stop()}`);
+                console.log(`${LOG_PREFIX.INFO} Total runtime: ${timer.stop()}`);
                 return;
             }
 
@@ -272,7 +275,7 @@ export function registerPreferenceCommands(program) {
             const realmsForInstance = getRealmsByInstanceType(instanceType);
             if (!realmsForInstance || realmsForInstance.length === 0) {
                 console.log(`No realms found for instance type: ${instanceType}`);
-                console.log(`OK Total runtime: ${timer.stop()}`);
+                console.log(`${LOG_PREFIX.INFO} Total runtime: ${timer.stop()}`);
                 return;
             }
 
@@ -289,7 +292,7 @@ export function registerPreferenceCommands(program) {
             const realmsToProcess = realmSelection.realms;
             if (!realmsToProcess || realmsToProcess.length === 0) {
                 console.log('No realms selected.');
-                console.log(`OK Total runtime: ${timer.stop()}`);
+                console.log(`${LOG_PREFIX.INFO} Total runtime: ${timer.stop()}`);
                 return;
             }
 
@@ -317,11 +320,9 @@ export function registerPreferenceCommands(program) {
             }
 
             if (realmsWithBackups.length > 0) {
-                console.log('\n================================================================================');
-                console.log('EXISTING BACKUP FILES FOUND');
-                console.log('================================================================================\n');
+                logSectionTitle('EXISTING BACKUP FILES FOUND');
                 realmsWithBackups.forEach(realm => {
-                    console.log(`  OK ${realm}: Backup exists for today's date`);
+                    console.log(`  ${LOG_PREFIX.INFO} ${realm}: Backup exists for today's date`);
                 });
                 console.log('');
             }
@@ -347,10 +348,10 @@ export function registerPreferenceCommands(program) {
                 ]);
 
                 if (overwriteAnswers.createNew) {
-                    console.log('OK Will create new backups for all realms.\n');
+                    console.log(`${LOG_PREFIX.INFO} Will create new backups for all realms.\n`);
                     realmsToBackup = realmsToProcess;
                 } else {
-                    console.log('OK Will skip realms that already have backups.\n');
+                    console.log(`${LOG_PREFIX.INFO} Will skip realms that already have backups.\n`);
                 }
             }
 
@@ -367,32 +368,33 @@ export function registerPreferenceCommands(program) {
                 ]);
 
                 for (const realm of realmsToBackup) {
-                    console.log('\n================================================================================');
-                    console.log(`Realm: ${realm}`);
-                    console.log(`Instance type: ${instanceType}`);
-                    console.log('================================================================================\n');
+                    logSectionTitle(`Backup: ${realm} (${instanceType})`);
 
                     let metadataPath = getMetadataBackupPathForRealm(realm, instanceType);
 
                     if (refreshAnswers.refreshMetadata || !fs.existsSync(metadataPath)) {
                         console.log('STEP 5.1: Download Metadata Backup\n');
                         if (!fs.existsSync(metadataPath)) {
-                            console.log('WARN No existing metadata file found. Triggering backup job...\n');
+                            console.log(
+                                `${LOG_PREFIX.WARNING} No existing metadata file found. Triggering backup job...\n`
+                            );
                         }
                         console.log('Triggering backup job and downloading metadata...');
                         const refreshResult = await refreshMetadataBackupForRealm(realm, instanceType);
 
                         if (refreshResult.ok) {
                             metadataPath = refreshResult.filePath;
-                            console.log(`OK Downloaded metadata: ${refreshResult.filePath}\n`);
+                            console.log(`${LOG_PREFIX.INFO} Downloaded metadata: ${refreshResult.filePath}\n`);
                         } else {
-                            console.log(`WARN Failed to download metadata: ${refreshResult.reason}`);
+                            console.log(
+                                `${LOG_PREFIX.WARNING} Failed to download metadata: ${refreshResult.reason}`
+                            );
                             console.log('Cannot create backup without metadata. Skipping this realm.\n');
                             continue;
                         }
                     } else {
                         console.log('STEP 5.1: Using Existing Metadata\n');
-                        console.log(`OK Found metadata: ${metadataPath}\n`);
+                        console.log(`${LOG_PREFIX.INFO} Found metadata: ${metadataPath}\n`);
                     }
 
                     console.log('STEP 5.2: Generate Backup from CSV + Metadata\n');
@@ -401,7 +403,9 @@ export function registerPreferenceCommands(program) {
                     if (usageFilePath) {
                         console.log(`Using usage CSV: ${path.basename(usageFilePath)}`);
                     } else {
-                        console.log('WARN No usage CSV found. Site values will not be included in backup.');
+                        console.log(
+                            `${LOG_PREFIX.WARNING} No usage CSV found. Site values will not be included in backup.`
+                        );
                     }
 
                     const backupDir = path.join(process.cwd(), 'backup', instanceType);
@@ -427,12 +431,12 @@ export function registerPreferenceCommands(program) {
                     });
 
                     if (!backupResult.success) {
-                        console.log(`WARN Failed to create backup file: ${backupResult.error}`);
+                        console.log(`${LOG_PREFIX.WARNING} Failed to create backup file: ${backupResult.error}`);
                         console.log('Skipping this realm.\n');
                         continue;
                     }
 
-                    console.log(`OK Backup created: ${backupResult.outputPath}`);
+                    console.log(`${LOG_PREFIX.INFO} Backup created: ${backupResult.outputPath}`);
                     console.log(`   Total attributes: ${backupResult.stats.total}`);
                     console.log(`   Groups added: ${backupResult.stats.groups}`);
                     console.log(`   Preferences with site values: ${backupResult.stats.withValues}\n`);
@@ -449,9 +453,9 @@ export function registerPreferenceCommands(program) {
             const confirmAnswers = await inquirer.prompt(confirmPreferenceDeletionPrompt(preferences.length));
 
             if (!confirmAnswers.confirm) {
-                console.log('\nOK Preference removal cancelled.');
-                console.log('OK Backup files have been preserved for future use.\n');
-                console.log(`OK Total runtime: ${timer.stop()}`);
+                console.log(`\n${LOG_PREFIX.INFO} Preference removal cancelled.`);
+                console.log(`${LOG_PREFIX.INFO} Backup files have been preserved for future use.\n`);
+                console.log(`${LOG_PREFIX.INFO} Total runtime: ${timer.stop()}`);
                 return;
             }
 
@@ -480,11 +484,11 @@ export function registerPreferenceCommands(program) {
                     if (result || result === true) {
                         realmDeleted++;
                         totalDeleted++;
-                        console.log(`  OK Deleted: ${preferenceId}`);
+                        console.log(`  ${LOG_PREFIX.INFO} Deleted: ${preferenceId}`);
                     } else {
                         realmFailed++;
                         totalFailed++;
-                        console.log(`  FAIL Failed to delete: ${preferenceId}`);
+                        console.log(`  ${LOG_PREFIX.ERROR} Failed to delete: ${preferenceId}`);
                     }
                 }
 
@@ -492,22 +496,20 @@ export function registerPreferenceCommands(program) {
                 console.log('');
             }
 
-            console.log('================================================================================');
-            console.log('DELETION SUMMARY');
-            console.log('================================================================================\n');
-            console.log(`OK Total preferences deleted: ${totalDeleted}`);
-            console.log(`FAIL Total preferences failed: ${totalFailed}`);
+            logSectionTitle('DELETION SUMMARY');
+            console.log(`${LOG_PREFIX.INFO} Total preferences deleted: ${totalDeleted}`);
+            console.log(`${LOG_PREFIX.ERROR} Total preferences failed: ${totalFailed}`);
             console.log(`  Realms processed: ${realmsToProcess.length}\n`);
 
             if (totalDeleted > 0) {
-                console.log('OK Preferences successfully removed from SFCC.');
+                console.log(`${LOG_PREFIX.INFO} Preferences successfully removed from SFCC.`);
                 console.log('   Backup files are available for restore if needed.\n');
             } else if (totalFailed > 0) {
-                console.log('WARN No preferences were deleted.');
+                console.log(`${LOG_PREFIX.WARNING} No preferences were deleted.`);
                 console.log('   Check error messages above for details.\n');
             }
 
-            console.log(`OK Total runtime: ${timer.stop()}`);
+            console.log(`${LOG_PREFIX.INFO} Total runtime: ${timer.stop()}`);
 
             logSectionTitle('STEP 8: Restore from Backups (Optional)');
 
@@ -521,7 +523,7 @@ export function registerPreferenceCommands(program) {
             ]);
 
             if (!restoreAnswers.restore) {
-                console.log('\nOK Restore skipped. Deleted preferences remain removed.\n');
+                console.log(`\n${LOG_PREFIX.INFO} Restore skipped. Deleted preferences remain removed.\n`);
                 return;
             }
 
@@ -542,104 +544,30 @@ export function registerPreferenceCommands(program) {
                 );
 
                 if (!fs.existsSync(backupFilePath)) {
-                    console.log(`WARN Backup file not found at: ${backupFilePath}`);
+                    console.log(`${LOG_PREFIX.WARNING} Backup file not found at: ${backupFilePath}`);
                     console.log('   Skipping this realm...\n');
                     continue;
                 }
 
                 console.log(`Loading backup: ${path.basename(backupFilePath)}`);
                 const backup = await loadBackupFile(backupFilePath);
+                const result = await restorePreferencesForRealm({
+                    preferenceIds: preferences, backup, objectType, instanceType, realm
+                });
 
-                let realmRestored = 0;
-                let realmRestoreFailed = 0;
-
-                for (const preferenceId of preferences) {
-                    const attributeToRestore = backup.attributes.find(attr => attr.id === preferenceId);
-
-                    if (!attributeToRestore) {
-                        console.log(`  WARN ${preferenceId} not found in backup. Skipping...`);
-                        realmRestoreFailed++;
-                        continue;
-                    }
-
-                    const safeRestoreBody = buildCreateSafeBody(attributeToRestore);
-                    const restored = await updateAttributeDefinitionById(
-                        objectType,
-                        preferenceId,
-                        'put',
-                        safeRestoreBody,
-                        realm
-                    );
-
-                    if (!restored) {
-                        realmRestoreFailed++;
-                        totalRestoreFailed++;
-                        console.log(`  FAIL Failed to restore: ${preferenceId}`);
-                        continue;
-                    }
-
-                    realmRestored++;
-                    totalRestored++;
-                    console.log(`  OK Restored: ${preferenceId}`);
-
-                    const groupsToRestore = backup.attribute_groups.filter(group =>
-                        group.attributes.includes(preferenceId)
-                    );
-
-                    for (const group of groupsToRestore) {
-                        const assigned = await assignAttributeToGroup(
-                            objectType,
-                            group.group_id,
-                            preferenceId,
-                            realm
-                        );
-                        if (assigned) {
-                            console.log(`    OK Assigned to group: ${group.group_id}`);
-                        } else {
-                            console.log(`    FAIL Failed to assign to group: ${group.group_id}`);
-                        }
-                    }
-
-                    const siteValueData = backup.site_values?.[preferenceId];
-
-                    if (siteValueData && siteValueData.siteValues && Object.keys(siteValueData.siteValues).length > 0) {
-                        const { groupId: groupId, siteValues: siteValues } = siteValueData;
-                        const attributeKey = preferenceId.startsWith('c_') ? preferenceId : `c_${preferenceId}`;
-
-                        for (const [siteId, value] of Object.entries(siteValues)) {
-                            const payload = {
-                                [attributeKey]: value
-                            };
-                            const result = await patchSitePreferencesGroup(
-                                siteId,
-                                groupId,
-                                instanceType,
-                                payload,
-                                realm
-                            );
-                            if (result) {
-                                console.log(`    OK Restored value for ${siteId}: "${value}"`);
-                            } else {
-                                console.log(`    FAIL Failed to restore value for ${siteId}`);
-                            }
-                        }
-                    }
-                }
-
-                console.log(`\n  Realm summary: ${realmRestored} restored, ${realmRestoreFailed} failed\n`);
+                totalRestored += result.restored;
+                totalRestoreFailed += result.failed;
             }
 
-            console.log('================================================================================');
-            console.log('RESTORE SUMMARY');
-            console.log('================================================================================\n');
-            console.log(`OK Total preferences restored: ${totalRestored}`);
-            console.log(`FAIL Total restoration failures: ${totalRestoreFailed}`);
+            logSectionTitle('RESTORE SUMMARY');
+            console.log(`${LOG_PREFIX.INFO} Total preferences restored: ${totalRestored}`);
+            console.log(`${LOG_PREFIX.ERROR} Total restoration failures: ${totalRestoreFailed}`);
             console.log(`  Realms processed: ${realmsToProcess.length}\n`);
 
             if (totalRestored > 0) {
-                console.log('OK Preferences successfully restored from backups.\n');
+                console.log(`${LOG_PREFIX.INFO} Preferences successfully restored from backups.\n`);
             } else if (totalRestoreFailed > 0) {
-                console.log('WARN Restoration encountered errors. Check messages above.\n');
+                console.log(`${LOG_PREFIX.WARNING} Restoration encountered errors. Check messages above.\n`);
             }
         });
 
@@ -652,7 +580,7 @@ export function registerPreferenceCommands(program) {
 
             const availableRealms = getAvailableRealms();
             if (availableRealms.length === 0) {
-                console.log('WARN No realms configured. Run "add-realm" first.\n');
+                console.log(`${LOG_PREFIX.WARNING} No realms configured. Run "add-realm" first.\n`);
                 return;
             }
 
@@ -674,13 +602,13 @@ export function registerPreferenceCommands(program) {
             const backupFilePath = findLatestBackupFile(realm, objectType);
 
             if (!backupFilePath || !fs.existsSync(backupFilePath)) {
-                console.log(`WARN No backup file found for realm: ${realm}`);
+                console.log(`${LOG_PREFIX.WARNING} No backup file found for realm: ${realm}`);
                 console.log(`   Expected location: backup/${instanceType}/${realm}_${objectType}_backup_*.json\n`);
-                console.log(`OK Total runtime: ${timer.stop()}`);
+                console.log(`${LOG_PREFIX.INFO} Total runtime: ${timer.stop()}`);
                 return;
             }
 
-            console.log(`OK Found backup: ${path.basename(backupFilePath)}\n`);
+            console.log(`${LOG_PREFIX.INFO} Found backup: ${path.basename(backupFilePath)}\n`);
 
             const confirmAnswers = await inquirer.prompt([
                 {
@@ -692,8 +620,8 @@ export function registerPreferenceCommands(program) {
             ]);
 
             if (!confirmAnswers.proceed) {
-                console.log('\nOK Restore cancelled.\n');
-                console.log(`OK Total runtime: ${timer.stop()}`);
+                console.log(`\n${LOG_PREFIX.INFO} Restore cancelled.\n`);
+                console.log(`${LOG_PREFIX.INFO} Total runtime: ${timer.stop()}`);
                 return;
             }
 
@@ -701,13 +629,13 @@ export function registerPreferenceCommands(program) {
 
             console.log('Loading backup file...');
             let backup = await loadBackupFile(backupFilePath);
-            console.log(`OK Loaded ${backup.attributes.length} preference(s)\n`);
+            console.log(`${LOG_PREFIX.INFO} Loaded ${backup.attributes.length} preference(s)\n`);
 
             console.log('Validating backup structure...');
             const validation = validateAndCorrectBackup(backup);
 
             if (validation.corrected) {
-                console.log('WARN Found issues in backup file:\n');
+                console.log(`${LOG_PREFIX.WARNING} Found issues in backup file:\n`);
                 validation.corrections.forEach(msg => console.log(msg));
 
                 const correctAnswers = await inquirer.prompt([
@@ -721,102 +649,54 @@ export function registerPreferenceCommands(program) {
 
                 if (correctAnswers.applyCorrections) {
                     backup = validation.backup;
-                    console.log('\nOK Corrections applied to backup\n');
+                    console.log(`\n${LOG_PREFIX.INFO} Corrections applied to backup\n`);
                 } else {
-                    console.log('\nWARN Proceeding with original backup (may cause errors).\n');
+                    console.log(`\n${LOG_PREFIX.WARNING} Proceeding with original backup (may cause errors).\n`);
                 }
             } else {
-                console.log('OK Backup structure is valid\n');
+                console.log(`${LOG_PREFIX.INFO} Backup structure is valid\n`);
             }
 
             const preferences = backup.attributes.map(attr => attr.id);
-            let totalRestored = 0;
-            let totalRestoreFailed = 0;
+            const result = await restorePreferencesForRealm({
+                preferenceIds: preferences, backup, objectType, instanceType, realm
+            });
 
-            for (const preferenceId of preferences) {
-                const attributeToRestore = backup.attributes.find(attr => attr.id === preferenceId);
+            const totalRestored = result.restored;
+            const totalRestoreFailed = result.failed;
 
-                if (!attributeToRestore) {
-                    console.log(`  WARN ${preferenceId} not found in backup. Skipping...`);
-                    totalRestoreFailed++;
-                    continue;
-                }
-
-                const safeRestoreBody = buildCreateSafeBody(attributeToRestore);
-                const restored = await updateAttributeDefinitionById(
-                    objectType,
-                    preferenceId,
-                    'put',
-                    safeRestoreBody,
-                    realm
-                );
-
-                if (!restored) {
-                    totalRestoreFailed++;
-                    console.log(`  FAIL Failed to restore: ${preferenceId}`);
-                    continue;
-                }
-
-                totalRestored++;
-                console.log(`  OK Restored: ${preferenceId}`);
-
-                const groupsToRestore = backup.attribute_groups.filter(group =>
-                    group.attributes.includes(preferenceId)
-                );
-
-                for (const group of groupsToRestore) {
-                    const assigned = await assignAttributeToGroup(
-                        objectType,
-                        group.group_id,
-                        preferenceId,
-                        realm
-                    );
-                    if (assigned) {
-                        console.log(`    OK Assigned to group: ${group.group_id}`);
-                    } else {
-                        console.log(`    FAIL Failed to assign to group: ${group.group_id}`);
-                    }
-                }
-
-                const siteValueData = backup.site_values?.[preferenceId];
-
-                if (siteValueData && siteValueData.siteValues && Object.keys(siteValueData.siteValues).length > 0) {
-                    const { groupId: groupId, siteValues: siteValues } = siteValueData;
-                    const attributeKey = preferenceId.startsWith('c_') ? preferenceId : `c_${preferenceId}`;
-
-                    for (const [siteId, value] of Object.entries(siteValues)) {
-                        const payload = {
-                            [attributeKey]: value
-                        };
-                        const result = await patchSitePreferencesGroup(
-                            siteId,
-                            groupId,
-                            instanceType,
-                            payload,
-                            realm
-                        );
-                        if (result) {
-                            console.log(`    OK Restored value for ${siteId}: "${value}"`);
-                        } else {
-                            console.log(`    FAIL Failed to restore value for ${siteId}`);
-                        }
-                    }
-                }
-            }
-
-            console.log('\n================================================================================');
-            console.log('RESTORE SUMMARY');
-            console.log('================================================================================\n');
-            console.log(`OK Total preferences restored: ${totalRestored}`);
-            console.log(`FAIL Total restoration failures: ${totalRestoreFailed}`);
+            logSectionTitle('RESTORE SUMMARY');
+            console.log(`${LOG_PREFIX.INFO} Total preferences restored: ${totalRestored}`);
+            console.log(`${LOG_PREFIX.ERROR} Total restoration failures: ${totalRestoreFailed}`);
             console.log(`  Realm: ${realm}\n`);
 
             if (totalRestored > 0) {
-                console.log('OK Preferences successfully restored from backup.\n');
+                console.log(`${LOG_PREFIX.INFO} Preferences successfully restored from backup.\n`);
             } else if (totalRestoreFailed > 0) {
-                console.log('WARN Restoration encountered errors. Check messages above.\n');
+                console.log(`${LOG_PREFIX.WARNING} Restoration encountered errors. Check messages above.\n`);
             }
 
-            console.log(`OK Total runtime: ${timer.stop()}`);
+            console.log(`${LOG_PREFIX.INFO} Total runtime: ${timer.stop()}`);
+        });
+
+    program
+        .command('backup-site-preferences')
+        .description('Trigger site preferences backup job and download the ZIP from WebDAV')
+        .action(async () => {
+            const timer = startTimer();
+            const realmAnswers = await inquirer.prompt(realmPrompt());
+            const realm = realmAnswers.realm;
+            const instanceType = getInstanceType(realm);
+
+            console.log('Triggering backup job and downloading metadata...');
+            const refreshResult = await refreshMetadataBackupForRealm(realm, instanceType);
+
+            if (!refreshResult.ok) {
+                console.log(`Failed to refresh metadata: ${refreshResult.reason}`);
+                return;
+            }
+
+            console.log(`Backup downloaded to: ${refreshResult.filePath}`);
+            console.log(`${LOG_PREFIX.INFO} Total runtime: ${timer.stop()}`);
         });
 }

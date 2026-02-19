@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { parseString } from 'xml2js';
 import { ensureResultsDir } from './util.js';
-import { SEPARATOR } from './constants.js';
+import { SEPARATOR, LOG_PREFIX } from '../config/constants.js';
 import { logError } from './log.js';
 
 /**
@@ -200,6 +200,48 @@ export function formatSiteXmlComparison(siteId, comparison, xmlFilePath) {
     }
 
     return lines.join('\n') + '\n';
+}
+
+/**
+ * Parse multiple site.xml files and compare each against live SFCC cartridge paths
+ * @param {Array<Object>} siteXmlFiles - Array of site.xml file objects with filePath, relativePath
+ * @param {Object} liveSitesMap - Map of siteId → cartridges array from live SFCC
+ * @returns {Promise<Array<Object>>} Array of comparison results per site
+ */
+export async function parseAndCompareSiteXmls(siteXmlFiles, liveSitesMap) {
+    const comparisons = [];
+
+    for (const xmlFile of siteXmlFiles) {
+        try {
+            const xmlData = await parseSiteXml(xmlFile.filePath);
+            console.log(`[${xmlData.siteId}] Parsed ${xmlFile.relativePath}`);
+
+            if (!liveSitesMap[xmlData.siteId]) {
+                console.log(`  ${LOG_PREFIX.WARNING} Site "${xmlData.siteId}" not found on live SFCC`);
+                continue;
+            }
+
+            const comparison = compareSiteXmlWithLive(
+                xmlData.cartridges,
+                liveSitesMap[xmlData.siteId]
+            );
+
+            comparisons.push({
+                siteId: xmlData.siteId,
+                xmlFile: xmlFile.relativePath,
+                comparison
+            });
+
+            const status = comparison.isMatch
+                ? `${LOG_PREFIX.INFO} Match`
+                : `${LOG_PREFIX.ERROR} Mismatch`;
+            console.log(`  ${status}`);
+        } catch (error) {
+            console.log(`  ${LOG_PREFIX.ERROR} Error parsing ${xmlFile.relativePath}: ${error.message}`);
+        }
+    }
+
+    return comparisons;
 }
 
 /**
@@ -595,7 +637,7 @@ export async function getAttributeDefinitionsFromMetadata(metadataFilePath, obje
                         descriptionObj = null;
                     }
                 }
-                
+
                 const definition = {
                     id,
                     display_name: extractDisplayName(attrDef),
@@ -646,7 +688,7 @@ function extractDisplayName(attrDef) {
     const displayNames = Array.isArray(attrDef['display-name'])
         ? attrDef['display-name']
         : [attrDef['display-name']];
-    
+
     // Extract text from each localized name
     const result = {};
     for (const nameNode of displayNames) {
@@ -655,7 +697,7 @@ function extractDisplayName(attrDef) {
         const text = nameNode._ || nameNode || '';
         result[lang] = text.trim();
     }
-    
+
     return Object.keys(result).length > 0 ? result : null;
 }
 

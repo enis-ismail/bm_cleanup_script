@@ -53,6 +53,23 @@
       "methods": ["get", "patch"],
       "read_attributes": "(**)",
       "write_attributes": "(**)"
-    }
+    },
+    				{
+					"resource_id": "/jobs/*/executions",
+					"methods": [
+						"post",
+						"get"
+					],
+					"read_attributes": "(**)",
+					"write_attributes": "(**)"
+				},
+				{
+					"resource_id": "/jobs/*/executions/*",
+					"methods": [
+						"get"
+					],
+					"read_attributes": "(**)",
+					"write_attributes": "(**)"
+				}
   ]
 }

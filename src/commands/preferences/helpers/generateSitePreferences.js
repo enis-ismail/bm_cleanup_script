@@ -11,7 +11,7 @@ import csv from 'csv-parser';
  *
  * Can be used as:
  * 1. CLI: node generateSitePreferencesJSON.js
- * 2. Module: import { generate } from './generateSitePreferencesJSON.js'
+ * 2. Module: import { generate } from './generateSitePreferences.js'
  */
 
 // Type mapping for value_type field
@@ -300,7 +300,7 @@ function generateSitePreferencesJSON(unusedPrefIds, csvData, groupMap, config = 
             }
 
             attributes.push({
-                id:prefId,
+                id: prefId,
                 display_name: {
                     default: prefId
                 },
@@ -376,11 +376,11 @@ async function generate(userConfig = {}) {
             logger.warn(`CSV file not found: ${config.csvFile || '(none)'}. Proceeding without site values.`);
         }
 
-        logger.section('�️  Parsing XML group definitions...');
+        logger.section('🗂️  Parsing XML group definitions...');
         const groupMap = parseXMLGroupDefinitions(config.xmlMetadataFile, logger);
         logger.info(`Found group mappings for ${Object.keys(groupMap).length} preferences`);
 
-        logger.section('�🔗 Matching unused preferences with CSV data...');
+        logger.section('🔗 Matching unused preferences with CSV data...');
         const matchedCount = unusedPrefIds.filter(id => id in csvData).length;
         logger.info(`Matched ${matchedCount} out of ${unusedPrefIds.length} preferences`);
 
@@ -437,4 +437,3 @@ export {
     createLogger,
     DEFAULT_CONFIG
 };
-
