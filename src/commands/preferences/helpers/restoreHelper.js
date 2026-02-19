@@ -1,6 +1,6 @@
-﻿import { LOG_PREFIX } from '../../../config/constants.js';
-import { buildCreateSafeBody } from '../../../helpers/preferenceBackup.js';
-import { updateAttributeDefinitionById, assignAttributeToGroup, patchSitePreferencesGroup } from '../../../api.js';
+﻿import { LOG_PREFIX, IDENTIFIERS } from '../../../config/constants.js';
+import { buildCreateSafeBody } from '../../../io/backupUtils.js';
+import { updateAttributeDefinitionById, assignAttributeToGroup, patchSitePreferencesGroup } from '../../../api/api.js';
 
 /**
  * Restore a single preference: definition, group assignments, and site values
@@ -50,7 +50,9 @@ export async function restorePreference({ preferenceId, backup, objectType, inst
 
     if (siteValueData?.siteValues && Object.keys(siteValueData.siteValues).length > 0) {
         const { groupId, siteValues } = siteValueData;
-        const attributeKey = preferenceId.startsWith('c_') ? preferenceId : `c_${preferenceId}`;
+        const attributeKey = preferenceId.startsWith(IDENTIFIERS.CUSTOM_ATTRIBUTE_PREFIX)
+            ? preferenceId
+            : `${IDENTIFIERS.CUSTOM_ATTRIBUTE_PREFIX}${preferenceId}`;
 
         for (const [siteId, value] of Object.entries(siteValues)) {
             const payload = { [attributeKey]: value };

@@ -1,6 +1,11 @@
-import path from 'path';
+﻿import path from 'path';
 import fs from 'fs';
-import { getInstanceType } from '../../../helpers.js';
+import { getInstanceType } from '../../../index.js';
+import { LOG_PREFIX, DIRECTORIES, IDENTIFIERS, FILE_PATTERNS } from '../../../config/constants.js';
+import { logSectionTitle } from '../../../helpers/log.js';
+import { refreshMetadataBackupForRealm, getMetadataBackupPathForRealm } from '../../../helpers/backupJob.js';
+import { generate as generateSitePreferencesBackup } from './generateSitePreferences.js';
+import { findLatestUsageCsv } from './csvHelpers.js';
 
 /**
  * Find the latest backup file for a given realm
@@ -8,16 +13,16 @@ import { getInstanceType } from '../../../helpers.js';
  * @param {string} objectType - Object type (default: SitePreferences)
  * @returns {string|null} Path to latest backup file or null if not found
  */
-export function findLatestBackupFile(realm, objectType = 'SitePreferences') {
+export function findLatestBackupFile(realm, objectType = IDENTIFIERS.SITE_PREFERENCES) {
     const instanceType = getInstanceType(realm);
-    const backupDir = path.join(process.cwd(), 'backup', instanceType);
+    const backupDir = path.join(process.cwd(), DIRECTORIES.BACKUP, instanceType);
 
     if (!fs.existsSync(backupDir)) {
         return null;
     }
 
     const files = fs.readdirSync(backupDir)
-        .filter(f => f.startsWith(`${realm}_${objectType}_backup_`) && f.endsWith('.json'))
+        .filter(f => f.startsWith(`${realm}_${objectType}${FILE_PATTERNS.BACKUP_SUFFIX}`) && f.endsWith('.json'))
         .sort()
         .reverse();
 
@@ -126,4 +131,133 @@ export function validateAndCorrectBackup(backup) {
         corrections,
         backup: correctedBackup
     };
+}
+
+// ============================================================================
+// BACKUP CREATION HELPERS
+// Functions for creating realm backups during remove-preferences workflow
+// ============================================================================
+
+/**
+ * Resolve metadata file path for a realm, optionally downloading fresh copy
+ * @param {string} realm - Realm name
+ * @param {string} instanceType - Instance type
+ * @param {boolean} forceRefresh - Force download even if file exists
+ * @returns {Promise<{ok: boolean, path: string|null, reason?: string}>}
+ */
+export async function resolveMetadataPath(realm, instanceType, forceRefresh) {
+    let metadataPath = getMetadataBackupPathForRealm(realm, instanceType);
+
+    if (forceRefresh || !fs.existsSync(metadataPath)) {
+        console.log('STEP 5.1: Download Metadata Backup\n');
+        if (!fs.existsSync(metadataPath)) {
+            console.log(`${LOG_PREFIX.WARNING} No existing metadata file found. Triggering backup job...\n`);
+        }
+        console.log('Triggering backup job and downloading metadata...');
+        const refreshResult = await refreshMetadataBackupForRealm(realm, instanceType);
+
+        if (refreshResult.ok) {
+            console.log(`${LOG_PREFIX.INFO} Downloaded metadata: ${refreshResult.filePath}\n`);
+            return { ok: true, path: refreshResult.filePath };
+        }
+
+        console.log(`${LOG_PREFIX.WARNING} Failed to download metadata: ${refreshResult.reason}`);
+        console.log('Cannot create backup without metadata. Skipping this realm.\n');
+        return { ok: false, path: null, reason: refreshResult.reason };
+    }
+
+    console.log('STEP 5.1: Using Existing Metadata\n');
+    console.log(`${LOG_PREFIX.INFO} Found metadata: ${metadataPath}\n`);
+    return { ok: true, path: metadataPath };
+}
+
+/**
+ * Create a backup for a single realm (metadata + CSV -> backup JSON)
+ * @param {Object} options - Backup creation options
+ * @param {string} options.realm - Realm name
+ * @param {string} options.instanceType - Instance type
+ * @param {string} options.objectType - Object type (e.g. 'SitePreferences')
+ * @param {string} options.preferencesFilePath - Path to the deletion list file
+ * @param {string} options.metadataPath - Resolved metadata file path
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+export async function createRealmBackup({
+    realm, instanceType, objectType, preferencesFilePath, metadataPath, backupDate
+}) {
+    console.log('STEP 5.2: Generate Backup from CSV + Metadata\n');
+
+    const usageFilePath = findLatestUsageCsv(realm, instanceType);
+    if (usageFilePath) {
+        console.log(`Using usage CSV: ${path.basename(usageFilePath)}`);
+    } else {
+        console.log(`${LOG_PREFIX.WARNING} No usage CSV found. Site values will not be included in backup.`);
+    }
+
+    const backupDir = path.join(process.cwd(), DIRECTORIES.BACKUP, instanceType);
+    if (!fs.existsSync(backupDir)) {
+        fs.mkdirSync(backupDir, { recursive: true });
+    }
+
+    const date = backupDate || new Date().toISOString().split('T')[0];
+    const backupFilePath = path.join(backupDir, `${realm}_${objectType}_backup_${date}.json`);
+
+    const result = await generateSitePreferencesBackup({
+        unusedPreferencesFile: preferencesFilePath,
+        csvFile: usageFilePath,
+        xmlMetadataFile: metadataPath,
+        outputFile: backupFilePath,
+        realm,
+        instanceType,
+        objectType,
+        verbose: true
+    });
+
+    if (!result.success) {
+        console.log(`${LOG_PREFIX.WARNING} Failed to create backup file: ${result.error}`);
+        console.log('Skipping this realm.\n');
+        return { success: false, error: result.error };
+    }
+
+    console.log(`${LOG_PREFIX.INFO} Backup created: ${result.outputPath}`);
+    console.log(`   Total attributes: ${result.stats.total}`);
+    console.log(`   Groups added: ${result.stats.groups}`);
+    console.log(`   Preferences with site values: ${result.stats.withValues}\n`);
+    return { success: true };
+}
+
+/**
+ * Orchestrate backup creation for multiple realms (Step 5 of remove-preferences)
+ * Handles metadata resolution and backup generation for each realm.
+ * @param {Object} options - Options
+ * @param {string[]} options.realmsToBackup - Realms that need new backups
+ * @param {string} options.instanceType - Instance type
+ * @param {string} options.objectType - Object type
+ * @param {string} options.preferencesFilePath - Path to deletion list file
+ * @param {boolean} options.refreshMetadata - Whether to force fresh metadata download
+ */
+export async function createBackupsForRealms({
+    realmsToBackup, instanceType, objectType, preferencesFilePath, refreshMetadata
+}) {
+    const backupDate = new Date().toISOString().split('T')[0];
+    let successCount = 0;
+
+    for (const realm of realmsToBackup) {
+        logSectionTitle(`Backup: ${realm} (${instanceType})`);
+
+        const metadata = await resolveMetadataPath(realm, instanceType, refreshMetadata);
+        if (!metadata.ok) {
+            continue;
+        }
+
+        const result = await createRealmBackup({
+            realm, instanceType, objectType, preferencesFilePath,
+            metadataPath: metadata.path, backupDate
+        });
+
+        if (result.success) {
+            successCount++;
+        }
+    }
+
+    return { successCount, totalCount: realmsToBackup.length };
 }

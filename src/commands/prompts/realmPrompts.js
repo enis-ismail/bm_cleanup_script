@@ -1,4 +1,4 @@
-﻿import { getAvailableRealms, getRealmsByInstanceType } from '../../helpers.js';
+﻿import { getAvailableRealms, getRealmsByInstanceType } from '../../index.js';
 
 export const realmPrompt = () => ([
     {

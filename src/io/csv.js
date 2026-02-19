@@ -1,8 +1,9 @@
 import fs from 'fs';
 import path from 'path';
-import { getAllSites, getSiteById } from '../api.js';
+import { getAllSites, getSiteById } from '../api/api.js';
 import { ensureResultsDir } from './util.js';
-import { logError } from './log.js';
+import { logError } from '../helpers/log.js';
+import { FILE_PATTERNS } from '../config/constants.js';
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -211,7 +212,7 @@ export function writeUsageCSV(realmDir, realm, instanceType, usageRows, preferen
     });
 
     const csv = [csvHeader.join(','), ...csvRows].join('\n');
-    const csvFile = path.join(realmDir, `${realm}_${instanceType}_preferences_usage.csv`);
+    const csvFile = path.join(realmDir, `${realm}_${instanceType}${FILE_PATTERNS.PREFERENCES_USAGE}`);
 
     writeCSVFile(csvFile, csv);
     return csvFile; // Return file path for backup generation
@@ -244,7 +245,164 @@ export function writeMatrixCSV(realmDir, realm, instanceType, preferenceMatrix, 
     });
 
     const matrixCsv = [matrixHeader.join(','), ...matrixRows].join('\n');
-    const matrixFile = path.join(realmDir, `${realm}_${instanceType}_preferences_matrix.csv`);
+    const matrixFile = path.join(realmDir, `${realm}_${instanceType}${FILE_PATTERNS.PREFERENCES_MATRIX}`);
 
     writeCSVFile(matrixFile, matrixCsv);
+}
+
+// ============================================================================
+// CSV PARSING FUNCTIONS
+// ============================================================================
+
+/**
+ * Parse a CSV file into a 2D array structure
+ * CSV Structure: header row + data rows with preferenceId and site values
+ * @param {string} filePath - Absolute path to the CSV file
+ * @returns {Array<Array<string>>} 2D array of CSV data
+ */
+export function parseCSVToNestedArray(filePath) {
+    try {
+        const fileContent = fs.readFileSync(filePath, 'utf-8');
+        const rows = [];
+        let row = [];
+        let field = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < fileContent.length; i++) {
+            const char = fileContent[i];
+            const next = fileContent[i + 1];
+
+            if (char === '"') {
+                if (inQuotes && next === '"') {
+                    field += '"';
+                    i += 1;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+                continue;
+            }
+
+            if (char === ',' && !inQuotes) {
+                row.push(field);
+                field = '';
+                continue;
+            }
+
+            if ((char === '\n' || char === '\r') && !inQuotes) {
+                if (char === '\r' && next === '\n') {
+                    i += 1;
+                }
+
+                if (field.length > 0 || row.length > 0) {
+                    row.push(field);
+                    rows.push(row);
+                }
+
+                row = [];
+                field = '';
+                continue;
+            }
+
+            field += char;
+        }
+
+        if (field.length > 0 || row.length > 0) {
+            row.push(field);
+            rows.push(row);
+        }
+
+        return rows.filter(r => r.some(value => String(value).trim() !== ''));
+    } catch (error) {
+        logError(`Failed to parse CSV file: ${error.message}`);
+        return [];
+    }
+}
+
+// ============================================================================
+// PREFERENCE USAGE ANALYSIS
+// These functions analyze which preferences are used vs unused
+// ============================================================================
+
+/**
+ * Check if a preference has any value on a site
+ * @param {Array<string>} row - CSV row
+ * @param {number} siteDataStart - Column index where site data begins
+ * @returns {boolean} True if preference has a value on any site
+ * @private
+ */
+function hasValueOnAnySite(row, siteDataStart) {
+    return row.slice(siteDataStart).some(v => v === 'X' || v === 'x');
+}
+
+/**
+ * Check if preference has a default value
+ * @param {string} defaultValue - Default value from CSV
+ * @returns {boolean} True if default value exists
+ * @private
+ */
+function hasDefaultValue(defaultValue) {
+    return defaultValue && defaultValue.trim() !== '';
+}
+
+/**
+ * Identify unused preferences from parsed CSV matrix data
+ * Finds preferences with no "X" values across all sites
+ * @param {Array<Array<string>>} csvData - Parsed CSV data
+ * @returns {string[]} Array of unused preference IDs
+ */
+export function findUnusedPreferences(csvData) {
+    if (csvData.length <= 1) {
+        return [];
+    }
+
+    const unusedPreferences = [];
+    const headers = csvData[0];
+    const preferenceIdIndex = headers.indexOf('preferenceId');
+    const defaultValueIndex = headers.indexOf('defaultValue');
+
+    if (preferenceIdIndex === -1) {
+        console.warn('preferenceId column not found in CSV');
+        return [];
+    }
+
+    const siteDataStart = defaultValueIndex > -1 ? defaultValueIndex + 1 : 1;
+
+    for (let i = 1; i < csvData.length; i++) {
+        const row = csvData[i];
+        const preferenceId = row[preferenceIdIndex];
+
+        if (!preferenceId) continue;
+
+        const defaultValue = defaultValueIndex > -1 ? row[defaultValueIndex] : '';
+        const isUsed = hasValueOnAnySite(row, siteDataStart) || hasDefaultValue(defaultValue);
+
+        if (!isUsed) {
+            unusedPreferences.push(preferenceId);
+        }
+    }
+
+    return unusedPreferences;
+}
+
+/**
+ * Write unused preferences list to a text file
+ * Output: {realmDir}/{realm}_unused_preferences.txt
+ * @param {string} realmDir - Absolute path to the realm's output directory
+ * @param {string} realm - Realm name for file naming
+ * @param {string[]} unusedPreferences - Array of unused preference IDs
+ * @returns {string} Absolute path to the created file
+ */
+export function writeUnusedPreferencesFile(realmDir, realm, unusedPreferences) {
+    const filename = path.join(realmDir, `${realm}${FILE_PATTERNS.UNUSED_PREFERENCES}`);
+    const lines = [
+        `Unused Preferences for Realm: ${realm}`,
+        `Generated: ${new Date().toISOString()}`,
+        `Total Unused: ${unusedPreferences.length}`,
+        '',
+        '--- Preference IDs ---',
+        ...unusedPreferences
+    ];
+
+    fs.writeFileSync(filename, lines.join('\n'), 'utf-8');
+    return filename;
 }

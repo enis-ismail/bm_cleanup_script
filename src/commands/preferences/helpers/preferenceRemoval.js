@@ -6,7 +6,8 @@
 import fs from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
-import { ensureResultsDir } from '../../../helpers/util.js';
+import { ensureResultsDir } from '../../../io/util.js';
+import { IDENTIFIERS, FILE_PATTERNS } from '../../../config/constants.js';
 
 /**
  * Load preferences marked for deletion from file
@@ -14,8 +15,8 @@ import { ensureResultsDir } from '../../../helpers/util.js';
  * @returns {Array<string>|null} Array of preference IDs or null if file doesn't exist
  */
 export function loadPreferencesForDeletion(instanceType) {
-    const resultsDir = ensureResultsDir('ALL_REALMS', instanceType);
-    const filePath = path.join(resultsDir, `${instanceType}_preferences_for_deletion.txt`);
+    const resultsDir = ensureResultsDir(IDENTIFIERS.ALL_REALMS, instanceType);
+    const filePath = path.join(resultsDir, `${instanceType}${FILE_PATTERNS.PREFERENCES_FOR_DELETION}`);
 
     if (!fs.existsSync(filePath)) {
         return null;
@@ -46,8 +47,8 @@ export function loadPreferencesForDeletion(instanceType) {
  * @returns {Promise<string>} Path to the opened file
  */
 export async function openPreferencesForDeletionInEditor(instanceType) {
-    const resultsDir = ensureResultsDir('ALL_REALMS', instanceType);
-    const filePath = path.join(resultsDir, `${instanceType}_preferences_for_deletion.txt`);
+    const resultsDir = ensureResultsDir(IDENTIFIERS.ALL_REALMS, instanceType);
+    const filePath = path.join(resultsDir, `${instanceType}${FILE_PATTERNS.PREFERENCES_FOR_DELETION}`);
 
     if (!fs.existsSync(filePath)) {
         throw new Error(`File not found: ${filePath}`);

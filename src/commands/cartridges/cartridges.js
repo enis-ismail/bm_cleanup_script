@@ -1,11 +1,11 @@
 ﻿import path from 'path';
 import inquirer from 'inquirer';
-import { getAvailableRealms, getRealmConfig, getInstanceType } from '../../helpers.js';
-import { findCartridgeFolders, calculateValidationStats, getSiblingRepositories } from '../../helpers/util.js';
-import { exportSitesCartridgesToCSV } from '../../helpers/csv.js';
+import { getAvailableRealms, getRealmConfig, getInstanceType } from '../../index.js';
+import { findCartridgeFolders, calculateValidationStats, getSiblingRepositories } from '../../io/util.js';
+import { exportSitesCartridgesToCSV } from '../../io/csv.js';
 import { compareCartridges, exportComparisonToFile } from './helpers/cartridgeComparison.js';
 import { fetchAndTransformSites, fetchSitesFromAllRealms } from './helpers/siteHelper.js';
-import { LOG_PREFIX } from '../../config/constants.js';
+import { LOG_PREFIX, IDENTIFIERS } from '../../config/constants.js';
 import {
     logCartridgeList,
     logCartridgeValidationSummaryHeader,
@@ -19,7 +19,7 @@ import {
     findSiteXmlFiles,
     parseAndCompareSiteXmls,
     exportSiteXmlComparison
-} from '../../helpers/siteXmlHelper.js';
+} from '../../io/siteXmlHelper.js';
 import { realmPrompt, repositoryPrompt } from '../prompts/index.js';
 import { resolveRealmScopeSelection } from '../prompts/commonPrompts.js';
 
@@ -124,7 +124,7 @@ export async function executeValidateCartridgesAll(
 
     const consolidatedFilePath = await exportComparisonToFile(
         comparisonResult,
-        'ALL_REALMS',
+        IDENTIFIERS.ALL_REALMS,
         instanceTypeScope
     );
     console.log(`${LOG_PREFIX.INFO} Consolidated comparison saved to: ${consolidatedFilePath}\n`);

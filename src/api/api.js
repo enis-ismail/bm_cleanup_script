@@ -2,10 +2,11 @@ import axios from 'axios';
 import fs from 'fs';
 import fsPromises from 'fs/promises';
 import path from 'path';
-import { withLoadShedding } from './helpers/batch.js';
-import { getSandboxConfig } from './helpers.js';
-import { logError, logRateLimitCountdown } from './helpers/log.js';
-import { fetchDetailedAttributes, loadCachedBackup } from './helpers/preferenceHelper.js';
+import { withLoadShedding, processBatch } from '../helpers/batch.js';
+import { getSandboxConfig } from '../config/helpers/helpers.js';
+import { logError, logRateLimitCountdown } from '../helpers/log.js';
+import { loadCachedBackup } from '../io/backupUtils.js';
+import { getApiConfig } from '../config/constants.js';
 
 /* eslint-disable no-undef */
 
@@ -245,6 +246,43 @@ export async function getSiteById(siteId, realm) {
 // PREFERENCE ATTRIBUTES
 // Retrieve system object attribute definitions
 // ============================================================================
+
+/**
+ * Fetch detailed attribute definitions with progress tracking
+ * @param {Array} allAttributes - Basic attribute list
+ * @param {string} objectType - Object type
+ * @param {string} realm - Realm name
+ * @param {Object} sandbox - Sandbox configuration
+ * @returns {Promise<Array>} Detailed attribute definitions
+ */
+async function fetchDetailedAttributes(allAttributes, objectType, realm, sandbox) {
+    console.log('\nFetching full details with default values (parallel batches)...');
+    const startTime = Date.now();
+    const apiConfig = getApiConfig(sandbox.instanceType);
+
+    const detailedAttributes = await withLoadShedding(
+        async () => {
+            return await processBatch(
+                allAttributes,
+                (attr) => getAttributeDefinitionById(objectType, attr.id, realm),
+                apiConfig.batchSize,
+                null,
+                apiConfig.batchDelayMs
+            );
+        },
+        {
+            maxRetries: 2,
+            onRetry: (attempt, delay) => {
+                logRateLimitCountdown(delay, attempt, `batch of ${allAttributes.length} attributes`);
+            }
+        }
+    );
+
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`Completed fetching ${detailedAttributes.length} attributes with full details (${duration}s)`);
+
+    return detailedAttributes;
+}
 
 /**
  * Fetch all attribute definitions for a system object type with pagination

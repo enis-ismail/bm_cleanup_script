@@ -28,7 +28,7 @@ node src/main.js remove-preferences
 
 ## Prerequisites
 
-- **Node.js** (v14 or higher)
+- **Node.js** (v16 or higher)
 - **npm** (comes with Node.js)
 - **VS Code** (recommended, for reviewing deletion list)
 - **SFCC Account Access** to obtain API credentials and configure Business Manager
@@ -584,6 +584,12 @@ node src/main.js remove-preferences
 - Logs success/failure for each preference
 - Keeps terminal open for monitoring
 
+#### restore-preferences
+```bash
+node src/main.js restore-preferences
+```
+Restore deleted preferences from backup files. Useful if deletion went wrong.
+
 #### backup-site-preferences
 ```bash
 node src/main.js backup-site-preferences
@@ -595,12 +601,6 @@ Trigger site preferences backup job on SFCC and download the ZIP from WebDAV.
 node src/main.js list-sites
 ```
 List all sites and export cartridge paths to CSV.
-
-#### restore-preferences
-```bash
-node src/main.js restore-preferences
-```
-Restore deleted preferences from backup files. Useful if deletion went wrong.
 
 ### Work-in-Progress Commands
 
@@ -770,11 +770,11 @@ Text outputs (unused, cartridge mapping, deletion list)
 
 ### Key Files
 
-- **[src/api.js](src/api.js)** - OCAPI client, all SFCC communication
 - **[src/main.js](src/main.js)** - CLI commands, user interaction
+- **[src/api.js](src/api.js)** - OCAPI client, all SFCC communication
 - **[src/helpers/preferenceHelper.js](src/helpers/preferenceHelper.js)** - Data aggregation and CSV generation
 - **[src/helpers/preferenceUsage.js](src/helpers/preferenceUsage.js)** - Cartridge code scanning
-- **[src/helpers/generateSitePreferencesJSON.js](src/helpers/generateSitePreferencesJSON.js)** - Backup file generation
+- **[src/helpers/preferenceBackup.js](src/helpers/preferenceBackup.js)** - Backup file generation
 - **[src/helpers/backupJob.js](src/helpers/backupJob.js)** - SFCC backup job triggering
 - **[config.json](config.json)** - Realm configuration (credentials)
 - **[ocapi_config.json](ocapi_config.json)** - OCAPI resource definitions

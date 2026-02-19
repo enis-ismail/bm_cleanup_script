@@ -1,5 +1,6 @@
 import path from 'path';
 import fs from 'fs';
+import { DIRECTORIES, FILE_PATTERNS } from '../../../config/constants.js';
 
 /**
  * Find the latest usage CSV file for a realm
@@ -8,13 +9,13 @@ import fs from 'fs';
  * @returns {string|null} Path to latest usage CSV or null
  */
 export function findLatestUsageCsv(realm, instanceType) {
-    const realmDir = path.join(process.cwd(), 'results', instanceType, realm);
+    const realmDir = path.join(process.cwd(), DIRECTORIES.RESULTS, instanceType, realm);
     if (!fs.existsSync(realmDir)) {
         return null;
     }
 
     const candidates = fs.readdirSync(realmDir)
-        .filter(name => name.endsWith('_preferences_usage.csv'))
+        .filter(name => name.endsWith(FILE_PATTERNS.PREFERENCES_USAGE))
         .map(name => path.join(realmDir, name));
 
     if (candidates.length === 0) {

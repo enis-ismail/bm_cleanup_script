@@ -2,35 +2,23 @@
 import fs from 'fs';
 import path from 'path';
 import { setImmediate } from 'timers/promises';
-import { findAllMatrixFiles } from '../helpers.js';
+import { findAllMatrixFiles } from './util.js';
 import { ensureResultsDir } from './util.js';
-import { logStatusUpdate, logStatusClear, logProgress } from './log.js';
+import { logStatusUpdate, logStatusClear, logProgress } from '../helpers/log.js';
+import {
+    DIRECTORIES,
+    IDENTIFIERS,
+    FILE_PATTERNS,
+    ALLOWED_EXTENSIONS,
+    SKIP_DIRECTORIES
+} from '../config/constants.js';
 
-const DEFAULT_COMPARISON_FILE = path.join(
+const DEFAULT_COMPARISON_FILE_PATH = path.join(
     process.cwd(),
-    'results',
-    'ALL_REALMS',
-    'ALL_REALMS_cartridge_comparison.txt'
+    DIRECTORIES.RESULTS,
+    IDENTIFIERS.ALL_REALMS,
+    `${IDENTIFIERS.ALL_REALMS}${FILE_PATTERNS.CARTRIDGE_COMPARISON}`
 );
-
-const ALLOWED_EXTENSIONS = new Set([
-    '.js',
-    '.isml',
-    '.ds',
-    '.json',
-    '.xml',
-    '.properties',
-    '.txt',
-    '.html'
-]);
-
-const SKIP_DIRECTORIES = new Set([
-    'node_modules',
-    'sites',
-    'results',
-    '.git',
-    '.vscode'
-]);
 
 function getDeprecatedCartridges(comparisonFilePath) {
     const deprecatedCartridges = new Set();
@@ -285,9 +273,9 @@ function exportUnusedPreferencesToFile(results, instanceTypeOverride = null) {
         return null;
     }
 
-    const dirName = instanceTypeOverride || 'ALL_REALMS';
-    const resultsDir = ensureResultsDir('ALL_REALMS', instanceTypeOverride);
-    const filename = `${dirName}_unused_preferences.txt`;
+    const dirName = instanceTypeOverride || IDENTIFIERS.ALL_REALMS;
+    const resultsDir = ensureResultsDir(IDENTIFIERS.ALL_REALMS, instanceTypeOverride);
+    const filename = `${dirName}${FILE_PATTERNS.UNUSED_PREFERENCES}`;
     const filePath = path.join(resultsDir, filename);
 
     const lines = [
@@ -334,9 +322,9 @@ function exportCartridgePreferenceMapping(results, instanceTypeOverride = null) 
     // Sort cartridges alphabetically
     const sortedCartridges = Array.from(cartridgeToPreferences.keys()).sort();
 
-    const dirName = instanceTypeOverride || 'ALL_REALMS';
-    const resultsDir = ensureResultsDir('ALL_REALMS', instanceTypeOverride);
-    const filename = `${dirName}_cartridge_preferences.txt`;
+    const dirName = instanceTypeOverride || IDENTIFIERS.ALL_REALMS;
+    const resultsDir = ensureResultsDir(IDENTIFIERS.ALL_REALMS, instanceTypeOverride);
+    const filename = `${dirName}${FILE_PATTERNS.CARTRIDGE_PREFERENCES}`;
     const filePath = path.join(resultsDir, filename);
 
     const lines = [
@@ -438,11 +426,11 @@ function parseCartridgePreferencesFile(filePath) {
  * @returns {string|null} Path to the generated file, or null if no candidates found
  */
 export function generatePreferenceDeletionCandidates(instanceTypeOverride = null) {
-    const dirName = instanceTypeOverride || 'ALL_REALMS';
-    const resultsDir = ensureResultsDir('ALL_REALMS', instanceTypeOverride);
+    const dirName = instanceTypeOverride || IDENTIFIERS.ALL_REALMS;
+    const resultsDir = ensureResultsDir(IDENTIFIERS.ALL_REALMS, instanceTypeOverride);
 
-    const unusedFilePath = path.join(resultsDir, `${dirName}_unused_preferences.txt`);
-    const cartridgeFilePath = path.join(resultsDir, `${dirName}_cartridge_preferences.txt`);
+    const unusedFilePath = path.join(resultsDir, `${dirName}${FILE_PATTERNS.UNUSED_PREFERENCES}`);
+    const cartridgeFilePath = path.join(resultsDir, `${dirName}${FILE_PATTERNS.CARTRIDGE_PREFERENCES}`);
 
     // Check if both files exist
     if (!fs.existsSync(unusedFilePath)) {
@@ -506,7 +494,7 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
  */
 export async function findAllActivePreferencesUsage(repositoryPath, options = {}) {
     const matrixFiles = findAllMatrixFiles();
-    const comparisonFilePath = options.comparisonFilePath || DEFAULT_COMPARISON_FILE;
+    const comparisonFilePath = options.comparisonFilePath || DEFAULT_COMPARISON_FILE_PATH;
 
     if (matrixFiles.length === 0) {
         console.log('No matrix files found.');
@@ -613,7 +601,7 @@ export async function findAllActivePreferencesUsage(repositoryPath, options = {}
 }
 
 export async function findPreferenceUsage(preferenceId, repositoryPath, options = {}) {
-    const comparisonFilePath = options.comparisonFilePath || DEFAULT_COMPARISON_FILE;
+    const comparisonFilePath = options.comparisonFilePath || DEFAULT_COMPARISON_FILE_PATH;
     const isFirstSearch = options.isFirstSearch || false;
     const deprecatedCartridges = getDeprecatedCartridges(comparisonFilePath);
     const matches = [];

@@ -1,5 +1,5 @@
 ﻿import { Command } from 'commander';
-import { registerDebugCommands } from './debug.js';
+import { registerDebugCommands } from './commands/debug/debug.js';
 import { registerPreferenceCommands } from './commands/preferences/preferences.js';
 import { registerCartridgeCommands } from './commands/cartridges/cartridges.js';
 import { registerSetupCommands } from './commands/setup/setup.js';

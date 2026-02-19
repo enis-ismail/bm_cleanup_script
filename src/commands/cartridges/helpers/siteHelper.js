@@ -1,5 +1,5 @@
-﻿import { getAllSites, getSiteById } from '../../../api.js';
-import { transformSiteToCartridgeInfo } from '../../../helpers/util.js';
+﻿import { getAllSites, getSiteById } from '../../../api/api.js';
+import { transformSiteToCartridgeInfo } from '../../../io/util.js';
 import { LOG_PREFIX } from '../../../config/constants.js';
 
 /**

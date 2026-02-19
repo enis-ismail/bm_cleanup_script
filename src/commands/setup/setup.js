@@ -3,7 +3,7 @@ import {
     addRealmToConfig,
     removeRealmFromConfig,
     getAvailableRealms
-} from '../../helpers.js';
+} from '../../index.js';
 import {
     addRealmPrompts,
     selectRealmToRemovePrompt,

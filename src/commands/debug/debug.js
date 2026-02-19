@@ -1,5 +1,5 @@
 import inquirer from 'inquirer';
-import { startTimer } from './helpers/timer.js';
+import { startTimer } from '../../helpers/timer.js';
 import {
     getSitePreferences,
     updateAttributeDefinitionById,
@@ -8,9 +8,9 @@ import {
     assignAttributeToGroup,
     getAttributeGroups,
     getAttributeGroupById
-} from './api/api.js';
-import { exportAttributesToCSV } from './io/csv.js';
-import { loadBackupFile } from './io/backupUtils.js';
+} from '../../api/api.js';
+import { exportAttributesToCSV } from '../../io/csv.js';
+import { loadBackupFile } from '../../io/backupUtils.js';
 import {
     realmPrompt,
     objectTypePrompt,
@@ -18,7 +18,7 @@ import {
     includeDefaultsPrompt,
     resolveRealmScopeSelection,
     instanceTypePrompt
-} from './commands/prompts/index.js';
+} from '../prompts/index.js';
 import {
     logCheckPreferencesStart,
     logNoMatrixFiles,
@@ -26,16 +26,16 @@ import {
     logSummaryHeader,
     logRealmSummary,
     logSummaryFooter
-} from './helpers/log.js';
+} from '../../helpers/log.js';
 import path from 'path';
 import fs from 'fs';
-import { findAllMatrixFiles, getSiblingRepositories } from './io/util.js';
-import { processPreferenceMatrixFiles, executePreferenceSummarization } from './helpers/analyzer.js';
-import { getActivePreferencesFromMatrices, findAllActivePreferencesUsage, findPreferenceUsage } from './io/codeScanner.js';
-import { repositoryPrompt, preferenceIdPrompt } from './commands/prompts/index.js';
-import { findAttributeInMetaFiles } from './io/siteXmlHelper.js';
-import { refreshMetadataBackupForRealm, getMetadataBackupPathForRealm } from './helpers/backupJob.js';
-import { getInstanceType, getRealmsByInstanceType } from './config/helpers/helpers.js';
+import { findAllMatrixFiles, getSiblingRepositories } from '../../io/util.js';
+import { processPreferenceMatrixFiles, executePreferenceSummarization } from '../../helpers/analyzer.js';
+import { getActivePreferencesFromMatrices, findAllActivePreferencesUsage, findPreferenceUsage } from '../../io/codeScanner.js';
+import { repositoryPrompt, preferenceIdPrompt } from '../prompts/index.js';
+import { findAttributeInMetaFiles } from '../../io/siteXmlHelper.js';
+import { refreshMetadataBackupForRealm, getMetadataBackupPathForRealm } from '../../helpers/backupJob.js';
+import { getInstanceType, getRealmsByInstanceType } from '../../config/helpers/helpers.js';
 
 // ============================================================================
 // DEBUG COMMANDS

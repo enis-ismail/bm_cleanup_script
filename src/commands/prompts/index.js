@@ -17,7 +17,8 @@ export {
     confirmPreferenceDeletionPrompt,
     runAnalyzePreferencesPrompt,
     useExistingBackupPrompt,
-    useExistingBackupsForAllRealmsPrompt
+    useExistingBackupsForAllRealmsPrompt,
+    promptBackupCachePreference
 } from './preferencePrompts.js';
 
 export {

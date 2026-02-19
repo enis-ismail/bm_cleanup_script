@@ -1,7 +1,7 @@
 ﻿import fs from 'fs';
 import path from 'path';
-import { ensureResultsDir } from '../../../helpers/util.js';
-import { getValidationConfig } from '../../../helpers.js';
+import { ensureResultsDir } from '../../../io/util.js';
+import { getValidationConfig } from '../../../index.js';
 import { logError } from '../../../helpers/log.js';
 
 /**

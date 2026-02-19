@@ -1,8 +1,30 @@
-import { getSiteById, getSitePreferencesGroup } from '../api.js';
-import { normalizeId, isValueKey } from '../helpers.js';
+import { getSiteById, getSitePreferencesGroup } from '../api/api.js';
 import { processBatch } from './batch.js';
 import { startTimer } from './timer.js';
 import { logStatusUpdate, logStatusClear } from './log.js';
+import { IDENTIFIERS } from '../config/constants.js';
+
+// ============================================================================
+// PREFERENCE DATA HELPERS
+// ============================================================================
+
+/**
+ * Normalize a preference ID by removing SFCC custom attribute prefix
+ * @param {string} id - Preference ID that may have "c_" prefix
+ * @returns {string} Normalized ID without "c_" prefix
+ */
+export function normalizeId(id) {
+    return id?.startsWith(IDENTIFIERS.CUSTOM_ATTRIBUTE_PREFIX) ? id.substring(2) : id;
+}
+
+/**
+ * Check if an object key represents actual preference data
+ * @param {string} key - Object key to check
+ * @returns {boolean} true if key represents preference data, false if metadata
+ */
+export function isValueKey(key) {
+    return !['_v', '_type', 'link', 'site'].includes(key);
+}
 
 // ============================================================================
 // HELPER FUNCTIONS

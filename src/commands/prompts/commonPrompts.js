@@ -1,4 +1,4 @@
-﻿import { getAvailableRealms, getInstanceType, getRealmsByInstanceType } from '../../helpers.js';
+﻿import { getAvailableRealms, getInstanceType, getRealmsByInstanceType } from '../../index.js';
 
 export const realmScopePrompt = () => ([
     {

@@ -422,3 +422,86 @@ export function logProgress(state, isFirstSearch) {
         );
     }
 }
+
+// ============================================================================
+// SUMMARY LOGGING
+// High-level summary output for command workflows
+// ============================================================================
+
+/**
+ * Log total runtime at the end of a command
+ * @param {Object} timer - Timer object with a stop() method
+ */
+export function logRuntime(timer) {
+    console.log(`${LOG_PREFIX.INFO} Total runtime: ${timer.stop()}`);
+}
+
+/**
+ * Log deletion summary after preference removal
+ * @param {Object} stats - Deletion statistics
+ * @param {number} stats.deleted - Number of preferences successfully deleted
+ * @param {number} stats.failed - Number of failed deletions
+ * @param {number} stats.realms - Number of realms processed
+ */
+export function logDeletionSummary({ deleted, failed, realms }) {
+    logSectionTitle('DELETION SUMMARY');
+    console.log(`${LOG_PREFIX.INFO} Total preferences deleted: ${deleted}`);
+    if (failed > 0) {
+        console.log(`${LOG_PREFIX.ERROR} Total preferences failed: ${failed}`);
+    }
+    console.log(`  Realms processed: ${realms}\n`);
+
+    if (deleted > 0) {
+        console.log(`${LOG_PREFIX.INFO} Preferences successfully removed from SFCC.`);
+        console.log('   Backup files are available for restore if needed.\n');
+    } else if (failed > 0) {
+        console.log(`${LOG_PREFIX.WARNING} No preferences were deleted.`);
+        console.log('   Check error messages above for details.\n');
+    }
+}
+
+/**
+ * Log restore summary after preference restoration
+ * @param {Object} stats - Restore statistics
+ * @param {number} stats.restored - Number of preferences restored
+ * @param {number} stats.failed - Number of failed restorations
+ * @param {string|number} stats.realm - Realm name or count of realms processed
+ */
+export function logRestoreSummary({ restored, failed, realm }) {
+    logSectionTitle('RESTORE SUMMARY');
+    console.log(`${LOG_PREFIX.INFO} Total preferences restored: ${restored}`);
+    if (failed > 0) {
+        console.log(`${LOG_PREFIX.ERROR} Total restoration failures: ${failed}`);
+    }
+    const realmLabel = typeof realm === 'number' ? `Realms processed: ${realm}` : `Realm: ${realm}`;
+    console.log(`  ${realmLabel}\n`);
+
+    if (restored > 0) {
+        console.log(`${LOG_PREFIX.INFO} Preferences successfully restored from backup.\n`);
+    } else if (failed > 0) {
+        console.log(`${LOG_PREFIX.WARNING} Restoration encountered errors. Check messages above.\n`);
+    }
+}
+
+/**
+ * Log backup status for realms (existing vs. needing backup)
+ * @param {string[]} withBackups - Realms with existing backups
+ * @param {string[]} withoutBackups - Realms needing new backups
+ */
+export function logBackupClassification(withBackups, withoutBackups) {
+    if (withBackups.length > 0) {
+        logSectionTitle('EXISTING BACKUP FILES FOUND');
+        withBackups.forEach(realm => {
+            console.log(`  ${LOG_PREFIX.INFO} ${realm}: Backup exists for today's date`);
+        });
+        console.log('');
+    }
+
+    if (withoutBackups.length > 0) {
+        console.log('Realms needing backup:');
+        withoutBackups.forEach(realm => {
+            console.log(`  - ${realm}: No backup found, will create`);
+        });
+        console.log('');
+    }
+}

@@ -1,6 +1,7 @@
 import path from 'path';
 import fs from 'fs';
-import { getValidationConfig, getInstanceType } from '../helpers.js';
+import { getValidationConfig, getInstanceType, getAvailableRealms } from '../config/helpers/helpers.js';
+import { DIRECTORIES, IDENTIFIERS, FILE_PATTERNS } from '../config/constants.js';
 
 /**
  * Get the absolute path to the results directory
@@ -9,9 +10,9 @@ import { getValidationConfig, getInstanceType } from '../helpers.js';
  * @returns {string} Absolute path to results or results/{instanceType}/{realm} directory
  */
 export function getResultsPath(realm = null, instanceTypeOverride = null) {
-    const resultsDir = path.join(process.cwd(), 'results');
+    const resultsDir = path.join(process.cwd(), DIRECTORIES.RESULTS);
     if (realm) {
-        if (realm === 'ALL_REALMS') {
+        if (realm === IDENTIFIERS.ALL_REALMS) {
             if (instanceTypeOverride) {
                 return path.join(resultsDir, instanceTypeOverride, realm);
             }
@@ -215,4 +216,78 @@ export function calculateValidationStats(comparisons) {
         matching: matchCount,
         mismatched: mismatchCount
     };
+}
+
+// ============================================================================
+// REALM DIRECTORY HELPERS
+// ============================================================================
+
+/**
+ * Ensure a realm-specific directory exists in the results folder
+ * @param {string} realm - Realm name to create directory for
+ * @returns {string} Absolute path to the created/verified directory
+ */
+export function ensureRealmDir(realm) {
+    return ensureResultsDir(realm);
+}
+
+// ============================================================================
+// TEST DATA UTILITIES
+// Write test/debug output to files
+// ============================================================================
+
+/**
+ * Write test data to a JSON file with optional console output
+ * @param {string} filename - Name/path of the file to write
+ * @param {*} data - Data to serialize as JSON
+ * @param {Object} options - Configuration options
+ * @returns {void}
+ */
+export function writeTestOutput(filename, data, options = {}) {
+    fs.writeFileSync(filename, JSON.stringify(data, null, 2));
+
+    if (options.consoleOutput !== false) {
+        console.log(`Full response written to ${filename}`);
+        if (options.preview) {
+            console.log(JSON.stringify(options.preview, null, 2));
+        }
+    }
+}
+
+// ============================================================================
+// MATRIX FILE DISCOVERY
+// ============================================================================
+
+/**
+ * Find all preference matrix CSV files in the results directory
+ * Expected file pattern: results/{instanceType}/{realm}/{realm}_*_preferences_matrix.csv
+ * @returns {Array<{realm: string, matrixFile: string}>} Array of realm and matrix file paths
+ */
+export function findAllMatrixFiles() {
+    const matrixFiles = [];
+    const realms = getAvailableRealms();
+
+    for (const realmName of realms) {
+        try {
+            const realmDir = getResultsPath(realmName);
+
+            if (!fs.existsSync(realmDir)) {
+                continue;
+            }
+
+            const files = fs.readdirSync(realmDir);
+            const matrixFile = files.find(f => f.includes(FILE_PATTERNS.PREFERENCES_MATRIX));
+
+            if (matrixFile) {
+                matrixFiles.push({
+                    realm: realmName,
+                    matrixFile: path.join(realmDir, matrixFile)
+                });
+            }
+        } catch {
+            // Skip realms with read errors
+        }
+    }
+
+    return matrixFiles;
 }

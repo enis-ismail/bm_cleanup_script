@@ -1,7 +1,7 @@
 import path from 'path';
 import fs from 'fs/promises';
-import { getBackupConfig, getWebdavConfig } from '../helpers.js';
-import { triggerJobExecution, getJobExecutionStatus, downloadWebdavFile } from '../api.js';
+import { getBackupConfig, getWebdavConfig } from '../index.js';
+import { triggerJobExecution, getJobExecutionStatus, downloadWebdavFile } from '../api/api.js';
 
 /**
  * Build a safe file name for metadata backups
