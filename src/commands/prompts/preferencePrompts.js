@@ -1,6 +1,6 @@
 ﻿import inquirer from 'inquirer';
 import { IDENTIFIERS, LOG_PREFIX, BACKUP_CONFIG } from '../../config/constants.js';
-import { logSectionTitle } from '../../helpers/log.js';
+import { logSectionTitle } from '../../scripts/loggingScript/log.js';
 import { checkBackupStatusForRealms } from '../../io/backupUtils.js';
 
 export const objectTypePrompt = (defaultValue = IDENTIFIERS.SITE_PREFERENCES) => ([

@@ -112,7 +112,7 @@ export async function loadBackupFile(backupFilePath) {
  * @returns {Promise<Array<{realm: string, exists: boolean, ageInDays: number, filePath: string}>>}
  */
 export async function checkBackupStatusForRealms(realms, objectType) {
-    const { getSandboxConfig } = await import('../helpers.js');
+    const { getSandboxConfig } = await import('../config/helpers/helpers.js');
     const results = [];
 
     for (const realm of realms) {

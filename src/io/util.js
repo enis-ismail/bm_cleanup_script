@@ -263,9 +263,11 @@ export function writeTestOutput(filename, data, options = {}) {
  * Expected file pattern: results/{instanceType}/{realm}/{realm}_*_preferences_matrix.csv
  * @returns {Array<{realm: string, matrixFile: string}>} Array of realm and matrix file paths
  */
-export function findAllMatrixFiles() {
+export function findAllMatrixFiles(realmFilter = null) {
     const matrixFiles = [];
-    const realms = getAvailableRealms();
+    const realms = realmFilter && realmFilter.length > 0
+        ? realmFilter
+        : getAvailableRealms();
 
     for (const realmName of realms) {
         try {

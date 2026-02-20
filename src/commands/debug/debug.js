@@ -1,5 +1,6 @@
 import inquirer from 'inquirer';
 import { startTimer } from '../../helpers/timer.js';
+import { RealmProgressDisplay } from '../../scripts/loggingScript/progressDisplay.js';
 import {
     getSitePreferences,
     updateAttributeDefinitionById,
@@ -26,7 +27,7 @@ import {
     logSummaryHeader,
     logRealmSummary,
     logSummaryFooter
-} from '../../helpers/log.js';
+} from '../../scripts/loggingScript/log.js';
 import path from 'path';
 import fs from 'fs';
 import { findAllMatrixFiles, getSiblingRepositories } from '../../io/util.js';
@@ -994,5 +995,105 @@ export function registerDebugCommands(program) {
             }
 
             console.log(`\n✓ Total runtime: ${timer.stop()}`);
+        });
+
+    program
+        .command('test-concurrent-timers')
+        .description('(Debug) Test dynamic parent/child progress logging')
+        .action(async () => {
+            const UPDATE_INTERVAL_MS = 250;
+            const overallTimer = startTimer();
+
+            console.log(`\n${'='.repeat(80)}`);
+            console.log('🚀 Starting dynamic parent/child progress test');
+            console.log(`${'='.repeat(80)}\n`);
+            const progressDisplay = new RealmProgressDisplay(UPDATE_INTERVAL_MS);
+
+            const realms = [
+                {
+                    name: 'bcwr-080',
+                    hostname: 'bcwr-080.dx.commercecloud.salesforce.com'
+                },
+                {
+                    name: 'eu05',
+                    hostname: 'eu05.dx.commercecloud.salesforce.com'
+                }
+            ];
+
+            const childDefinitions = realms.flatMap((realm, realmIndex) => ([
+                {
+                    realmIndex,
+                    label: 'Fetching Data',
+                    durationMs: 2000 + Math.floor(Math.random() * 3000),
+                    startDelayMs: Math.floor(Math.random() * 1200)
+                },
+                {
+                    realmIndex,
+                    label: 'Building Matrices',
+                    durationMs: 3000 + Math.floor(Math.random() * 4000),
+                    startDelayMs: 1200 + Math.floor(Math.random() * 2000)
+                },
+                {
+                    realmIndex,
+                    label: 'Exporting Results',
+                    durationMs: 1500 + Math.floor(Math.random() * 2500),
+                    startDelayMs: 3200 + Math.floor(Math.random() * 2000)
+                }
+            ]));
+
+            const runChildProcess = (realm, label, durationMs, startDelayMs, stepKey) => {
+                return new Promise((resolve) => {
+                    setTimeout(() => {
+                        progressDisplay.startStep(realm.hostname, realm.name, stepKey, label);
+                        const startTime = Date.now();
+                        const interval = setInterval(() => {
+                            const elapsed = Date.now() - startTime;
+                            const percent = Math.min(100, Math.round((elapsed / durationMs) * 100));
+                            progressDisplay.setStepProgress(realm.hostname, stepKey, percent);
+                        }, 100);
+
+                        setTimeout(() => {
+                            clearInterval(interval);
+                            progressDisplay.completeStep(realm.hostname, stepKey);
+                            resolve({ realm: realm.name, label, durationMs });
+                        }, durationMs);
+                    }, startDelayMs);
+                });
+            };
+
+            try {
+                progressDisplay.start();
+
+                const tasks = childDefinitions.map((definition, index) => {
+                    const realm = realms[definition.realmIndex];
+                    const stepKey = `${definition.label}-${index}`;
+                    return runChildProcess(
+                        realm,
+                        definition.label,
+                        definition.durationMs,
+                        definition.startDelayMs,
+                        stepKey
+                    );
+                });
+
+                const results = await Promise.all(tasks);
+                progressDisplay.stop();
+
+                console.log(`\n${'='.repeat(80)}`);
+                console.log('📊 Parent/Child Progress Results');
+                console.log(`${'='.repeat(80)}\n`);
+
+                results.forEach((result) => {
+                    const seconds = (result.durationMs / 1000).toFixed(2);
+                    console.log(`  ${result.realm} - ${result.label}: ${seconds}s`);
+                });
+
+                const totalElapsed = overallTimer.stop();
+                console.log(`\n  Total elapsed: ${totalElapsed}`);
+                console.log('  ✓ Dynamic progress test completed successfully!\n');
+            } catch (error) {
+                progressDisplay.stop();
+                console.error(`\n❌ Error: ${error.message}`);
+            }
         });
 }

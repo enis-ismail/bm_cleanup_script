@@ -4,7 +4,7 @@ import fsPromises from 'fs/promises';
 import path from 'path';
 import { withLoadShedding, processBatch } from '../helpers/batch.js';
 import { getSandboxConfig } from '../config/helpers/helpers.js';
-import { logError, logRateLimitCountdown } from '../helpers/log.js';
+import { logError, logRateLimitCountdown } from '../scripts/loggingScript/log.js';
 import { loadCachedBackup } from '../io/backupUtils.js';
 import { getApiConfig } from '../config/constants.js';
 
@@ -41,7 +41,7 @@ function buildApiHeaders(token, ifMatch = null) {
  * @returns {Promise<Array>} All fetched items
  * @private
  */
-async function paginatedApiFetch(baseUrl, token, batchSize = 200) {
+async function paginatedApiFetch(baseUrl, token, batchSize = 200, progressCallback = null) {
     const allItems = [];
     const headers = buildApiHeaders(token);
     let start = 0;
@@ -56,6 +56,11 @@ async function paginatedApiFetch(baseUrl, token, batchSize = 200) {
 
         allItems.push(...items);
         start += items.length;
+
+        // Call progress callback if provided
+        if (progressCallback && total > 0) {
+            progressCallback(allItems.length, total);
+        }
 
         if (items.length === 0 || allItems.length >= total) {
             break;
@@ -76,7 +81,7 @@ async function paginatedApiFetch(baseUrl, token, batchSize = 200) {
  * @param {Object} sandbox - Sandbox configuration object
  * @returns {Promise<string>} OAuth bearer token
  */
-export async function getOAuthToken(sandbox) {
+export async function getOAuthToken(sandbox, progressInfo = null) {
     const tokenUrl = 'https://account.demandware.com/dwsso/oauth2/access_token';
     const credentials = Buffer.from(`${sandbox.clientId}:${sandbox.clientSecret}`).toString('base64');
 
@@ -99,7 +104,25 @@ export async function getOAuthToken(sandbox) {
         {
             maxRetries: 3,
             onRetry: (attempt, delay) => {
-                logRateLimitCountdown(delay, attempt);
+                if (progressInfo?.display && progressInfo?.hostname) {
+                    const seconds = Math.ceil(delay / 1000);
+                    progressInfo.display.setStepMessage(
+                        progressInfo.hostname,
+                        progressInfo.stepKey || 'fetch',
+                        `Auth rate limited, retry ${attempt}/3 in ${seconds}s`,
+                        'warn'
+                    );
+                    setTimeout(() => {
+                        if (progressInfo?.display && progressInfo?.hostname) {
+                            progressInfo.display.clearStepMessage(
+                                progressInfo.hostname,
+                                progressInfo.stepKey || 'fetch'
+                            );
+                        }
+                    }, delay);
+                } else {
+                    logRateLimitCountdown(delay, attempt);
+                }
             }
         }
     );
@@ -205,10 +228,10 @@ export async function downloadWebdavFile(webdavConfig, outputDir) {
  * @param {Object} sandbox - Sandbox configuration object
  * @returns {Promise<Array>} Array of site objects
  */
-export async function getAllSites(realm) {
+export async function getAllSites(realm, progressInfo = null) {
     try {
         const sandbox = getSandboxConfig(realm);
-        const token = await getOAuthToken(sandbox);
+        const token = await getOAuthToken(sandbox, progressInfo);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v19_5/sites`;
         const headers = buildApiHeaders(token);
         const response = await axios.get(url, { headers });
@@ -228,10 +251,10 @@ export async function getAllSites(realm) {
  * @param {Object} sandbox - Sandbox configuration object
  * @returns {Promise<Object|null>} Site object with full configuration
  */
-export async function getSiteById(siteId, realm) {
+export async function getSiteById(siteId, realm, progressInfo = null) {
     try {
         const sandbox = getSandboxConfig(realm);
-        const token = await getOAuthToken(sandbox);
+        const token = await getOAuthToken(sandbox, progressInfo);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v19_5/sites/${encodeURIComponent(siteId)}`;
         const headers = buildApiHeaders(token);
         const response = await axios.get(url, { headers });
@@ -253,18 +276,31 @@ export async function getSiteById(siteId, realm) {
  * @param {string} objectType - Object type
  * @param {string} realm - Realm name
  * @param {Object} sandbox - Sandbox configuration
+ * @param {Function} [progressCallback] - Optional callback(currentCount, totalCount) for batch progress
+ * @param {Object} [progressInfo] - Optional {display, hostname} for rate limit warnings
  * @returns {Promise<Array>} Detailed attribute definitions
  */
-async function fetchDetailedAttributes(allAttributes, objectType, realm, sandbox) {
+async function fetchDetailedAttributes(allAttributes, objectType, realm, sandbox, progressCallback = null, progressInfo = null) {
     console.log('\nFetching full details with default values (parallel batches)...');
     const startTime = Date.now();
     const apiConfig = getApiConfig(sandbox.instanceType);
+    let processedCount = 0;
 
     const detailedAttributes = await withLoadShedding(
         async () => {
             return await processBatch(
                 allAttributes,
-                (attr) => getAttributeDefinitionById(objectType, attr.id, realm),
+                async (attr) => {
+                    const detailProgressInfo = progressInfo
+                        ? { ...progressInfo, stepKey: 'details' }
+                        : null;
+                    const result = await getAttributeDefinitionById(objectType, attr.id, realm, detailProgressInfo);
+                    processedCount += 1;
+                    if (progressCallback) {
+                        progressCallback(processedCount, allAttributes.length);
+                    }
+                    return result;
+                },
                 apiConfig.batchSize,
                 null,
                 apiConfig.batchDelayMs
@@ -273,7 +309,22 @@ async function fetchDetailedAttributes(allAttributes, objectType, realm, sandbox
         {
             maxRetries: 2,
             onRetry: (attempt, delay) => {
-                logRateLimitCountdown(delay, attempt, `batch of ${allAttributes.length} attributes`);
+                if (progressInfo?.display && progressInfo?.hostname) {
+                    const seconds = Math.ceil(delay / 1000);
+                    progressInfo.display.setStepMessage(
+                        progressInfo.hostname,
+                        'details',
+                        `Rate limited, retry ${attempt}/2 in ${seconds}s`,
+                        'warn'
+                    );
+                    setTimeout(() => {
+                        if (progressInfo?.display && progressInfo?.hostname) {
+                            progressInfo.display.clearStepMessage(progressInfo.hostname, 'details');
+                        }
+                    }, delay);
+                } else {
+                    logRateLimitCountdown(delay, attempt, `batch of ${allAttributes.length} attributes`);
+                }
             }
         }
     );
@@ -291,9 +342,20 @@ async function fetchDetailedAttributes(allAttributes, objectType, realm, sandbox
  * @param {string} realm - Realm name
  * @param {boolean} includeDefaults - If true, fetch each attribute individually to get default_value
  * @param {boolean} [useCachedBackup] - If true, use cached backup; if false, fetch fresh; if undefined, always fetch
+ * @param {Function} [progressCallback] - Optional callback(currentCount, totalCount) for pagination progress
+ * @param {Function} [detailProgressCallback] - Optional callback(currentCount, totalCount) for detail fetch progress
+ * @param {Object} [progressInfo] - Optional {display, hostname} for rate limit warnings
  * @returns {Promise<Array>} Array of attribute definition objects
  */
-export async function getSitePreferences(objectType, realm, includeDefaults = false, useCachedBackup = undefined) {
+export async function getSitePreferences(
+    objectType,
+    realm,
+    includeDefaults = false,
+    useCachedBackup = undefined,
+    progressCallback = null,
+    detailProgressCallback = null,
+    progressInfo = null
+) {
     try {
         const sandbox = getSandboxConfig(realm);
 
@@ -310,9 +372,9 @@ export async function getSitePreferences(objectType, realm, includeDefaults = fa
 
         // Fetch basic attribute list
         const startTime = Date.now();
-        const token = await getOAuthToken(sandbox);
+        const token = await getOAuthToken(sandbox, progressInfo);
         const baseUrl = `https://${sandbox.hostname}/s/-/dw/data/v19_5/system_object_definitions/${objectType}/attribute_definitions`;
-        const allAttributes = await paginatedApiFetch(baseUrl, token, 200);
+        const allAttributes = await paginatedApiFetch(baseUrl, token, 200, progressCallback);
 
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
         console.log(`Found ${allAttributes.length} total attributes for ${objectType} (${duration}s)`);
@@ -323,7 +385,14 @@ export async function getSitePreferences(objectType, realm, includeDefaults = fa
         }
 
         // Fetch detailed attributes with default values
-        const detailedAttributes = await fetchDetailedAttributes(allAttributes, objectType, realm, sandbox);
+        const detailedAttributes = await fetchDetailedAttributes(
+            allAttributes,
+            objectType,
+            realm,
+            sandbox,
+            detailProgressCallback,
+            progressInfo
+        );
 
         return detailedAttributes;
     } catch (error) {
@@ -340,10 +409,10 @@ export async function getSitePreferences(objectType, realm, includeDefaults = fa
  * @param {Object} sandbox - Sandbox configuration object
  * @returns {Promise<Object|null>} Single attribute definition object with full details including default_value
  */
-export async function getAttributeDefinitionById(objectType, attributeId, realm) {
+export async function getAttributeDefinitionById(objectType, attributeId, realm, progressInfo = null) {
     try {
         const sandbox = getSandboxConfig(realm);
-        const token = await getOAuthToken(sandbox);
+        const token = await getOAuthToken(sandbox, progressInfo);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_definitions/${encodeURIComponent(attributeId)}`;
         const headers = buildApiHeaders(token);
         const response = await axios.get(url, { headers });
@@ -454,12 +523,12 @@ export async function deleteAttributeDefinitionById(objectType, attributeId, rea
  * @param {Object} sandbox - Sandbox configuration object
  * @returns {Promise<Array>} Array of attribute group objects
  */
-export async function getAttributeGroups(objectType, realm) {
+export async function getAttributeGroups(objectType, realm, progressCallback = null, progressInfo = null) {
     try {
         const sandbox = getSandboxConfig(realm);
-        const token = await getOAuthToken(sandbox);
+        const token = await getOAuthToken(sandbox, progressInfo);
         const baseUrl = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_groups`;
-        const allGroups = await paginatedApiFetch(baseUrl, token, 200);
+        const allGroups = await paginatedApiFetch(baseUrl, token, 200, progressCallback);
         console.log(`Found ${allGroups.length} total attribute groups for ${objectType}`);
         return allGroups;
     } catch (error) {
@@ -529,10 +598,10 @@ export async function assignAttributeToGroup(objectType, groupId, attributeId, r
  * @param {Object} sandbox - Sandbox configuration object
  * @returns {Promise<Object|null>} Preference group object with values
  */
-export async function getSitePreferencesGroup(siteId, groupId, instanceType, realm) {
+export async function getSitePreferencesGroup(siteId, groupId, instanceType, realm, progressInfo = null) {
     try {
         const sandbox = getSandboxConfig(realm);
-        const token = await getOAuthToken(sandbox);
+        const token = await getOAuthToken(sandbox, progressInfo);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/sites/${encodeURIComponent(siteId)}/site_preferences/preference_groups/${encodeURIComponent(groupId)}/${encodeURIComponent(instanceType)}`;
         const headers = buildApiHeaders(token);
         const response = await axios.get(url, { headers });

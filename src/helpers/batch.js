@@ -14,14 +14,10 @@
  * @returns {Promise<*>} Result or null if all retries failed
  */
 async function processItemWithRetry(item, processFn, maxRetries = 3, initialDelay = 1000) {
-    let lastError;
-
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
             return await processFn(item);
         } catch (error) {
-            lastError = error;
-
             // Check if error is retryable
             const statusCode = error.response?.status;
             const isRetryable = [408, 429, 503, 504, 529].includes(statusCode) || !statusCode;
@@ -70,7 +66,6 @@ export async function processBatch(
 
     const results = [];
     const startTime = Date.now();
-    let processedCount = 0;
 
     for (let i = 0; i < items.length; i += batchSize) {
         const batch = items.slice(i, i + batchSize);
@@ -87,7 +82,6 @@ export async function processBatch(
             if (result.status === 'fulfilled' && result.value !== null) {
                 results.push(result.value);
             }
-            processedCount += 1;
         }
 
         // Update progress

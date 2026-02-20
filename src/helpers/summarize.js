@@ -1,7 +1,7 @@
 import { getSiteById, getSitePreferencesGroup } from '../api/api.js';
 import { processBatch } from './batch.js';
 import { startTimer } from './timer.js';
-import { logStatusUpdate, logStatusClear } from './log.js';
+import { logStatusUpdate, logStatusClear } from '../scripts/loggingScript/log.js';
 import { IDENTIFIERS } from '../config/constants.js';
 
 // ============================================================================
@@ -164,9 +164,12 @@ function buildSiteUsageRows(siteId, cartridges, groupSummaries, groupResponses, 
  * @param {string} realm - Realm name
  * @param {Object} answers - User input containing instanceType field
  * @param {Object} preferenceMeta - Preference metadata map
+ * @param {Function} [progressCallback] - Optional callback(currentSite, totalSites) for progress tracking
  * @returns {Promise<Object>} Object with usageRows and siteSummaries
  */
-export async function processSitesAndGroups(sitesToProcess, groupSummaries, realm, answers, preferenceMeta) {
+export async function processSitesAndGroups(
+    sitesToProcess, groupSummaries, realm, answers, preferenceMeta, progressCallback = null, progressInfo = null
+) {
     const usageRows = [];
     const siteSummaries = [];
 
@@ -175,9 +178,14 @@ export async function processSitesAndGroups(sitesToProcess, groupSummaries, real
         const siteId = site.id || site.site_id || site.siteId;
         if (!siteId) continue;
 
+        // Report progress before processing site
+        if (progressCallback) {
+            progressCallback(siteIndex, sitesToProcess.length);
+        }
+
         console.log(`\n[${siteIndex + 1}/${sitesToProcess.length}] Processing site: ${siteId}`);
 
-        const siteDetail = await getSiteById(siteId, realm);
+        const siteDetail = await getSiteById(siteId, realm, progressInfo);
         const cartridges = siteDetail?.cartridges || siteDetail?.cartridgesPath || siteDetail?.cartridges_path || '';
 
         console.log(`  - Fetching preference values across ${groupSummaries.length} group(s) in batches...`);
@@ -186,7 +194,7 @@ export async function processSitesAndGroups(sitesToProcess, groupSummaries, real
         // Fetch groups in parallel batches
         const groupResponses = await processBatch(
             groupSummaries,
-            (group) => getSitePreferencesGroup(siteId, group.groupId, answers.instanceType, realm),
+            (group) => getSitePreferencesGroup(siteId, group.groupId, answers.instanceType, realm, progressInfo),
             20, // Process 20 groups in parallel
             (progress, total, rate) => {
                 logStatusUpdate(
@@ -213,6 +221,11 @@ export async function processSitesAndGroups(sitesToProcess, groupSummaries, real
 
         console.log(`  ✓ Site ${siteId} complete (${siteRows.length} preferences found)`);
         siteSummaries.push({ siteId, cartridges, groups: groupValues });
+    }
+
+    // Report final progress
+    if (progressCallback) {
+        progressCallback(sitesToProcess.length, sitesToProcess.length);
     }
 
     return { usageRows, siteSummaries };

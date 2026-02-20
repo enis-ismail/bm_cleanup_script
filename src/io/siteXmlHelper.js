@@ -2,8 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { parseString } from 'xml2js';
 import { ensureResultsDir } from './util.js';
-import { SEPARATOR, LOG_PREFIX } from '../config/constants.js';
-import { logError } from '../helpers/log.js';
+import { SEPARATOR, LOG_PREFIX, FILE_PATTERNS } from '../config/constants.js';
+import { logError } from '../scripts/loggingScript/log.js';
 
 /**
  * Find all site.xml files in a site templates directory
@@ -252,7 +252,7 @@ export async function parseAndCompareSiteXmls(siteXmlFiles, liveSitesMap) {
  */
 export async function exportSiteXmlComparison(comparisons, realm) {
     const resultsDir = ensureResultsDir(realm);
-    const filePath = path.join(resultsDir, `${realm}_site_xml_validation.txt`);
+    const filePath = path.join(resultsDir, `${realm}${FILE_PATTERNS.SITE_XML_VALIDATION}`);
     const matchCount = comparisons.filter(c => c.comparison.isMatch).length;
     const mismatchCount = comparisons.length - matchCount;
 

@@ -14,7 +14,7 @@ import {
     logCartridgeValidationWarning,
     logCartridgeValidationSummaryFooter,
     logSiteXmlValidationSummary
-} from '../../helpers/log.js';
+} from '../../scripts/loggingScript/log.js';
 import {
     findSiteXmlFiles,
     parseAndCompareSiteXmls,

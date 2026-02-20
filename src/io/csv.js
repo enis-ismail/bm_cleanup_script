@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { getAllSites, getSiteById } from '../api/api.js';
 import { ensureResultsDir } from './util.js';
-import { logError } from '../helpers/log.js';
+import { logError } from '../scripts/loggingScript/log.js';
 import { FILE_PATTERNS } from '../config/constants.js';
 
 // ============================================================================
@@ -118,7 +118,7 @@ export async function exportSitesCartridgesToCSV(realm) {
 
     const csv = ['id,cartridges', ...csvRows].join('\n');
     const realmPath = ensureResultsDir(realm);
-    const fileName = path.join(realmPath, `${realm}_active_site_cartridges_list.csv`);
+    const fileName = path.join(realmPath, `${realm}${FILE_PATTERNS.SITE_CARTRIDGES_LIST}`);
 
     writeCSVFile(fileName, csv);
 }
@@ -159,7 +159,7 @@ export async function exportAttributesToCSV(allAttributes, hostname) {
     const csv = [headers, ...rows].join('\n');
     const realm = deriveRealm(hostname);
     const realmPath = ensureResultsDir(realm);
-    const fileName = path.join(realmPath, `${realm}_site_preferences.csv`);
+    const fileName = path.join(realmPath, `${realm}${FILE_PATTERNS.SITE_PREFERENCES_CSV}`);
 
     writeCSVFile(fileName, csv);
 

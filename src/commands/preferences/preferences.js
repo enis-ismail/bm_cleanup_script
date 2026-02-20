@@ -8,9 +8,11 @@ import {
 import {
     getAvailableRealms,
     getInstanceType,
-    getRealmsByInstanceType
+    getRealmsByInstanceType,
+    getSandboxConfig
 } from '../../config/helpers/helpers.js';
 import { startTimer } from '../../helpers/timer.js';
+import { RealmProgressDisplay } from '../../scripts/loggingScript/progressDisplay.js';
 import {
     objectTypePrompt,
     scopePrompts,
@@ -23,7 +25,7 @@ import {
     realmPrompt,
     promptBackupCachePreference
 } from '../../commands/prompts/index.js';
-import { LOG_PREFIX, DIRECTORIES, IDENTIFIERS } from '../../config/constants.js';
+import { LOG_PREFIX, DIRECTORIES, IDENTIFIERS, FILE_PATTERNS } from '../../config/constants.js';
 import {
     logNoMatrixFiles,
     logMatrixFilesFound,
@@ -35,7 +37,7 @@ import {
     logDeletionSummary,
     logRestoreSummary,
     logBackupClassification
-} from '../../helpers/log.js';
+} from '../../scripts/loggingScript/log.js';
 import {
     processPreferenceMatrixFiles,
     executePreferenceSummarization
@@ -129,17 +131,40 @@ async function analyzePreferences() {
     // --- STEP 2: Fetch & Summarize ---
     logSectionTitle('STEP 2: Fetching & Summarizing Preferences');
 
-    for (const realm of realmsToProcess) {
-        await executePreferenceSummarization({
-            realm,
-            objectType,
-            instanceType: getInstanceType(realm),
-            scope,
-            siteId,
-            includeDefaults,
-            useCachedBackup,
-            repositoryPath
-        });
+    const progressDisplay = new RealmProgressDisplay(250);
+    progressDisplay.start();
+
+    try {
+        for (const realm of realmsToProcess) {
+            const realmConfig = getSandboxConfig(realm);
+            const realmHostname = realmConfig.hostname;
+
+            try {
+                await executePreferenceSummarization(
+                    {
+                        realm,
+                        objectType,
+                        instanceType: getInstanceType(realm),
+                        scope,
+                        siteId,
+                        includeDefaults,
+                        useCachedBackup,
+                        repositoryPath
+                    },
+                    {
+                        display: progressDisplay,
+                        hostname: realmHostname,
+                        realmName: realm
+                    }
+                );
+            } catch (realmError) {
+                progressDisplay.failStep(realmHostname, 'fetch');
+                console.error(`Error processing realm ${realm}:`, realmError.message);
+                throw realmError;
+            }
+        }
+    } finally {
+        progressDisplay.finish();
     }
 
     console.log('');
@@ -147,7 +172,7 @@ async function analyzePreferences() {
     // --- STEP 3: Check Preference Usage ---
     logSectionTitle('STEP 3: Checking Preference Usage');
 
-    const matrixFiles = findAllMatrixFiles();
+    const matrixFiles = findAllMatrixFiles(realmsToProcess);
 
     if (matrixFiles.length === 0) {
         logNoMatrixFiles();
@@ -178,9 +203,38 @@ async function analyzePreferences() {
 
     if (repositoryPath && realmsToProcess.length > 0) {
         const firstRealmInstanceType = getInstanceType(realmsToProcess[0]);
-        await findAllActivePreferencesUsage(repositoryPath, {
-            instanceTypeOverride: firstRealmInstanceType
-        });
+        const repoName = path.basename(repositoryPath);
+        
+        let scanStep = null;
+        if (progressDisplay) {
+            scanStep = `scan_${Date.now()}`;
+            progressDisplay.startStep('codeScanner', 'Code Scanner', scanStep, `Scanning ${repoName} for references`);
+            progressDisplay.start();
+        }
+        
+        const scanCallback = (scannedCount, totalFiles) => {
+            if (progressDisplay && scanStep) {
+                const percentage = Math.round((scannedCount / totalFiles) * 100);
+                progressDisplay.setStepProgress('codeScanner', scanStep, percentage);
+                progressDisplay.setStepMessage('codeScanner', scanStep, `${scannedCount}/${totalFiles} files`, 'info');
+            }
+        };
+        
+        try {
+            await findAllActivePreferencesUsage(repositoryPath, {
+                instanceTypeOverride: firstRealmInstanceType,
+                progressCallback: scanCallback,
+                realmFilter: realmsToProcess
+            });
+            
+            if (progressDisplay && scanStep) {
+                progressDisplay.completeStep('codeScanner', scanStep);
+            }
+        } finally {
+            if (progressDisplay) {
+                progressDisplay.finish();
+            }
+        }
     }
 
     console.log('');
@@ -490,7 +544,7 @@ function getDeletionFilePath(instanceType) {
         DIRECTORIES.RESULTS,
         instanceType,
         IDENTIFIERS.ALL_REALMS,
-        `${instanceType}_preferences_for_deletion.txt`
+        `${instanceType}${FILE_PATTERNS.PREFERENCES_FOR_DELETION}`
     );
 }
 

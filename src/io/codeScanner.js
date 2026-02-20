@@ -4,7 +4,7 @@ import path from 'path';
 import { setImmediate } from 'timers/promises';
 import { findAllMatrixFiles } from './util.js';
 import { ensureResultsDir } from './util.js';
-import { logStatusUpdate, logStatusClear, logProgress } from '../helpers/log.js';
+import { logStatusUpdate, logStatusClear, logProgress } from '../scripts/loggingScript/log.js';
 import {
     DIRECTORIES,
     IDENTIFIERS,
@@ -458,7 +458,7 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
     }
 
     // Generate output file
-    const outputFilename = `${dirName}_preferences_for_deletion.txt`;
+    const outputFilename = `${dirName}${FILE_PATTERNS.PREFERENCES_FOR_DELETION}`;
     const outputFilePath = path.join(resultsDir, outputFilename);
 
     const lines = [
@@ -493,28 +493,31 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
  * @returns {Promise<Array>} Array of results for each preference
  */
 export async function findAllActivePreferencesUsage(repositoryPath, options = {}) {
-    const matrixFiles = findAllMatrixFiles();
+    const matrixFiles = findAllMatrixFiles(options.realmFilter || null);
     const comparisonFilePath = options.comparisonFilePath || DEFAULT_COMPARISON_FILE_PATH;
+    const progressCallback = options.progressCallback || null;
+
+    const log = progressCallback ? () => {} : console.log.bind(console);
 
     if (matrixFiles.length === 0) {
-        console.log('No matrix files found.');
+        log('No matrix files found.');
         return [];
     }
 
-    console.log(`Found ${matrixFiles.length} matrix file(s)\n`);
+    log(`Found ${matrixFiles.length} matrix file(s)\n`);
 
     const matrixFilePaths = matrixFiles.map(f => f.matrixFile);
     const activePreferences = Array.from(getActivePreferencesFromMatrices(matrixFilePaths)).sort();
 
-    console.log(`Found ${activePreferences.length} active preference(s)\n`);
+    log(`Found ${activePreferences.length} active preference(s)\n`);
 
     // Get deprecated cartridges for tagging
     const deprecatedCartridges = getDeprecatedCartridges(comparisonFilePath);
 
     // Collect all file paths (synchronous - may take time for large repos)
-    console.log('Collecting all file paths...');
+    log('Collecting all file paths...');
     const allFiles = collectAllFilePaths(repositoryPath);
-    console.log(`Total files to scan: ${allFiles.length}\n`);
+    log(`Total files to scan: ${allFiles.length}\n`);
 
     // Track which preferences are found in which cartridges (with deprecation status)
     const preferenceToCartridges = new Map();
@@ -526,8 +529,15 @@ export async function findAllActivePreferencesUsage(repositoryPath, options = {}
     const logEvery = options.logEvery || 100;
     let scannedFiles = 0;
 
-    // Start the spinner for scanning
-    logStatusUpdate('Starting file scan...');
+    // Start the spinner for scanning (only when no progress callback handles display)
+    if (!progressCallback) {
+        logStatusUpdate('Starting file scan...');
+    }
+
+    // Signal initial progress (0 of total)
+    if (progressCallback) {
+        progressCallback(0, allFiles.length);
+    }
 
     // Scan each file once, looking for all preferences
     // We yield to event loop after each file to allow smooth spinner animation and Ctrl+C
@@ -545,10 +555,14 @@ export async function findAllActivePreferencesUsage(repositoryPath, options = {}
 
         scannedFiles += 1;
 
-        // Update spinner text every logEvery files
+        // Update progress callback every logEvery files, or log to console if no callback
         if (scannedFiles % logEvery === 0 || scannedFiles === allFiles.length) {
             const percent = ((scannedFiles / allFiles.length) * 100).toFixed(1);
-            logStatusUpdate(`Scanned ${scannedFiles}/${allFiles.length} files (${percent}%)`);
+            if (progressCallback) {
+                progressCallback(scannedFiles, allFiles.length);
+            } else {
+                logStatusUpdate(`Scanned ${scannedFiles}/${allFiles.length} files (${percent}%)`);
+            }
         }
 
         // Yield to event loop after each file for smooth spinner animation

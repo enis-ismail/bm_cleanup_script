@@ -2,7 +2,8 @@
 import path from 'path';
 import { ensureResultsDir } from '../../../io/util.js';
 import { getValidationConfig } from '../../../index.js';
-import { logError } from '../../../helpers/log.js';
+import { FILE_PATTERNS } from '../../../config/constants.js';
+import { logError } from '../../../scripts/loggingScript/log.js';
 
 /**
  * Check if cartridge should be included based on validation config
@@ -138,7 +139,7 @@ export function formatComparisonResults(comparisonResult) {
  */
 export async function exportComparisonToFile(comparisonResult, realm, instanceTypeOverride = null) {
     const resultsDir = ensureResultsDir(realm, instanceTypeOverride);
-    const filename = `${realm}_cartridge_comparison.txt`;
+    const filename = `${realm}${FILE_PATTERNS.CARTRIDGE_COMPARISON}`;
     const filePath = path.join(resultsDir, filename);
     const content = formatComparisonResults(comparisonResult);
 

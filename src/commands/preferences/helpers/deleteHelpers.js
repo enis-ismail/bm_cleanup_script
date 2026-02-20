@@ -6,7 +6,7 @@
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import { LOG_PREFIX, SEPARATOR, DIRECTORIES } from '../../../config/constants.js';
+import { LOG_PREFIX, SEPARATOR, DIRECTORIES, FILE_PATTERNS } from '../../../config/constants.js';
 import { updateAttributeDefinitionById } from '../../../api/api.js';
 import { loadBackupFile } from '../../../io/backupUtils.js';
 import { restorePreferencesForRealm } from './restoreHelper.js';
@@ -152,7 +152,7 @@ export function getBackupFilePath(realm, objectType, instanceType, date) {
         process.cwd(),
         DIRECTORIES.BACKUP,
         instanceType,
-        `${realm}_${objectType}_backup_${backupDate}.json`
+        `${realm}_${objectType}${FILE_PATTERNS.BACKUP_SUFFIX}${backupDate}.json`
     );
 }
 

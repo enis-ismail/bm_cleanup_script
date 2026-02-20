@@ -2,7 +2,7 @@
 import fs from 'fs';
 import { getInstanceType } from '../../../index.js';
 import { LOG_PREFIX, DIRECTORIES, IDENTIFIERS, FILE_PATTERNS } from '../../../config/constants.js';
-import { logSectionTitle } from '../../../helpers/log.js';
+import { logSectionTitle } from '../../../scripts/loggingScript/log.js';
 import { refreshMetadataBackupForRealm, getMetadataBackupPathForRealm } from '../../../helpers/backupJob.js';
 import { generate as generateSitePreferencesBackup } from './generateSitePreferences.js';
 import { findLatestUsageCsv } from './csvHelpers.js';
@@ -199,7 +199,7 @@ export async function createRealmBackup({
     }
 
     const date = backupDate || new Date().toISOString().split('T')[0];
-    const backupFilePath = path.join(backupDir, `${realm}_${objectType}_backup_${date}.json`);
+    const backupFilePath = path.join(backupDir, `${realm}_${objectType}${FILE_PATTERNS.BACKUP_SUFFIX}${date}.json`);
 
     const result = await generateSitePreferencesBackup({
         unusedPreferencesFile: preferencesFilePath,
