@@ -51,8 +51,9 @@ export function runAnalyzePreferencesSubprocess() {
  * @param {string} options.objectType - Object type (e.g. 'SitePreferences')
  * @returns {Promise<{totalDeleted: number, totalFailed: number}>}
  */
-export async function deletePreferencesForRealms({ realmsToProcess, preferences, objectType }) {
-    console.log(`Deleting ${preferences.length} preferences from ${realmsToProcess.length} realm(s)...\n`);
+export async function deletePreferencesForRealms({ realmsToProcess, preferences, objectType, dryRun = false }) {
+    const modeLabel = dryRun ? '[DRY RUN] Simulating' : 'Deleting';
+    console.log(`${modeLabel} ${preferences.length} preferences from ${realmsToProcess.length} realm(s)...\n`);
 
     let totalDeleted = 0;
     let totalFailed = 0;
@@ -64,6 +65,13 @@ export async function deletePreferencesForRealms({ realmsToProcess, preferences,
         let realmFailed = 0;
 
         for (const preferenceId of preferences) {
+            if (dryRun) {
+                realmDeleted++;
+                totalDeleted++;
+                console.log(`  ${LOG_PREFIX.INFO} [DRY RUN] Would delete: ${preferenceId}`);
+                continue;
+            }
+
             const result = await updateAttributeDefinitionById(
                 objectType,
                 preferenceId,
@@ -83,7 +91,8 @@ export async function deletePreferencesForRealms({ realmsToProcess, preferences,
             }
         }
 
-        console.log(`\n  Realm summary: ${realmDeleted} deleted, ${realmFailed} failed`);
+        const summaryLabel = dryRun ? 'would delete' : 'deleted';
+        console.log(`\n  Realm summary: ${realmDeleted} ${summaryLabel}, ${realmFailed} failed`);
         console.log('');
     }
 

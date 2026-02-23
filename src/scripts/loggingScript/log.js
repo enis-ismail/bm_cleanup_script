@@ -355,15 +355,19 @@ export function logRuntime(timer) {
  * @param {number} stats.failed - Number of failed deletions
  * @param {number} stats.realms - Number of realms processed
  */
-export function logDeletionSummary({ deleted, failed, realms }) {
-    logSectionTitle('DELETION SUMMARY');
-    console.log(`${LOG_PREFIX.INFO} Total preferences deleted: ${deleted}`);
+export function logDeletionSummary({ deleted, failed, realms, dryRun = false }) {
+    logSectionTitle(dryRun ? 'DRY-RUN SUMMARY' : 'DELETION SUMMARY');
+    const actionLabel = dryRun ? 'would be deleted' : 'deleted';
+    console.log(`${LOG_PREFIX.INFO} Total preferences ${actionLabel}: ${deleted}`);
     if (failed > 0) {
         console.log(`${LOG_PREFIX.ERROR} Total preferences failed: ${failed}`);
     }
     console.log(`  Realms processed: ${realms}\n`);
 
-    if (deleted > 0) {
+    if (dryRun) {
+        console.log(`${LOG_PREFIX.INFO} This was a dry-run. No changes were made to SFCC.`);
+        console.log('   Run without --dry-run to actually delete these preferences.\n');
+    } else if (deleted > 0) {
         console.log(`${LOG_PREFIX.INFO} Preferences successfully removed from SFCC.`);
         console.log('   Backup files are available for restore if needed.\n');
     } else if (failed > 0) {

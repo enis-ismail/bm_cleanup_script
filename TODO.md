@@ -61,7 +61,7 @@
   - Test on sandbox first
 - [x] Add deletion logic to remove-preferences Step 4
 - [ ] Implement error handling and rollback on failure
-- [ ] Add dry-run mode for testing without actual deletion
+- [x] Add dry-run mode for testing without actual deletion
 - [ ] Log each deletion attempt (success/failure)
 
 **B. Backup & Restore System**

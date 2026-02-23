@@ -81,6 +81,7 @@ export function registerPreferenceCommands(program) {
     program
         .command('remove-preferences')
         .description('Remove preferences marked for deletion from site preferences')
+        .option('--dry-run', 'Simulate deletion without making any changes')
         .action(removePreferences);
 
     program
@@ -266,8 +267,15 @@ async function analyzePreferences() {
 // Load deletion list -> backup -> delete -> optional restore
 // ============================================================================
 
-async function removePreferences() {
+async function removePreferences(options = {}) {
+    const dryRun = options.dryRun === true;
     const timer = startTimer();
+
+    if (dryRun) {
+        const yellow = '\x1b[33m';
+        const reset = '\x1b[0m';
+        console.log(`${yellow}\n  ⚠  DRY-RUN MODE: No preferences will actually be deleted.${reset}\n`);
+    }
 
     // --- STEP 1: Select Instance Type ---
     logSectionTitle('STEP 1: Select Instance Type');
@@ -296,40 +304,63 @@ async function removePreferences() {
     }
 
     // --- STEP 5: Create Backups ---
-    logSectionTitle('STEP 5: Create Backups (Per Realm)');
     const objectType = IDENTIFIERS.SITE_PREFERENCES;
-    const preferencesFilePath = getDeletionFilePath(instanceType);
-    const backupsReady = await handleBackupCreation(
-        realmsToProcess, objectType, instanceType, preferencesFilePath
-    );
+    if (dryRun) {
+        logSectionTitle('STEP 5: Create Backups (Skipped - Dry Run)');
+        console.log(`${LOG_PREFIX.INFO} Skipping backup creation in dry-run mode.\n`);
+    } else {
+        logSectionTitle('STEP 5: Create Backups (Per Realm)');
+        const preferencesFilePath = getDeletionFilePath(instanceType);
+        const backupsReady = await handleBackupCreation(
+            realmsToProcess, objectType, instanceType, preferencesFilePath
+        );
 
-    if (!backupsReady) {
-        logRuntime(timer);
-        return;
+        if (!backupsReady) {
+            logRuntime(timer);
+            return;
+        }
     }
 
     // --- STEP 6: Confirm Deletion ---
-    logSectionTitle('STEP 6: Confirm Deletion');
-    console.log('Backup Summary:');
-    console.log(`  - Realms processed: ${realmsToProcess.length}`);
-    console.log(`  - Preferences backed up: ${preferences.length}`);
-    console.log('  - Backup files ready for restore if needed\n');
+    logSectionTitle(`STEP 6: Confirm Deletion${dryRun ? ' (Dry Run)' : ''}`);
+    if (dryRun) {
+        console.log('Dry-Run Summary:');
+        console.log(`  - Realms to process: ${realmsToProcess.length}`);
+        console.log(`  - Preferences to simulate: ${preferences.length}`);
+        console.log('  - No actual changes will be made\n');
+    } else {
+        console.log('Backup Summary:');
+        console.log(`  - Realms processed: ${realmsToProcess.length}`);
+        console.log(`  - Preferences backed up: ${preferences.length}`);
+        console.log('  - Backup files ready for restore if needed\n');
+    }
 
-    const confirmAnswers = await inquirer.prompt(confirmPreferenceDeletionPrompt(preferences.length));
+    const confirmAnswers = await inquirer.prompt(confirmPreferenceDeletionPrompt(
+        preferences.length, dryRun
+    ));
     if (!confirmAnswers.confirm) {
         console.log(`\n${LOG_PREFIX.INFO} Preference removal cancelled.`);
-        console.log(`${LOG_PREFIX.INFO} Backup files have been preserved for future use.\n`);
+        if (!dryRun) {
+            console.log(`${LOG_PREFIX.INFO} Backup files have been preserved for future use.\n`);
+        }
         logRuntime(timer);
         return;
     }
 
     // --- STEP 7: Delete Preferences ---
-    logSectionTitle('STEP 7: Remove Preferences');
+    logSectionTitle(`STEP 7: Remove Preferences${dryRun ? ' (Dry Run)' : ''}`);
     const { totalDeleted, totalFailed } = await deletePreferencesForRealms({
-        realmsToProcess, preferences, objectType
+        realmsToProcess, preferences, objectType, dryRun
     });
-    logDeletionSummary({ deleted: totalDeleted, failed: totalFailed, realms: realmsToProcess.length });
+    logDeletionSummary({
+        deleted: totalDeleted, failed: totalFailed, realms: realmsToProcess.length, dryRun
+    });
     logRuntime(timer);
+
+    if (dryRun) {
+        console.log(`\n${LOG_PREFIX.INFO} Dry-run complete. No preferences were modified.\n`);
+        return;
+    }
 
     // --- STEP 8: Optional Restore ---
     logSectionTitle('STEP 8: Restore from Backups (Optional)');

@@ -46,12 +46,14 @@ export const preferenceIdPrompt = () => ([
     }
 ]);
 
-export const confirmPreferenceDeletionPrompt = (count) => ([
+export const confirmPreferenceDeletionPrompt = (count, dryRun = false) => ([
     {
         name: 'confirm',
-        message: `Are you sure you want to delete these ${count} preferences? This action cannot be undone.`,
+        message: dryRun
+            ? `Proceed with dry-run simulation for ${count} preferences? (no changes will be made)`
+            : `Are you sure you want to delete these ${count} preferences? This action cannot be undone.`,
         type: 'confirm',
-        default: false
+        default: dryRun
     }
 ]);
 
