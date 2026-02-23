@@ -134,13 +134,17 @@ async function analyzePreferences() {
     const progressDisplay = new RealmProgressDisplay(250);
     progressDisplay.start();
 
+    // Suppress console.log while progress display is rendering
+    const originalLog = console.log;
+    console.log = () => {};
+
     try {
-        for (const realm of realmsToProcess) {
+        const realmPromises = realmsToProcess.map(async (realm) => {
             const realmConfig = getSandboxConfig(realm);
             const realmHostname = realmConfig.hostname;
 
             try {
-                await executePreferenceSummarization(
+                const result = await executePreferenceSummarization(
                     {
                         realm,
                         objectType,
@@ -157,13 +161,29 @@ async function analyzePreferences() {
                         realmName: realm
                     }
                 );
+                return { realm, success: true, result };
             } catch (realmError) {
                 progressDisplay.failStep(realmHostname, 'fetch');
-                console.error(`Error processing realm ${realm}:`, realmError.message);
-                throw realmError;
+                return { realm, success: false, error: realmError };
+            }
+        });
+
+        const results = await Promise.all(realmPromises);
+        const failures = results.filter(r => !r.success);
+
+        // Report failures after progress display is stopped
+        if (failures.length > 0) {
+            // Temporarily restore console.log for error reporting
+            console.log = originalLog;
+            for (const { realm, error } of failures) {
+                console.error(`Error processing realm ${realm}:`, error.message);
+            }
+            if (failures.length === realmsToProcess.length) {
+                throw new Error('All realms failed during preference summarization');
             }
         }
     } finally {
+        console.log = originalLog;
         progressDisplay.finish();
     }
 
@@ -435,7 +455,8 @@ async function backupSitePreferences() {
  * @returns {Promise<string[]|null>} Preference IDs or null if unavailable
  */
 async function loadOrGenerateDeletionList(instanceType, timer) {
-    let preferences = loadPreferencesForDeletion(instanceType);
+    let result = loadPreferencesForDeletion(instanceType);
+    let preferences = result?.allowed || null;
 
     if (preferences) {
         return preferences;
@@ -460,7 +481,8 @@ async function loadOrGenerateDeletionList(instanceType, timer) {
         return null;
     }
 
-    preferences = loadPreferencesForDeletion(instanceType);
+    result = loadPreferencesForDeletion(instanceType);
+    preferences = result?.allowed || null;
     if (!preferences) {
         console.log(`\n${LOG_PREFIX.WARNING} Preferences file still not found.`
             + ' Please check the analyze-preferences output.\n');
@@ -481,6 +503,21 @@ async function reviewPreferencesInEditor(instanceType, timer) {
     try {
         const filePath = await openPreferencesForDeletionInEditor(instanceType);
         console.log(`${LOG_PREFIX.INFO} Opened preferences file in VS Code: ${filePath}\n`);
+
+        // Show blacklist reminder right after opening the file
+        const { listBlacklist } = await import('../../helpers/blacklistHelper.js');
+        const entries = listBlacklist();
+        if (entries.length > 0) {
+            const yellow = '\x1b[33m';
+            const reset = '\x1b[0m';
+            console.log(`${yellow}  ℹ  Blacklisted patterns (these preferences will never be deleted):${reset}`);
+            for (const entry of entries) {
+                const key = entry.type === 'exact' ? (entry.id || entry.pattern) : entry.pattern;
+                console.log(`${yellow}     • [${entry.type}] ${key}${reset}`);
+            }
+            console.log(`${yellow}     Manage with: list-blacklist, add-to-blacklist, remove-from-blacklist${reset}\n`);
+        }
+
         return true;
     } catch (error) {
         console.log(`${LOG_PREFIX.WARNING} Could not open file in VS Code: ${error.message}`);

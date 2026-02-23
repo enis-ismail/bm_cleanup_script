@@ -1,0 +1,25 @@
+{
+  "description": "Preferences listed here will never appear in deletion candidate lists, even if unused.",
+  "blacklist": [
+    {
+      "pattern": "Adyen_*",
+      "type": "wildcard",
+      "reason": "Required for Adyen payment integration"
+    },
+    {
+      "pattern": "c_klarna*",
+      "type": "wildcard",
+      "reason": "Required for Klarna payment integration"
+    },
+    {
+      "pattern": "c_paypal*",
+      "type": "wildcard",
+      "reason": "Required for PayPal payment integration"
+    },
+    {
+      "pattern": "c_slas*",
+      "type": "wildcard",
+      "reason": "Required for SLAS authentication"
+    }
+  ]
+}

@@ -3,6 +3,7 @@ import { registerDebugCommands } from './commands/debug/debug.js';
 import { registerPreferenceCommands } from './commands/preferences/preferences.js';
 import { registerCartridgeCommands } from './commands/cartridges/cartridges.js';
 import { registerSetupCommands } from './commands/setup/setup.js';
+import { registerBlacklistCommands } from './commands/setup/blacklist.js';
 
 // ============================================================================
 // CLI ENTRYPOINT
@@ -26,6 +27,17 @@ program
 //   - remove-realm: Remove a realm from config.json
 
 registerSetupCommands(program);
+
+// ============================================================================
+// REGISTER BLACKLIST COMMANDS
+// ============================================================================
+// Location: src/commands/setup/blacklist.js
+// Commands:
+//   - add-to-blacklist: Add a preference pattern to the blacklist
+//   - remove-from-blacklist: Remove a preference pattern from the blacklist
+//   - list-blacklist: Show all blacklisted preference patterns
+
+registerBlacklistCommands(program);
 
 // ============================================================================
 // REGISTER CARTRIDGE COMMANDS

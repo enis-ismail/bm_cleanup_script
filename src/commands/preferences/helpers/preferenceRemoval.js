@@ -8,6 +8,7 @@ import path from 'path';
 import { exec } from 'child_process';
 import { ensureResultsDir } from '../../../io/util.js';
 import { IDENTIFIERS, FILE_PATTERNS } from '../../../config/constants.js';
+import { filterBlacklisted } from '../../../helpers/blacklistHelper.js';
 
 /**
  * Load preferences marked for deletion from file
@@ -33,12 +34,24 @@ export function loadPreferencesForDeletion(instanceType) {
             continue;
         }
 
-        if (inPreferenceSection && line.trim()) {
+        // Stop parsing at the blacklisted section
+        if (line.trim() === '--- Blacklisted Preferences (Protected) ---') {
+            break;
+        }
+
+        if (inPreferenceSection && line.trim() && !line.startsWith('=')) {
             preferences.push(line.trim());
         }
     }
 
-    return preferences.length > 0 ? preferences : null;
+    if (preferences.length === 0) {
+        return null;
+    }
+
+    // Safety net: filter out any blacklisted preferences
+    const { allowed, blocked } = filterBlacklisted(preferences);
+
+    return { allowed: allowed.length > 0 ? allowed : null, blocked };
 }
 
 /**

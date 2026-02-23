@@ -36,7 +36,7 @@
 - [x] Cartridge comparison and validation (WIP)
 - [x] Site.xml validation (WIP)
 - [x] Preference restore functionality (restoreHelper.js)
-- [ ] Preference blacklist/whitelist for ignored preferences
+- [x] Preference blacklist/whitelist for ignored preferences
 - [ ] Refine deletion candidate logic with priority ranking
 - [ ] Create logic that defines which preferences are used in what realms
   - [ ] Identify preferences that are used in ALL realms (consolidation candidates)
@@ -99,47 +99,23 @@
 
 ### Priority 3: Preference Blacklist System
 
-**Use Case:** Certain preferences must be preserved even if unused:
-- Third-party integration requirements (e.g., Adyen, SLAS)
-- Feature switches needed for future functionality
-- System preferences that should never be deleted
+**Status: ✅ Implemented**
 
-**Implementation:**
-- [ ] Create `preference_blacklist.json` configuration file
-  - Support exact match (preference ID)
-  - Support pattern matching (regex or wildcards)
-  - Support reason/comment documentation
-- [ ] Integrate blacklist check into deletion candidate logic
-  - Filter out blacklisted preferences early in workflow
-  - Log when blacklisted preferences are skipped
-- [ ] Add CLI commands for blacklist management:
-  - `add-to-blacklist` - Add preferences with reason
-  - `remove-from-blacklist` - Remove preferences
-  - `list-blacklist` - Show all blacklisted preferences
-- [ ] Document standard blacklist patterns for common integrations
+Preferences in `preference_blacklist.json` are automatically excluded from deletion candidate lists.
+Supports exact match, wildcard, and regex pattern types.
 
-**Example blacklist.json structure:**
-```json
-{
-  "blacklist": [
-    {
-      "pattern": "adyen_*",
-      "reason": "Required for Adyen payment integration",
-      "type": "wildcard"
-    },
-    {
-      "pattern": "c_featureSwitch.*",
-      "reason": "Feature flags for future releases",
-      "type": "regex"
-    },
-    {
-      "id": "c_criticalSystemPref",
-      "reason": "Core system preference - never delete",
-      "type": "exact"
-    }
-  ]
-}
-```
+**CLI Commands:**
+- `add-to-blacklist` — Interactive prompt to add entries
+- `remove-from-blacklist` — Select and remove entries
+- `list-blacklist` — Display all blacklisted patterns
+
+**Integration Points:**
+- [x] `preference_blacklist.json` configuration file in project root
+- [x] `src/helpers/blacklistHelper.js` — load, save, match, filter logic
+- [x] `src/io/codeScanner.js` — `generatePreferenceDeletionCandidates()` filters candidates (primary)
+- [x] `src/commands/preferences/helpers/preferenceRemoval.js` — `loadPreferencesForDeletion()` safety net
+- [x] `src/commands/setup/blacklist.js` — CLI commands registered in main.js
+- [x] Deletion output file includes a "Blacklisted Preferences (Protected)" section
 
 ---
 
@@ -264,7 +240,7 @@
 - [x] `timer.js` - Timing utilities
 - [x] `restoreHelper.js` - Backup restore logic
 - [ ] `metaXmlHelper.js` - Meta.xml parsing (future)
-- [ ] `blacklistHelper.js` - Preference blacklist management (future)
+- [x] `blacklistHelper.js` - Preference blacklist management
 - [ ] `metadataManager.js` - Centralized metadata handling (future)
 - [ ] `gitHelper.js` - Git integration and automation (future)
 

@@ -12,6 +12,7 @@ import {
     ALLOWED_EXTENSIONS,
     SKIP_DIRECTORIES
 } from '../config/constants.js';
+import { filterBlacklisted, loadBlacklist } from '../helpers/blacklistHelper.js';
 
 const DEFAULT_COMPARISON_FILE_PATH = path.join(
     process.cwd(),
@@ -448,9 +449,20 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
     const usedPreferences = parseCartridgePreferencesFile(cartridgeFilePath);
 
     // Find preferences that are in unused but NOT in used (truly safe to delete)
-    const deletionCandidates = Array.from(unusedPreferences)
+    const rawCandidates = Array.from(unusedPreferences)
         .filter(pref => !usedPreferences.has(pref))
         .sort();
+
+    // Apply blacklist filter
+    const blacklistEntries = loadBlacklist().blacklist;
+    const { allowed: deletionCandidates, blocked: blacklistedPreferences } =
+        filterBlacklisted(rawCandidates, blacklistEntries);
+
+    if (blacklistedPreferences.length > 0) {
+        console.log(
+            `✓ Blacklist protected ${blacklistedPreferences.length} preference(s) from deletion`
+        );
+    }
 
     if (deletionCandidates.length === 0) {
         console.log('✓ No preferences marked for deletion (all unused preferences have some usage)');
@@ -461,25 +473,52 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
     const outputFilename = `${dirName}${FILE_PATTERNS.PREFERENCES_FOR_DELETION}`;
     const outputFilePath = path.join(resultsDir, outputFilename);
 
+    const summaryLines = [
+        `  • Total unused preferences: ${unusedPreferences.size}`,
+        `  • Total used preferences: ${usedPreferences.size}`,
+        `  • Preferences marked for deletion: ${deletionCandidates.length}`
+    ];
+
+    if (blacklistedPreferences.length > 0) {
+        summaryLines.push(
+            `  • Blacklisted (protected): ${blacklistedPreferences.length}`
+        );
+    }
+
     const lines = [
         'Site Preferences Marked for Deletion',
         `Generated: ${new Date().toISOString()}`,
         '',
         'Analysis Summary:',
-        `  • Total unused preferences: ${unusedPreferences.size}`,
-        `  • Total used preferences: ${usedPreferences.size}`,
-        `  • Preferences marked for deletion: ${deletionCandidates.length}`,
+        ...summaryLines,
         '',
         'These preferences are:',
         '  1. Not referenced in any cartridge code',
         '  2. Not listed in the cartridge preferences mapping',
-        '  3. Safe to delete from site preferences',
+        '  3. Not on the preference blacklist',
+        '  4. Safe to delete from site preferences',
+        '',
+        'NOTE: Preferences matching patterns in preference_blacklist.json are excluded',
+        'from this list and will never be deleted. To manage the blacklist, run:',
+        '  • node src/main.js list-blacklist        — View all protected patterns',
+        '  • node src/main.js add-to-blacklist       — Add a new pattern',
+        '  • node src/main.js remove-from-blacklist  — Remove a pattern',
         '',
         '================================================================================',
         '',
         '--- Preferences for Deletion ---',
         ...deletionCandidates
     ];
+
+    if (blacklistedPreferences.length > 0) {
+        lines.push(
+            '',
+            '================================================================================',
+            '',
+            '--- Blacklisted Preferences (Protected) ---',
+            ...blacklistedPreferences.sort()
+        );
+    }
 
     fs.writeFileSync(outputFilePath, lines.join('\n'), 'utf-8');
 

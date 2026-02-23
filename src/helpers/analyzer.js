@@ -340,48 +340,35 @@ export async function executePreferenceSummarization(params, progressInfo) {
 
     const realmDir = ensureRealmDir(params.realm);
 
-    // Suppress console output for entire workflow when progress display is active
-    const originalLog = console.log;
-    if (progressInfo?.display && progressInfo?.hostname) {
-        console.log = () => {};
+    const apiData = await fetchPreferenceData(params, progressInfo);
+    const sitesToProcess = validateAndFilterSites(
+        apiData.sites,
+        params.scope,
+        params.siteId
+    );
+
+    if (!sitesToProcess) {
+        return null;
     }
 
-    try {
-        const apiData = await fetchPreferenceData(params, progressInfo);
-        const sitesToProcess = validateAndFilterSites(
-            apiData.sites,
-            params.scope,
-            params.siteId
-        );
+    const processData = {
+        ...apiData,
+        sitesToProcess
+    };
 
-        if (!sitesToProcess) {
-            return null;
-        }
+    const results = await buildPreferenceMatrices(processData, params.realm, params, progressInfo);
+    await exportResults(
+        realmDir,
+        params.realm,
+        results,
+        params.instanceType,
+        params.objectType,
+        progressInfo
+    );
 
-        const processData = {
-            ...apiData,
-            sitesToProcess
-        };
-
-        const results = await buildPreferenceMatrices(processData, params.realm, params, progressInfo);
-        await exportResults(
-            realmDir,
-            params.realm,
-            results,
-            params.instanceType,
-            params.objectType,
-            progressInfo
-        );
-
-        if (!progressInfo?.display) {
-            logStatusClear();
-        }
-
-        return { realmDir, success: true };
-    } finally {
-        // Always restore console.log
-        if (progressInfo?.display && progressInfo?.hostname) {
-            console.log = originalLog;
-        }
+    if (!progressInfo?.display) {
+        logStatusClear();
     }
+
+    return { realmDir, success: true };
 }
