@@ -26,7 +26,11 @@ import {
 } from './summarize.js';
 import { writeUsageCSV, writeMatrixCSV } from '../io/csv.js';
 import { buildGroupSummaries, filterSitesByScope } from '../io/util.js';
-import { RealmProgressDisplay } from '../scripts/loggingScript/progressDisplay.js';
+import {
+    getAllAttributeDefinitionsFromMetadata,
+    getAttributeGroupsFromMetadataFile
+} from '../io/siteXmlHelper.js';
+import { LOG_PREFIX } from '../config/constants.js';
 
 /**
  * Process a single matrix file and extract unused preferences
@@ -102,79 +106,161 @@ async function fetchPreferenceData(params, progressInfo) {
     let fetchCompleted = false;
     let detailsStarted = false;
 
-        // Create progress callback for first fetch (attributes pagination)
-        // Maps pagination progress (0 to totalAttributes) to 0-100% of fetch step
-        const attributeProgressCallback = (currentCount, totalCount) => {
-            if (display && hostname && totalCount > 0) {
-                const percentage = Math.round((currentCount / totalCount) * 100);
-                display.setStepProgress(hostname, 'fetch', percentage);
-                if (currentCount >= totalCount && !fetchCompleted) {
-                    display.completeStep(hostname, 'fetch');
-                    fetchCompleted = true;
-                }
+    // Create progress callback for first fetch (attributes pagination)
+    // Maps pagination progress (0 to totalAttributes) to 0-100% of fetch step
+    const attributeProgressCallback = (currentCount, totalCount) => {
+        if (display && hostname && totalCount > 0) {
+            const percentage = Math.round((currentCount / totalCount) * 100);
+            display.setStepProgress(hostname, 'fetch', percentage);
+            if (currentCount >= totalCount && !fetchCompleted) {
+                display.completeStep(hostname, 'fetch');
+                fetchCompleted = true;
             }
-        };
+        }
+    };
 
-        const detailProgressCallback = (currentCount, totalCount) => {
-            if (display && hostname && realmName && totalCount > 0) {
-                if (!detailsStarted) {
-                    display.startStep(hostname, realmName, 'details', 'Retrieving Attribute Definitions');
-                    detailsStarted = true;
-                }
-                const percentage = Math.round((currentCount / totalCount) * 100);
-                display.setStepProgress(hostname, 'details', percentage);
-                if (currentCount >= totalCount) {
-                    display.completeStep(hostname, 'details');
-                }
+    const detailProgressCallback = (currentCount, totalCount) => {
+        if (display && hostname && realmName && totalCount > 0) {
+            if (!detailsStarted) {
+                display.startStep(hostname, realmName, 'details', 'Retrieving Attribute Definitions');
+                detailsStarted = true;
             }
-        };
-
-        const preferenceDefinitions = await getSitePreferences(
-            params.objectType,
-            params.realm,
-            params.includeDefaults,
-            params.useCachedBackup,
-            attributeProgressCallback,
-            detailProgressCallback,
-            { display, hostname }
-        );
-
-        if (display && hostname && !fetchCompleted) {
-            display.completeStep(hostname, 'fetch');
-            fetchCompleted = true;
-        }
-
-        if (display && hostname && realmName && params.includeDefaults && !detailsStarted) {
-            display.startStep(hostname, realmName, 'details', 'Retrieving Attribute Definitions');
-            display.completeStep(hostname, 'details');
-        }
-
-        if (display && hostname && realmName) {
-            display.startStep(hostname, realmName, 'groups', 'Fetching Attribute Groups');
-        }
-
-        const groupProgressCallback = (currentCount, totalCount) => {
-            if (display && hostname && totalCount > 0) {
-                const percentage = Math.round((currentCount / totalCount) * 100);
-                display.setStepProgress(hostname, 'groups', percentage);
+            const percentage = Math.round((currentCount / totalCount) * 100);
+            display.setStepProgress(hostname, 'details', percentage);
+            if (currentCount >= totalCount) {
+                display.completeStep(hostname, 'details');
             }
-        };
-
-        const groups = await getAttributeGroups(
-            params.objectType, params.realm, groupProgressCallback,
-            display && hostname ? { display, hostname, stepKey: 'groups' } : null
-        );
-        const groupSummaries = buildGroupSummaries(groups);
-
-        if (display && hostname) {
-            display.completeStep(hostname, 'groups');
         }
+    };
 
-        const sites = await getAllSites(params.realm,
-            display && hostname ? { display, hostname, stepKey: 'groups' } : null
+    const preferenceDefinitions = await getSitePreferences(
+        params.objectType,
+        params.realm,
+        params.includeDefaults,
+        params.useCachedBackup,
+        attributeProgressCallback,
+        detailProgressCallback,
+        { display, hostname }
+    );
+
+    if (display && hostname && !fetchCompleted) {
+        display.completeStep(hostname, 'fetch');
+        fetchCompleted = true;
+    }
+
+    if (display && hostname && realmName && params.includeDefaults && !detailsStarted) {
+        display.startStep(hostname, realmName, 'details', 'Retrieving Attribute Definitions');
+        display.completeStep(hostname, 'details');
+    }
+
+    if (display && hostname && realmName) {
+        display.startStep(hostname, realmName, 'groups', 'Fetching Attribute Groups');
+    }
+
+    const groupProgressCallback = (currentCount, totalCount) => {
+        if (display && hostname && totalCount > 0) {
+            const percentage = Math.round((currentCount / totalCount) * 100);
+            display.setStepProgress(hostname, 'groups', percentage);
+        }
+    };
+
+    const groups = await getAttributeGroups(
+        params.objectType, params.realm, groupProgressCallback,
+        display && hostname ? { display, hostname, stepKey: 'groups' } : null
+    );
+    const groupSummaries = buildGroupSummaries(groups);
+
+    if (display && hostname) {
+        display.completeStep(hostname, 'groups');
+    }
+
+    const sites = await getAllSites(params.realm,
+        display && hostname ? { display, hostname, stepKey: 'groups' } : null
+    );
+
+    return { preferenceDefinitions, groups, groupSummaries, sites };
+}
+
+/**
+ * Fetch preference data from a metadata XML file instead of OCAPI.
+ * Replaces the paginated attribute list endpoint, individual default-value
+ * fetches, and attribute groups endpoint — all from a single XML file.
+ * Only sites are still fetched via OCAPI (they are not in the metadata XML).
+ *
+ * @param {Object} params - Parameters object (same shape as fetchPreferenceData)
+ * @param {string} params.metadataFilePath - Path to the metadata XML file
+ * @param {string} params.objectType - Object type (e.g., 'SitePreferences')
+ * @param {string} params.realm - Realm name (for OCAPI site fetching)
+ * @param {Object} [progressInfo] - Progress tracking info
+ * @returns {Promise<Object>} { preferenceDefinitions, groups, groupSummaries, sites }
+ */
+async function fetchPreferenceDataFromMetadata(params, progressInfo) {
+    const display = progressInfo?.display;
+    const hostname = progressInfo?.hostname;
+    const realmName = progressInfo?.realmName;
+
+    // --- Attribute Definitions (from XML) ---
+    if (display && hostname && realmName) {
+        display.startStep(hostname, realmName, 'fetch', 'Reading Metadata XML');
+    } else {
+        console.log('\nReading attribute definitions from metadata XML...');
+    }
+
+    const preferenceDefinitions = await getAllAttributeDefinitionsFromMetadata(
+        params.metadataFilePath, params.objectType
+    );
+
+    if (!display) {
+        console.log(
+            `${LOG_PREFIX.INFO} Loaded ${preferenceDefinitions.length}`
+            + ' attribute definition(s) from metadata XML'
         );
+        const defsWithDefault = preferenceDefinitions.filter(d => d.default_value != null).length;
+        console.log(
+            `${LOG_PREFIX.INFO} ${defsWithDefault} definition(s) include a default value`
+        );
+    }
 
-        return { preferenceDefinitions, groups, groupSummaries, sites };
+    if (display && hostname) {
+        display.completeStep(hostname, 'fetch');
+    }
+
+    // --- Attribute Groups (from XML) ---
+    if (display && hostname && realmName) {
+        display.startStep(hostname, realmName, 'groups', 'Reading Attribute Groups (XML)');
+    } else {
+        console.log('\nReading attribute groups from metadata XML...');
+    }
+
+    const xmlGroups = await getAttributeGroupsFromMetadataFile(
+        params.metadataFilePath, params.objectType
+    );
+
+    // Convert XML group format { group_id, group_display_name, attributes }
+    // to OCAPI-like format { id, name, display_name } for buildGroupSummaries()
+    const groups = xmlGroups.map(g => ({
+        id: g.group_id,
+        name: g.group_id,
+        display_name: g.group_display_name || g.group_id
+    }));
+    const groupSummaries = buildGroupSummaries(groups);
+
+    if (!display) {
+        console.log(
+            `${LOG_PREFIX.INFO} Loaded ${groups.length} attribute group(s) from metadata XML`
+        );
+    }
+
+    if (display && hostname) {
+        display.completeStep(hostname, 'groups');
+    }
+
+    // --- Sites (still via OCAPI — not in metadata XML) ---
+    const sites = await getAllSites(params.realm,
+        display && hostname ? { display, hostname, stepKey: 'groups' } : null
+    );
+
+    return { preferenceDefinitions, groups, groupSummaries, sites };
 }
 
 /**
@@ -224,48 +310,48 @@ async function buildPreferenceMatrices(data, realm, params, progressInfo) {
 
     // Create progress callback for site processing (0-80% of matrices step)
     const siteProgressCallback = (currentSite, totalSites) => {
-            if (display && hostname && totalSites > 0) {
-                const percentage = Math.round((currentSite / totalSites) * 80);
-                display.setStepProgress(hostname, 'matrices', percentage);
-            }
-        };
-
-        const matricesProgressInfo = display && hostname
-            ? { display, hostname, stepKey: 'matrices' }
-            : null;
-
-        const { usageRows: processedRows } = await processSitesAndGroups(
-            data.sitesToProcess,
-            data.groupSummaries,
-            realm,
-            params,
-            preferenceMeta,
-            siteProgressCallback,
-            matricesProgressInfo
-        );
-
-        if (display && hostname) {
-            display.setStepProgress(hostname, 'matrices', 90);
+        if (display && hostname && totalSites > 0) {
+            const percentage = Math.round((currentSite / totalSites) * 80);
+            display.setStepProgress(hostname, 'matrices', percentage);
         }
+    };
 
-        const allSiteIds = data.sitesToProcess
-            .map(s => s.id || s.site_id || s.siteId)
-            .filter(Boolean)
-            .sort();
+    const matricesProgressInfo = display && hostname
+        ? { display, hostname, stepKey: 'matrices' }
+        : null;
 
-        const allPrefIds = Object.keys(preferenceMeta).sort();
-        const preferenceMatrix = buildPreferenceMatrix(
-            allPrefIds,
-            allSiteIds,
-            processedRows,
-            preferenceMeta
-        );
+    const { usageRows: processedRows } = await processSitesAndGroups(
+        data.sitesToProcess,
+        data.groupSummaries,
+        realm,
+        params,
+        preferenceMeta,
+        siteProgressCallback,
+        matricesProgressInfo
+    );
 
-        if (display && hostname) {
-            display.completeStep(hostname, 'matrices');
-        }
+    if (display && hostname) {
+        display.setStepProgress(hostname, 'matrices', 90);
+    }
 
-        return { usageRows: processedRows, allSiteIds, preferenceMatrix, preferenceMeta };
+    const allSiteIds = data.sitesToProcess
+        .map(s => s.id || s.site_id || s.siteId)
+        .filter(Boolean)
+        .sort();
+
+    const allPrefIds = Object.keys(preferenceMeta).sort();
+    const preferenceMatrix = buildPreferenceMatrix(
+        allPrefIds,
+        allSiteIds,
+        processedRows,
+        preferenceMeta
+    );
+
+    if (display && hostname) {
+        display.completeStep(hostname, 'matrices');
+    }
+
+    return { usageRows: processedRows, allSiteIds, preferenceMatrix, preferenceMeta };
 }
 
 /**
@@ -353,6 +439,74 @@ export async function executePreferenceSummarization(params, progressInfo) {
 
     const processData = {
         ...apiData,
+        sitesToProcess
+    };
+
+    const results = await buildPreferenceMatrices(processData, params.realm, params, progressInfo);
+    await exportResults(
+        realmDir,
+        params.realm,
+        results,
+        params.instanceType,
+        params.objectType,
+        progressInfo
+    );
+
+    if (!progressInfo?.display) {
+        logStatusClear();
+    }
+
+    return { realmDir, success: true };
+}
+
+/**
+ * Execute preference summarization using a metadata XML file instead of OCAPI
+ * for attribute definitions and groups. Sites and site-level values are still
+ * fetched via OCAPI since they are not present in the metadata XML.
+ *
+ * @param {Object} params - Parameters object
+ * @param {string} params.realm - Realm name
+ * @param {string} params.objectType - Object type (e.g., 'SitePreferences')
+ * @param {string} params.instanceType - Instance type
+ * @param {string} params.scope - Scope (all/single)
+ * @param {string} params.siteId - Site ID (if scope is single)
+ * @param {string} params.metadataFilePath - Path to the metadata XML file
+ * @param {Object} [progressInfo] - Progress tracking info
+ * @returns {Promise<Object>} Object with realmDir and success flag
+ */
+export async function executePreferenceSummarizationFromMetadata(params, progressInfo) {
+    if (!progressInfo?.display) {
+        logStatusUpdate(`Processing preferences for ${params.realm} (metadata mode)`);
+    }
+
+    const realmDir = ensureRealmDir(params.realm);
+
+    let metadataData;
+    try {
+        metadataData = await fetchPreferenceDataFromMetadata(params, progressInfo);
+    } catch (metadataError) {
+        // Throw error with context for caller to handle fallback
+        const error = new Error(
+            `Metadata file error for ${params.realm}: ${metadataError.message}`
+        );
+        error.originalError = metadataError;
+        error.realm = params.realm;
+        error.isMetadataError = true;
+        throw error;
+    }
+
+    const sitesToProcess = validateAndFilterSites(
+        metadataData.sites,
+        params.scope,
+        params.siteId
+    );
+
+    if (!sitesToProcess) {
+        return null;
+    }
+
+    const processData = {
+        ...metadataData,
         sitesToProcess
     };
 

@@ -128,35 +128,41 @@ Supports exact match, wildcard, and regex pattern types.
 
 ---
 
-### Priority 4: Metadata File Strategy Redesign
+### Priority 4: Metadata XML Optimization
 
-**Current Approach:**
-- Per-realm XML metadata backups downloaded from WebDAV
-- Stored in `backup_downloads/` directory
-- Realm-specific backups per instance
+**Status: 🔄 In Progress**
 
-**Issues:**
-- Redundant downloads across realms (same metadata structure)
-- Metadata can become stale between analysis runs
-- No centralized metadata management
+**Problem:** The `analyze-preferences` workflow makes ~500+ OCAPI calls for attribute definitions
+(paginated list + individual fetch for default_value) and group definitions, while the BM metadata
+XML (`backup_downloads/`) already contains all of this data in one file.
 
-**Proposed Changes:**
-- [ ] Use general meta-data export file approach:
-  - Download metadata once per instance (not per realm)
-  - Store in `metadata/{instance}/meta_data_export.xml`
-  - Reuse across all realms within same instance
-- [ ] Add metadata freshness checking:
-  - Track last download timestamp
-  - Prompt to refresh if > 7 days old
-  - Force refresh flag for CLI
-- [ ] Improve metadata merging logic:
-  - Better error handling for missing attribute groups
-  - Preserve custom metadata fields
-  - Validate XML structure before merging
-- [ ] Create `metadata-manager` helper:
-  - `downloadMetadata(instanceType)` - Get latest export
-  - `getCachedMetadata(instanceType)` - Return cached if fresh
-  - `validateMetadata(filePath)` - Check XML integrity
+**OCAPI calls XML can replace:**
+- `getSitePreferences()` — paginated attribute list (~3-4 pages)
+- `getAttributeDefinitionById()` — individual default-value fetches (~500+ calls)
+- `getAttributeGroups()` — paginated group list (~1-2 pages)
+
+**OCAPI calls still needed (site-level data not in XML):**
+- `getAllSites()` — 1 call
+- `getSiteById()` — ~20 calls (per site)
+- `getSitePreferencesGroup()` — ~600 calls (sites × groups for actual values)
+
+**Implementation:**
+- [x] `siteXmlHelper.js` — Refactored XML parsing with shared helpers
+  - `parseRawAttributeDefinitions()` — private, returns raw xml2js nodes
+  - `convertXmlAttrDefToOcapi()` — private, converts to OCAPI-compatible format
+  - `getAllAttributeDefinitionsFromMetadata()` — exported, returns ALL definitions without filtering
+- [x] `analyzer.js` — Added metadata-based data fetching
+  - `fetchPreferenceDataFromMetadata()` — reads attrs+groups from XML, sites from OCAPI
+  - `executePreferenceSummarizationFromMetadata()` — exported orchestrator
+- [x] `preferences.js` — `debug-analyze-preferences` command
+  - Checks for existing metadata XML per realm
+  - Offers to trigger BM backup job if XML not found
+  - Uses `executePreferenceSummarizationFromMetadata()` for Step 2
+  - Steps 3-5 (matrix check, active prefs, code scan) identical to `analyze-preferences`
+- [ ] **TEST:** Run `debug-analyze-preferences` end-to-end on sandbox
+- [ ] **TEST:** Compare output (attribute counts, matrix, deletion candidates) between OCAPI and metadata modes
+- [ ] Migrate `analyze-preferences` to use metadata mode by default (once validated)
+- [ ] Add metadata freshness checking (prompt to refresh if > 7 days old)
 
 ---
 

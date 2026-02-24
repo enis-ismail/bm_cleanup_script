@@ -222,8 +222,13 @@ export class RealmProgressDisplay {
             return;
         }
 
+        // Truncate lines to terminal width to prevent line-wrap from
+        // breaking cursor-up math (wrapped lines count as >1 physical lines
+        // but renderedLineCount only tracks logical lines).
+        const maxWidth = (process.stdout.columns || 80) - 1;
+
         lines.forEach((line, index) => {
-            process.stdout.write(line);
+            process.stdout.write(line.length > maxWidth ? line.slice(0, maxWidth) : line);
             if (index < lines.length - 1) {
                 process.stdout.write('\n');
             }

@@ -40,7 +40,8 @@ import {
 } from '../../scripts/loggingScript/log.js';
 import {
     processPreferenceMatrixFiles,
-    executePreferenceSummarization
+    executePreferenceSummarization,
+    executePreferenceSummarizationFromMetadata
 } from '../../helpers/analyzer.js';
 import {
     findAllActivePreferencesUsage,
@@ -53,7 +54,7 @@ import {
     buildRealmPreferenceMap
 } from './helpers/preferenceRemoval.js';
 import { loadBackupFile } from '../../io/backupUtils.js';
-import { refreshMetadataBackupForRealm } from '../../helpers/backupJob.js';
+import { refreshMetadataBackupForRealm, getMetadataBackupPathForRealm } from '../../helpers/backupJob.js';
 import { validateRealmsSelection } from './helpers/realmHelpers.js';
 import {
     findLatestBackupFile,
@@ -94,6 +95,11 @@ export function registerPreferenceCommands(program) {
         .command('backup-site-preferences')
         .description('Trigger site preferences backup job and download the ZIP from WebDAV')
         .action(backupSitePreferences);
+
+    program
+        .command('debug-analyze-preferences')
+        .description('Analyze preferences using metadata XML instead of OCAPI (debug)')
+        .action(debugAnalyzePreferences);
 }
 
 // ============================================================================
@@ -130,63 +136,133 @@ async function analyzePreferences() {
         ? await promptBackupCachePreference(realmsToProcess, objectType)
         : false;
 
+    // --- STEP 1b: Check Metadata File Availability ---
+    logSectionTitle('STEP 1b: Checking Metadata File Availability');
+
+    const metadataRealms = [];  // Realms with metadata XML files available
+    const ocapiRealms = [];     // Realms without metadata → use standard OCAPI flow
+
+    for (const realm of realmsToProcess) {
+        const instanceType = getInstanceType(realm);
+        const metadataPath = getMetadataBackupPathForRealm(realm, instanceType);
+
+        if (fs.existsSync(metadataPath)) {
+            console.log(`${LOG_PREFIX.INFO} ${realm}: Metadata found — ${metadataPath}`);
+            metadataRealms.push({ realm, metadataFilePath: metadataPath, instanceType });
+        } else {
+            console.log(`${LOG_PREFIX.WARNING} ${realm}: No metadata file — will use OCAPI`);
+            ocapiRealms.push({ realm, instanceType });
+        }
+    }
+
+    if (metadataRealms.length === 0 && ocapiRealms.length === 0) {
+        console.log(`\n${LOG_PREFIX.ERROR} No realms to process. Aborting.\n`);
+        logRuntime(timer);
+        return;
+    }
+
     // --- STEP 2: Fetch & Summarize ---
     logSectionTitle('STEP 2: Fetching & Summarizing Preferences');
 
-    const progressDisplay = new RealmProgressDisplay(250);
-    progressDisplay.start();
+    const allResults = [];
 
-    // Suppress console.log while progress display is rendering
-    const originalLog = console.log;
-    console.log = () => {};
+    // --- Step 2a: Process OCAPI realms first (realms without metadata files) ---
+    if (ocapiRealms.length > 0) {
+        console.log(
+            `${LOG_PREFIX.INFO} Processing ${ocapiRealms.length}`
+            + ` realm(s) via OCAPI: ${ocapiRealms.map(r => r.realm).join(', ')}\n`
+        );
 
-    try {
-        const realmPromises = realmsToProcess.map(async (realm) => {
-            const realmConfig = getSandboxConfig(realm);
-            const realmHostname = realmConfig.hostname;
+        const ocapiDisplay = new RealmProgressDisplay(250);
+        ocapiDisplay.start();
+        const ocapiOrigLog = console.log;
+        console.log = () => {};
 
-            try {
-                const result = await executePreferenceSummarization(
-                    {
-                        realm,
-                        objectType,
-                        instanceType: getInstanceType(realm),
-                        scope,
-                        siteId,
-                        includeDefaults,
-                        useCachedBackup,
-                        repositoryPath
-                    },
-                    {
-                        display: progressDisplay,
-                        hostname: realmHostname,
-                        realmName: realm
-                    }
-                );
-                return { realm, success: true, result };
-            } catch (realmError) {
-                progressDisplay.failStep(realmHostname, 'fetch');
-                return { realm, success: false, error: realmError };
-            }
-        });
+        try {
+            const ocapiPromises = ocapiRealms.map(async ({ realm, instanceType }) => {
+                const realmConfig = getSandboxConfig(realm);
+                const realmHostname = realmConfig.hostname;
 
-        const results = await Promise.all(realmPromises);
-        const failures = results.filter(r => !r.success);
+                try {
+                    const result = await executePreferenceSummarization(
+                        {
+                            realm, objectType, instanceType, scope, siteId,
+                            includeDefaults, useCachedBackup, repositoryPath
+                        },
+                        { display: ocapiDisplay, hostname: realmHostname, realmName: realm }
+                    );
+                    return { realm, success: true, result, mode: 'ocapi' };
+                } catch (realmError) {
+                    ocapiDisplay.failStep(realmHostname, 'fetch');
+                    return { realm, success: false, error: realmError, mode: 'ocapi' };
+                }
+            });
 
-        // Report failures after progress display is stopped
-        if (failures.length > 0) {
-            // Temporarily restore console.log for error reporting
-            console.log = originalLog;
-            for (const { realm, error } of failures) {
-                console.error(`Error processing realm ${realm}:`, error.message);
-            }
-            if (failures.length === realmsToProcess.length) {
-                throw new Error('All realms failed during preference summarization');
-            }
+            const ocapiResults = await Promise.all(ocapiPromises);
+            allResults.push(...ocapiResults);
+        } finally {
+            console.log = ocapiOrigLog;
+            ocapiDisplay.finish();
         }
-    } finally {
-        console.log = originalLog;
-        progressDisplay.finish();
+
+        console.log('');
+    }
+
+    // --- Step 2b: Process metadata realms (realms with metadata XML files) ---
+    if (metadataRealms.length > 0) {
+        console.log(
+            `${LOG_PREFIX.INFO} Processing ${metadataRealms.length}`
+            + ` realm(s) via metadata: ${metadataRealms.map(r => r.realm).join(', ')}\n`
+        );
+
+        const metaDisplay = new RealmProgressDisplay(250);
+        metaDisplay.start();
+        const metaOrigLog = console.log;
+        console.log = () => {};
+
+        try {
+            const metaPromises = metadataRealms.map(
+                async ({ realm, metadataFilePath, instanceType }) => {
+                    const realmConfig = getSandboxConfig(realm);
+                    const realmHostname = realmConfig.hostname;
+
+                    try {
+                        const result = await executePreferenceSummarizationFromMetadata(
+                            {
+                                realm, objectType, instanceType, scope, siteId,
+                                metadataFilePath, repositoryPath
+                            },
+                            { display: metaDisplay, hostname: realmHostname, realmName: realm }
+                        );
+                        return { realm, success: true, result, mode: 'metadata' };
+                    } catch (realmError) {
+                        metaDisplay.failStep(realmHostname, 'fetch');
+                        return { realm, success: false, error: realmError, mode: 'metadata' };
+                    }
+                }
+            );
+
+            const metaResults = await Promise.all(metaPromises);
+            allResults.push(...metaResults);
+        } finally {
+            console.log = metaOrigLog;
+            metaDisplay.finish();
+        }
+
+        console.log('');
+    }
+
+    // Report failures
+    const failures = allResults.filter(r => !r.success);
+    if (failures.length > 0) {
+        for (const { realm, error, mode } of failures) {
+            console.error(`${LOG_PREFIX.ERROR} ${realm} (${mode}): ${error.message}`);
+        }
+        if (failures.length === allResults.length) {
+            console.log(`\n${LOG_PREFIX.ERROR} All realms failed. Aborting.\n`);
+            logRuntime(timer);
+            return;
+        }
     }
 
     console.log('');
@@ -194,7 +270,8 @@ async function analyzePreferences() {
     // --- STEP 3: Check Preference Usage ---
     logSectionTitle('STEP 3: Checking Preference Usage');
 
-    const matrixFiles = findAllMatrixFiles(realmsToProcess);
+    const realmsProcessed = allResults.filter(r => r.success).map(r => r.realm);
+    const matrixFiles = findAllMatrixFiles(realmsProcessed);
 
     if (matrixFiles.length === 0) {
         logNoMatrixFiles();
@@ -223,39 +300,278 @@ async function analyzePreferences() {
     // --- STEP 5: Find Preference Usage in Cartridges ---
     logSectionTitle('STEP 5: Finding Preference Usage in Cartridges');
 
-    if (repositoryPath && realmsToProcess.length > 0) {
-        const firstRealmInstanceType = getInstanceType(realmsToProcess[0]);
+    if (repositoryPath && realmsProcessed.length > 0) {
+        const firstRealmInstanceType = getInstanceType(realmsProcessed[0]);
         const repoName = path.basename(repositoryPath);
-        
-        let scanStep = null;
-        if (progressDisplay) {
-            scanStep = `scan_${Date.now()}`;
-            progressDisplay.startStep('codeScanner', 'Code Scanner', scanStep, `Scanning ${repoName} for references`);
-            progressDisplay.start();
-        }
-        
+
+        const scanDisplay = new RealmProgressDisplay(250);
+        const scanStep = `scan_${Date.now()}`;
+        scanDisplay.startStep(
+            'codeScanner', 'Code Scanner', scanStep,
+            `Scanning ${repoName} for references`
+        );
+        scanDisplay.start();
+
         const scanCallback = (scannedCount, totalFiles) => {
-            if (progressDisplay && scanStep) {
-                const percentage = Math.round((scannedCount / totalFiles) * 100);
-                progressDisplay.setStepProgress('codeScanner', scanStep, percentage);
-                progressDisplay.setStepMessage('codeScanner', scanStep, `${scannedCount}/${totalFiles} files`, 'info');
-            }
+            const percentage = Math.round(
+                (scannedCount / totalFiles) * 100
+            );
+            scanDisplay.setStepProgress(
+                'codeScanner', scanStep, percentage
+            );
+            scanDisplay.setStepMessage(
+                'codeScanner', scanStep,
+                `${scannedCount}/${totalFiles} files`, 'info'
+            );
         };
-        
+
+        const origLog = console.log;
+        console.log = () => {};
         try {
             await findAllActivePreferencesUsage(repositoryPath, {
                 instanceTypeOverride: firstRealmInstanceType,
                 progressCallback: scanCallback,
-                realmFilter: realmsToProcess
+                realmFilter: realmsProcessed
             });
-            
-            if (progressDisplay && scanStep) {
-                progressDisplay.completeStep('codeScanner', scanStep);
-            }
+
+            scanDisplay.completeStep('codeScanner', scanStep);
         } finally {
-            if (progressDisplay) {
-                progressDisplay.finish();
-            }
+            console.log = origLog;
+            scanDisplay.finish();
+        }
+    }
+
+    console.log('');
+    logRuntime(timer);
+}
+
+// ============================================================================
+// DEBUG ANALYZE PREFERENCES (metadata XML mode)
+// Same workflow as analyze-preferences but reads attribute definitions and
+// groups from the BM metadata XML file instead of OCAPI, eliminating ~500+
+// individual API calls. Site-level values are still fetched via OCAPI.
+// ============================================================================
+
+async function debugAnalyzePreferences() {
+    const timer = startTimer();
+
+    // --- STEP 1: Configure Scope & Options ---
+    logSectionTitle('STEP 1: Configure Scope & Options (Metadata Mode)');
+
+    const siblings = await getSiblingRepositories();
+    const repositoryAnswers = await inquirer.prompt(await repositoryPrompt(siblings));
+    const repositoryPath = path.join(path.dirname(process.cwd()), repositoryAnswers.repository);
+
+    const selection = await resolveRealmScopeSelection(inquirer.prompt);
+    const realmsToProcess = selection.realmList;
+
+    if (!validateRealmsSelection(realmsToProcess)) {
+        return;
+    }
+
+    const answers = await inquirer.prompt([
+        ...objectTypePrompt(IDENTIFIERS.SITE_PREFERENCES),
+        ...scopePrompts()
+    ]);
+
+    const { objectType, scope, siteId } = answers;
+
+    // --- STEP 1b: Check Metadata File Availability ---
+    logSectionTitle('STEP 1b: Checking Metadata File Availability');
+
+    const metadataRealms = [];  // Realms with metadata XML files available
+    const ocapiRealms = [];     // Realms without metadata → use standard OCAPI flow
+
+    for (const realm of realmsToProcess) {
+        const instanceType = getInstanceType(realm);
+        const metadataPath = getMetadataBackupPathForRealm(realm, instanceType);
+
+        if (fs.existsSync(metadataPath)) {
+            console.log(`${LOG_PREFIX.INFO} ${realm}: Metadata found — ${metadataPath}`);
+            metadataRealms.push({ realm, metadataFilePath: metadataPath, instanceType });
+        } else {
+            console.log(`${LOG_PREFIX.WARNING} ${realm}: No metadata file — will use OCAPI`);
+            ocapiRealms.push({ realm, instanceType });
+        }
+    }
+
+    if (metadataRealms.length === 0 && ocapiRealms.length === 0) {
+        console.log(`\n${LOG_PREFIX.ERROR} No realms to process. Aborting.\n`);
+        logRuntime(timer);
+        return;
+    }
+
+    // --- STEP 2: Fetch & Summarize ---
+    logSectionTitle('STEP 2: Fetching & Summarizing Preferences');
+
+    const allResults = [];
+
+    // --- Step 2a: Process OCAPI realms first (realms without metadata files) ---
+    if (ocapiRealms.length > 0) {
+        console.log(
+            `${LOG_PREFIX.INFO} Processing ${ocapiRealms.length}`
+            + ` realm(s) via OCAPI: ${ocapiRealms.map(r => r.realm).join(', ')}\n`
+        );
+
+        const ocapiDisplay = new RealmProgressDisplay(250);
+        ocapiDisplay.start();
+        const ocapiOrigLog = console.log;
+        console.log = () => {};
+
+        try {
+            const ocapiPromises = ocapiRealms.map(async ({ realm, instanceType }) => {
+                const realmConfig = getSandboxConfig(realm);
+                const realmHostname = realmConfig.hostname;
+
+                try {
+                    const result = await executePreferenceSummarization(
+                        {
+                            realm, objectType, instanceType, scope, siteId,
+                            includeDefaults: true, useCachedBackup: false, repositoryPath
+                        },
+                        { display: ocapiDisplay, hostname: realmHostname, realmName: realm }
+                    );
+                    return { realm, success: true, result, mode: 'ocapi' };
+                } catch (realmError) {
+                    ocapiDisplay.failStep(realmHostname, 'fetch');
+                    return { realm, success: false, error: realmError, mode: 'ocapi' };
+                }
+            });
+
+            const ocapiResults = await Promise.all(ocapiPromises);
+            allResults.push(...ocapiResults);
+        } finally {
+            console.log = ocapiOrigLog;
+            ocapiDisplay.finish();
+        }
+
+        console.log('');
+    }
+
+    // --- Step 2b: Process metadata realms (realms with metadata XML files) ---
+    if (metadataRealms.length > 0) {
+        console.log(
+            `${LOG_PREFIX.INFO} Processing ${metadataRealms.length}`
+            + ` realm(s) via metadata: ${metadataRealms.map(r => r.realm).join(', ')}\n`
+        );
+
+        const metaDisplay = new RealmProgressDisplay(250);
+        metaDisplay.start();
+        const metaOrigLog = console.log;
+        console.log = () => {};
+
+        try {
+            const metaPromises = metadataRealms.map(
+                async ({ realm, metadataFilePath, instanceType }) => {
+                    const realmConfig = getSandboxConfig(realm);
+                    const realmHostname = realmConfig.hostname;
+
+                    try {
+                        const result = await executePreferenceSummarizationFromMetadata(
+                            {
+                                realm, objectType, instanceType, scope, siteId,
+                                metadataFilePath, repositoryPath
+                            },
+                            { display: metaDisplay, hostname: realmHostname, realmName: realm }
+                        );
+                        return { realm, success: true, result, mode: 'metadata' };
+                    } catch (realmError) {
+                        metaDisplay.failStep(realmHostname, 'fetch');
+                        return { realm, success: false, error: realmError, mode: 'metadata' };
+                    }
+                }
+            );
+
+            const metaResults = await Promise.all(metaPromises);
+            allResults.push(...metaResults);
+        } finally {
+            console.log = metaOrigLog;
+            metaDisplay.finish();
+        }
+
+        console.log('');
+    }
+
+    // Report failures
+    const failures = allResults.filter(r => !r.success);
+    if (failures.length > 0) {
+        for (const { realm, error, mode } of failures) {
+            console.error(`${LOG_PREFIX.ERROR} ${realm} (${mode}): ${error.message}`);
+        }
+        if (failures.length === allResults.length) {
+            console.log(`\n${LOG_PREFIX.ERROR} All realms failed. Aborting.\n`);
+            logRuntime(timer);
+            return;
+        }
+    }
+
+    // --- STEP 3: Check Preference Usage ---
+    logSectionTitle('STEP 3: Checking Preference Usage');
+
+    const realmsProcessed = allResults.filter(r => r.success).map(r => r.realm);
+    const matrixFiles = findAllMatrixFiles(realmsProcessed);
+
+    if (matrixFiles.length === 0) {
+        logNoMatrixFiles();
+        console.log('');
+        logRuntime(timer);
+        return;
+    }
+
+    logMatrixFilesFound(matrixFiles.length);
+
+    const summary = await processPreferenceMatrixFiles(matrixFiles);
+
+    logSummaryHeader();
+    for (const stats of summary) {
+        logRealmSummary(stats);
+    }
+    logSummaryFooter();
+
+    // --- STEP 4: Active Preferences Summary ---
+    logSectionTitle('STEP 4: Active Preferences Summary');
+
+    const matrixFilePaths = matrixFiles.map(f => f.matrixFile);
+    const activePreferences = Array.from(getActivePreferencesFromMatrices(matrixFilePaths)).sort();
+    console.log(`Active Preferences (${activePreferences.length}):\n`);
+
+    // --- STEP 5: Find Preference Usage in Cartridges ---
+    logSectionTitle('STEP 5: Finding Preference Usage in Cartridges');
+
+    if (repositoryPath && realmsProcessed.length > 0) {
+        const firstRealmInstanceType = getInstanceType(realmsProcessed[0]);
+        const repoName = path.basename(repositoryPath);
+
+        const scanDisplay = new RealmProgressDisplay(250);
+        const scanStep = `scan_${Date.now()}`;
+        scanDisplay.startStep(
+            'codeScanner', 'Code Scanner', scanStep,
+            `Scanning ${repoName} for references`
+        );
+        scanDisplay.start();
+
+        const scanCallback = (scannedCount, totalFiles) => {
+            const percentage = Math.round(
+                (scannedCount / totalFiles) * 100
+            );
+            scanDisplay.setStepProgress(
+                'codeScanner', scanStep, percentage
+            );
+        };
+
+        const origLog = console.log;
+        console.log = () => {};
+        try {
+            await findAllActivePreferencesUsage(repositoryPath, {
+                instanceTypeOverride: firstRealmInstanceType,
+                progressCallback: scanCallback,
+                realmFilter: realmsProcessed
+            });
+
+            scanDisplay.completeStep('codeScanner', scanStep);
+        } finally {
+            console.log = origLog;
+            scanDisplay.finish();
         }
     }
 

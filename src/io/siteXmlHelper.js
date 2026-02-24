@@ -563,112 +563,160 @@ export async function findAttributeInMetaFiles(repoPath, attributeId) {
 }
 
 /**
- * Extract attribute definitions from metadata XML file
+ * Parse the SitePreferences type-extension from metadata XML and return
+ * raw attribute definitions (xml2js objects). Shared by both the filtered
+ * and unfiltered extraction functions.
+ * @param {string} metadataFilePath - Path to meta_data_backup.xml
+ * @param {string} objectType - SFCC object type (e.g., "SitePreferences")
+ * @returns {Promise<Array<Object>>} Raw xml2js attribute-definition nodes
+ * @private
+ */
+async function parseRawAttributeDefinitions(metadataFilePath, objectType) {
+    if (!fs.existsSync(metadataFilePath)) {
+        throw new Error(`Metadata file not found: ${metadataFilePath}`);
+    }
+
+    const xmlContent = fs.readFileSync(metadataFilePath, 'utf-8');
+    const parsed = await parseXmlContent(xmlContent);
+    const metadata = parsed.metadata;
+
+    if (!metadata || !metadata['type-extension']) {
+        throw new Error('Metadata XML missing type-extension nodes');
+    }
+
+    const typeExtensions = Array.isArray(metadata['type-extension'])
+        ? metadata['type-extension']
+        : [metadata['type-extension']];
+
+    const matching = typeExtensions.find(ext => ext.$?.['type-id'] === objectType);
+    if (!matching) {
+        throw new Error(`No type-extension found for type-id '${objectType}' in metadata file`);
+    }
+
+    let customAttrs = matching['custom-attribute-definitions'];
+    if (!customAttrs) {
+        return [];
+    }
+
+    if (Array.isArray(customAttrs)) {
+        customAttrs = customAttrs[0];
+    }
+
+    if (!customAttrs || !customAttrs['attribute-definition']) {
+        return [];
+    }
+
+    return Array.isArray(customAttrs['attribute-definition'])
+        ? customAttrs['attribute-definition']
+        : [customAttrs['attribute-definition']];
+}
+
+/**
+ * Convert a raw xml2js attribute-definition node into an OCAPI-compatible object
+ * @param {Object} attrDef - xml2js attribute-definition node
+ * @returns {Object} OCAPI-compatible attribute definition
+ * @private
+ */
+function convertXmlAttrDefToOcapi(attrDef) {
+    const id = attrDef.$?.['attribute-id'];
+
+    let descriptionObj = null;
+    if (attrDef.description) {
+        const descriptions = Array.isArray(attrDef.description)
+            ? attrDef.description
+            : [attrDef.description];
+        descriptionObj = {};
+        for (const descNode of descriptions) {
+            if (!descNode) continue;
+            const lang = descNode.$?.['xml:lang'] || 'default';
+            const text = extractText(descNode);
+            if (text) {
+                descriptionObj[lang] = text;
+            }
+        }
+        if (Object.keys(descriptionObj).length === 0) {
+            descriptionObj = null;
+        }
+    }
+
+    const definition = {
+        id,
+        display_name: extractDisplayName(attrDef),
+        description: descriptionObj,
+        value_type: mapXmlTypeToOcapiType(extractText(attrDef.type)),
+        mandatory: extractBoolean(attrDef['mandatory-flag']),
+        localizable: extractBoolean(attrDef['localizable-flag']),
+        site_specific: false,
+        visible: extractBoolean(attrDef['visible-flag']) ?? true,
+        searchable: extractBoolean(attrDef['searchable-flag']) ?? false
+    };
+
+    const minLength = extractNumber(attrDef['min-length']);
+    if (minLength !== null) definition.min_length = minLength;
+    const maxLength = extractNumber(attrDef['max-length']);
+    if (maxLength !== null) definition.max_length = maxLength;
+    const minValue = extractNumber(attrDef['min-value']);
+    if (minValue !== null) definition.min_value = minValue;
+    const maxValue = extractNumber(attrDef['max-value']);
+    if (maxValue !== null) definition.max_value = maxValue;
+    const defaultValue = extractDefaultValue(attrDef['default-value'], definition.value_type);
+    if (defaultValue !== null) definition.default_value = defaultValue;
+
+    if (attrDef['value-definitions']) {
+        definition.value_definitions = extractValueDefinitions(attrDef['value-definitions']);
+    }
+
+    return definition;
+}
+
+/**
+ * Extract attribute definitions from metadata XML file (filtered by ID list)
  * @param {string} metadataFilePath - Path to meta_data_backup.xml
  * @param {string} objectType - SFCC object type (e.g., "SitePreferences")
  * @param {Array<string>} attributeIds - List of attribute IDs to extract
  * @returns {Promise<Array<Object>>} Array of attribute definition objects
  */
 export async function getAttributeDefinitionsFromMetadata(metadataFilePath, objectType, attributeIds) {
-    if (!fs.existsSync(metadataFilePath)) {
-        throw new Error(`Metadata file not found: ${metadataFilePath}`);
-    }
-
     const attributeIdSet = new Set(attributeIds);
-    const definitions = [];
 
     try {
-        const xmlContent = fs.readFileSync(metadataFilePath, 'utf-8');
-        const parsed = await parseXmlContent(xmlContent);
-        const metadata = parsed.metadata;
+        const rawDefs = await parseRawAttributeDefinitions(metadataFilePath, objectType);
+        const definitions = [];
 
-        if (!metadata || !metadata['type-extension']) {
-            throw new Error('Metadata XML missing type-extension nodes');
-        }
-
-        const typeExtensions = Array.isArray(metadata['type-extension'])
-            ? metadata['type-extension']
-            : [metadata['type-extension']];
-
-        const matching = typeExtensions.find(ext => ext.$?.['type-id'] === objectType);
-        if (!matching) {
-            throw new Error(`No type-extension found for type-id '${objectType}' in metadata file`);
-        }
-
-        // Extract custom attribute definitions
-        let customAttrs = matching['custom-attribute-definitions'];
-        if (!customAttrs) {
-            return definitions; // No custom attributes defined
-        }
-
-        // xml2js may parse custom-attribute-definitions as an array - take first element if so
-        if (Array.isArray(customAttrs)) {
-            customAttrs = customAttrs[0];
-        }
-
-        if (customAttrs && customAttrs['attribute-definition']) {
-            const attrDefs = Array.isArray(customAttrs['attribute-definition'])
-                ? customAttrs['attribute-definition']
-                : [customAttrs['attribute-definition']];
-
-            for (const attrDef of attrDefs) {
-                const id = attrDef.$?.['attribute-id'];
-                if (!id || !attributeIdSet.has(id)) {
-                    continue;
-                }
-
-                // Convert XML structure to OCAPI-compatible format
-                // Extract and clean description for localization
-                let descriptionObj = null;
-                if (attrDef.description) {
-                    const descriptions = Array.isArray(attrDef.description)
-                        ? attrDef.description
-                        : [attrDef.description];
-                    descriptionObj = {};
-                    for (const descNode of descriptions) {
-                        if (!descNode) continue;
-                        const lang = descNode.$?.['xml:lang'] || 'default';
-                        const text = extractText(descNode);
-                        if (text) {
-                            descriptionObj[lang] = text;
-                        }
-                    }
-                    if (Object.keys(descriptionObj).length === 0) {
-                        descriptionObj = null;
-                    }
-                }
-
-                const definition = {
-                    id,
-                    display_name: extractDisplayName(attrDef),
-                    description: descriptionObj,
-                    value_type: mapXmlTypeToOcapiType(extractText(attrDef.type)),
-                    mandatory: extractBoolean(attrDef['mandatory-flag']),
-                    localizable: extractBoolean(attrDef['localizable-flag']),
-                    site_specific: false, // Site preferences are always site-specific
-                    visible: extractBoolean(attrDef['visible-flag']) ?? true,
-                    searchable: extractBoolean(attrDef['searchable-flag']) ?? false
-                };
-
-                // Only include optional fields if they have meaningful values
-                const minLength = extractNumber(attrDef['min-length']);
-                if (minLength !== null) definition.min_length = minLength;
-                const maxLength = extractNumber(attrDef['max-length']);
-                if (maxLength !== null) definition.max_length = maxLength;
-                const minValue = extractNumber(attrDef['min-value']);
-                if (minValue !== null) definition.min_value = minValue;
-                const maxValue = extractNumber(attrDef['max-value']);
-                if (maxValue !== null) definition.max_value = maxValue;
-                const defaultValue = extractDefaultValue(attrDef['default-value'], definition.value_type);
-                if (defaultValue !== null) definition.default_value = defaultValue;
-
-                // Add enum values if present
-                if (attrDef['value-definitions']) {
-                    definition.value_definitions = extractValueDefinitions(attrDef['value-definitions']);
-                }
-
-                definitions.push(definition);
+        for (const attrDef of rawDefs) {
+            const id = attrDef.$?.['attribute-id'];
+            if (!id || !attributeIdSet.has(id)) {
+                continue;
             }
+            definitions.push(convertXmlAttrDefToOcapi(attrDef));
+        }
+
+        return definitions;
+    } catch (error) {
+        throw new Error(`Failed to parse metadata file: ${error.message}`);
+    }
+}
+
+/**
+ * Extract ALL attribute definitions from metadata XML file (no filtering).
+ * Returns the same OCAPI-compatible format as getAttributeDefinitionsFromMetadata
+ * but without requiring a pre-built ID list. This eliminates the need for
+ * the paginated OCAPI attribute list endpoint + individual default value fetches.
+ * @param {string} metadataFilePath - Path to meta_data_backup.xml
+ * @param {string} objectType - SFCC object type (e.g., "SitePreferences")
+ * @returns {Promise<Array<Object>>} Array of all attribute definition objects
+ */
+export async function getAllAttributeDefinitionsFromMetadata(metadataFilePath, objectType) {
+    try {
+        const rawDefs = await parseRawAttributeDefinitions(metadataFilePath, objectType);
+        const definitions = [];
+
+        for (const attrDef of rawDefs) {
+            const id = attrDef.$?.['attribute-id'];
+            if (!id) {
+                continue;
+            }
+            definitions.push(convertXmlAttrDefToOcapi(attrDef));
         }
 
         return definitions;
