@@ -620,7 +620,7 @@ export function registerDebugCommands(program) {
 
             console.log('\n💾 STEP 2: Create Backup File\n');
 
-            let metadataPath = getMetadataBackupPathForRealm(realm, instanceType);
+            let metadataPath = getMetadataBackupPathForRealm(realm);
             const refreshAnswers = await inquirer.prompt([
                 {
                     type: 'confirm',
@@ -959,7 +959,7 @@ export function registerDebugCommands(program) {
                     + `${instanceType}_unused_preferences.txt`;
                 const defaultCsvFile = `./results/${instanceType}/${realm}/`
                     + `${realm}_${instanceType}_preferences_usage.csv`;
-                const defaultXmlMetadataFile = getMetadataBackupPathForRealm(realm, instanceType);
+                const defaultXmlMetadataFile = getMetadataBackupPathForRealm(realm);
                 const defaultOutputFile = `./backup/${instanceType}/${realm}_SitePreferences_generated_`
                     + `${new Date().toISOString().split('T')[0]}.json`;
 
@@ -1093,6 +1093,118 @@ export function registerDebugCommands(program) {
                 console.log('  ✓ Dynamic progress test completed successfully!\n');
             } catch (error) {
                 progressDisplay.stop();
+                console.error(`\n❌ Error: ${error.message}`);
+            }
+        });
+
+    // ========================================================================
+    // debug-progress — Simulates analyze-preferences display lifecycle
+    // ========================================================================
+
+    program
+        .command('debug-progress')
+        .description('(Debug) Simulate analyze-preferences progress display with console interference')
+        .action(async () => {
+            const overallTimer = startTimer();
+
+            console.log(`\n${'='.repeat(80)}`);
+            console.log('🚀 Starting progress display simulation');
+            console.log('   Simulates 4 realms in parallel, sequential steps per realm');
+            console.log('   Injects console.error / console.warn calls to test suppression');
+            console.log(`${'='.repeat(80)}\n`);
+
+            const display = new RealmProgressDisplay(250);
+
+            const realms = [
+                { name: 'APAC', hostname: 'apac.dx.commercecloud.salesforce.com' },
+                { name: 'EU05', hostname: 'eu05.dx.commercecloud.salesforce.com' },
+                { name: 'GB', hostname: 'gb.dx.commercecloud.salesforce.com' },
+                { name: 'PNA', hostname: 'pna.dx.commercecloud.salesforce.com' }
+            ];
+
+            // Step definitions: each realm goes through these in order
+            // Mirrors the real analyze-preferences flow: backup -> fetch -> groups -> matrices -> export
+            const stepDefs = [
+                { key: 'backup', label: 'Downloading Backup', durationMs: [1500, 3000] },
+                { key: 'fetch', label: 'Reading Metadata XML', durationMs: [1000, 2000] },
+                { key: 'groups', label: 'Reading Attribute Groups', durationMs: [1000, 2000] },
+                { key: 'matrices', label: 'Building Matrices', durationMs: [2000, 3500] },
+                { key: 'export', label: 'Exporting Results', durationMs: [500, 1500] }
+            ];
+
+            function randomBetween(min, max) {
+                return min + Math.floor(Math.random() * (max - min));
+            }
+
+            function sleep(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+
+            /**
+             * Run a single step: start → animate progress → complete
+             */
+            async function runStep(realm, stepDef) {
+                const duration = randomBetween(stepDef.durationMs[0], stepDef.durationMs[1]);
+                display.startStep(realm.hostname, realm.name, stepDef.key, stepDef.label);
+
+                const startTime = Date.now();
+                while (Date.now() - startTime < duration) {
+                    const elapsed = Date.now() - startTime;
+                    const percent = Math.min(100, Math.round((elapsed / duration) * 100));
+                    display.setStepProgress(realm.hostname, stepDef.key, percent);
+                    await sleep(100);
+                }
+
+                display.completeStep(realm.hostname, stepDef.key);
+            }
+
+            /**
+             * Process one realm: run all steps sequentially, then mark complete.
+             * Injects console.error / console.warn calls mid-flight to test suppression.
+             */
+            async function processRealm(realm, realmIndex) {
+                // Stagger start times so realms don't begin simultaneously
+                await sleep(realmIndex * randomBetween(200, 600));
+
+                display.setTotalSteps(realm.hostname, stepDefs.length);
+
+                for (let i = 0; i < stepDefs.length; i++) {
+                    await runStep(realm, stepDefs[i]);
+
+                    // Inject console interference after certain steps
+                    if (i === 0) {
+                        console.log(`[LEAK] ${realm.name}: this console.log should be suppressed`);
+                    }
+                    if (i === 1) {
+                        console.error(`[LEAK] ${realm.name}: this console.error should be suppressed`);
+                    }
+                    if (i === 2) {
+                        console.warn(`[LEAK] ${realm.name}: this console.warn should be suppressed`);
+                    }
+                }
+
+                display.completeRealm(realm.hostname);
+            }
+
+            try {
+                display.start();
+
+                // Run all realms in parallel
+                await Promise.all(realms.map((realm, i) => processRealm(realm, i)));
+
+                display.finish();
+
+                console.log(`\n${'='.repeat(80)}`);
+                console.log('📊 Progress Display Test Results');
+                console.log(`${'='.repeat(80)}\n`);
+                console.log('  If you see any [LEAK] messages above the separator,');
+                console.log('  console suppression failed.\n');
+
+                const totalElapsed = overallTimer.stop();
+                console.log(`  Total elapsed: ${totalElapsed}`);
+                console.log('  ✓ Progress display test completed successfully!\n');
+            } catch (error) {
+                display.stop();
                 console.error(`\n❌ Error: ${error.message}`);
             }
         });

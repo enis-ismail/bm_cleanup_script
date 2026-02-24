@@ -146,7 +146,7 @@ export function validateAndCorrectBackup(backup) {
  * @returns {Promise<{ok: boolean, path: string|null, reason?: string}>}
  */
 export async function resolveMetadataPath(realm, instanceType, forceRefresh) {
-    let metadataPath = getMetadataBackupPathForRealm(realm, instanceType);
+    let metadataPath = getMetadataBackupPathForRealm(realm);
 
     if (forceRefresh || !fs.existsSync(metadataPath)) {
         console.log('STEP 5.1: Download Metadata Backup\n');

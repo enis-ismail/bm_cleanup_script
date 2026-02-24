@@ -21,7 +21,7 @@
     }
   ],
   "backup": {
-    "jobId": "site preferecnes - BACKUP",
+    "jobId": "site preferences - BACKUP",
     "pollIntervalMs": 5000,
     "timeoutMs": 600000,
     "ocapiVersion": "v25_6",

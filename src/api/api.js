@@ -180,9 +180,10 @@ export async function getJobExecutionStatus(jobId, executionId, realm, ocapiVers
  * Download file from WebDAV
  * @param {Object} webdavConfig - WebDAV config
  * @param {string} outputDir - Local output directory
+ * @param {string} [outputFileName] - Override the downloaded file name (avoids collisions in parallel)
  * @returns {Promise<string|null>} Local file path
  */
-export async function downloadWebdavFile(webdavConfig, outputDir) {
+export async function downloadWebdavFile(webdavConfig, outputDir, outputFileName = null) {
     try {
         const { hostname, username, password, filePath } = webdavConfig;
         if (!hostname || !filePath) {
@@ -193,14 +194,15 @@ export async function downloadWebdavFile(webdavConfig, outputDir) {
         }
 
         const url = `https://${hostname}${filePath}`;
-        const fileName = path.basename(filePath);
+        const fileName = outputFileName || path.basename(filePath);
         const outputPath = path.join(outputDir, fileName);
 
         await fsPromises.mkdir(outputDir, { recursive: true });
 
         const response = await axios.get(url, {
             auth: { username, password },
-            responseType: 'stream'
+            responseType: 'stream',
+            validateStatus: (status) => status >= 200 && status < 300
         });
 
         await new Promise((resolve, reject) => {
@@ -209,6 +211,12 @@ export async function downloadWebdavFile(webdavConfig, outputDir) {
             writer.on('finish', resolve);
             writer.on('error', reject);
         });
+
+        // Verify the file was actually written
+        const stat = await fsPromises.stat(outputPath);
+        if (stat.size === 0) {
+            throw new Error('Downloaded file is empty (0 bytes)');
+        }
 
         return outputPath;
     } catch (error) {
@@ -280,10 +288,13 @@ export async function getSiteById(siteId, realm, progressInfo = null) {
  * @param {Object} [progressInfo] - Optional {display, hostname} for rate limit warnings
  * @returns {Promise<Array>} Detailed attribute definitions
  */
-async function fetchDetailedAttributes(allAttributes, objectType, realm, sandbox, progressCallback = null, progressInfo = null) {
+async function fetchDetailedAttributes(
+    allAttributes, objectType, realm, sandbox,
+    progressCallback = null, progressInfo = null
+) {
     console.log('\nFetching full details with default values (parallel batches)...');
     const startTime = Date.now();
-    const apiConfig = getApiConfig(sandbox.instanceType);
+    const apiConfig = getApiConfig();
     let processedCount = 0;
 
     const detailedAttributes = await withLoadShedding(

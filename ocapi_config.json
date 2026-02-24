@@ -19,24 +19,6 @@
       "write_attributes": "(**)"
     },
     {
-      "resource_id": "/system_object_definitions/*/attribute_groups",
-      "methods": ["get"],
-      "read_attributes": "(**)",
-      "write_attributes": "(**)"
-    },
-    {
-      "resource_id": "/system_object_definitions/*/attribute_groups/*",
-      "methods": ["get"],
-      "read_attributes": "(**)",
-      "write_attributes": "(**)"
-    },
-    {
-      "resource_id": "/system_object_definitions/*/attribute_groups/*/attribute_definitions/*",
-      "methods": ["delete", "put"],
-      "read_attributes": "()",
-      "write_attributes": "()"
-    },
-    {
       "resource_id": "/system_object_definitions/*/attribute_definitions",
       "methods": ["get"],
       "read_attributes": "(**)",
@@ -44,7 +26,19 @@
     },
     {
       "resource_id": "/system_object_definitions/*/attribute_definitions/*",
-      "methods": ["get", "patch", "delete", "put"],
+      "methods": ["get", "patch", "put", "delete"],
+      "read_attributes": "(**)",
+      "write_attributes": "(**)"
+    },
+    {
+      "resource_id": "/system_object_definitions/*/attribute_groups",
+      "methods": ["get"],
+      "read_attributes": "(**)",
+      "write_attributes": "(**)"
+    },
+    {
+      "resource_id": "/system_object_definitions/*/attribute_groups/*/attribute_definitions/*",
+      "methods": ["get"],
       "read_attributes": "(**)",
       "write_attributes": "(**)"
     },
@@ -54,22 +48,17 @@
       "read_attributes": "(**)",
       "write_attributes": "(**)"
     },
-    				{
-					"resource_id": "/jobs/*/executions",
-					"methods": [
-						"post",
-						"get"
-					],
-					"read_attributes": "(**)",
-					"write_attributes": "(**)"
-				},
-				{
-					"resource_id": "/jobs/*/executions/*",
-					"methods": [
-						"get"
-					],
-					"read_attributes": "(**)",
-					"write_attributes": "(**)"
-				}
+    {
+      "resource_id": "/jobs/*/executions",
+      "methods": ["post", "get"],
+      "read_attributes": "(**)",
+      "write_attributes": "(**)"
+    },
+    {
+      "resource_id": "/jobs/*/executions/*",
+      "methods": ["get"],
+      "read_attributes": "(**)",
+      "write_attributes": "(**)"
+    }
   ]
 }

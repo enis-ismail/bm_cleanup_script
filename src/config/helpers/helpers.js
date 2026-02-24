@@ -129,7 +129,7 @@ export function getBackupConfig() {
     const backup = config.backup || {};
 
     return {
-        jobId: backup.jobId || 'site_preferences - BACKUP',
+        jobId: backup.jobId || 'site preferences - BACKUP',
         pollIntervalMs: backup.pollIntervalMs || 5000,
         timeoutMs: backup.timeoutMs || 10 * 60 * 1000,
         ocapiVersion: backup.ocapiVersion || 'v25_6',

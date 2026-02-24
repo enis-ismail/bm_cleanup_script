@@ -55,6 +55,7 @@
   - [ ] add logic to automatically commit changes to the new branch with a standardized commit message
   - [ ] add logic to create pull requests from the new branch to a target branch
 - [ ] we need to be able to create a deletionlist for each realm that is based on the preferences that are only used in that realm, this way we can delete more preferences and also have a better overview of which preferences are used where
+- [ ] when we failt to retrieve a preference through OCAPI we should remember the ID to try fetching it later.
 
 ---
 

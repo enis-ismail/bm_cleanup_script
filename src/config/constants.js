@@ -18,34 +18,14 @@ export const LOG_PREFIX = {
 export const SEPARATOR = '='.repeat(80);
 
 /**
- * API request configuration by instance type
- * Adjust these values based on sandbox capacity and rate limits
+ * API request configuration
+ * Shared across all instance types
  */
 export const API_CONFIG = {
-    sandbox: {
-        batchSize: 20,           // Number of items to process in parallel
-        batchDelayMs: 1000,        // Delay (ms) between batch requests
-        retryAttempts: 3,         // Number of retry attempts for rate-limited requests
-        requestTimeoutMs: 30000   // Timeout for individual API requests
-    },
-    development: {
-        batchSize: 20,
-        batchDelayMs: 1000,
-        retryAttempts: 3,
-        requestTimeoutMs: 30000
-    },
-    staging: {
-        batchSize: 20,           // Staging can handle more parallel requests
-        batchDelayMs: 1000,
-        retryAttempts: 3,
-        requestTimeoutMs: 30000
-    },
-    production: {
-        batchSize: 50,            // Production is more conservative
-        batchDelayMs: 300,        // Longer delay to avoid rate limiting
-        retryAttempts: 5,         // More retries for production stability
-        requestTimeoutMs: 45000
-    }
+    batchSize: 10,           // Number of items to process in parallel
+    batchDelayMs: 2000,      // Delay (ms) between batch requests
+    retryAttempts: 3,        // Number of retry attempts for rate-limited requests
+    requestTimeoutMs: 30000  // Timeout for individual API requests
 };
 
 /**
@@ -135,28 +115,35 @@ export const BACKUP_CONFIG = {
 };
 
 /**
+ * Number of progress steps per analysis path.
+ * Used by RealmProgressDisplay to compute overall realm progress.
+ *   OCAPI:    fetch -> details -> groups -> matrices -> export  (fallback when backup fails)
+ *   METADATA: backup -> fetch -> groups -> matrices -> export   (default path)
+ */
+export const ANALYSIS_STEPS = Object.freeze({
+    OCAPI: 5,
+    METADATA: 5
+});
+
+/**
  * Default comparison file path for deprecated cartridges
  */
 export const DEFAULT_COMPARISON_FILE = 'ALL_REALMS_cartridge_comparison.txt';
 
 /**
- * Get API configuration for a specific instance type
- * Falls back to sandbox defaults if instance type not found
- * @param {string} instanceType - The instance type (sandbox, development, staging, production)
- * @returns {Object} API configuration for the instance type
+ * Get API configuration
+ * @returns {Object} API configuration
  */
-export function getApiConfig(instanceType) {
-    return API_CONFIG[instanceType] || API_CONFIG.sandbox;
+export function getApiConfig() {
+    return API_CONFIG;
 }
 
 /**
  * Get configuration value with fallback
- * @param {string} instanceType - The instance type
  * @param {string} configKey - The configuration key (e.g., 'batchSize')
  * @param {*} defaultValue - Default value if not found
  * @returns {*} Configuration value
  */
-export function getConfigValue(instanceType, configKey, defaultValue) {
-    const config = getApiConfig(instanceType);
-    return config[configKey] !== undefined ? config[configKey] : defaultValue;
+export function getConfigValue(configKey, defaultValue) {
+    return API_CONFIG[configKey] !== undefined ? API_CONFIG[configKey] : defaultValue;
 }
