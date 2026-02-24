@@ -75,11 +75,11 @@
 ### Priority 2: Refine Deletion Candidate Logic
 
 **Current Behavior:**
-- Preferences are flagged for deletion if: no values set AND not found in code
-- All code references block deletion equally
+- Preferences are classified by priority into 4 tiers based on code usage, deprecation status, and value data
+- Active code references block deletion; deprecated-only and value-status determine ranking
 
-**Enhanced Logic Needed:**
-- [ ] Implement priority-based deletion candidate ranking:
+**Priority-Based Deletion Candidate Ranking: ✅ Implemented**
+- [x] Implement priority-based deletion candidate ranking:
   1. **Code Reference Check** (highest priority)
      - Block deletion if actively used in non-deprecated code
      - Flag but allow deletion if only in deprecated cartridges
@@ -89,10 +89,11 @@
   3. **Assigned Values Check** (lowest priority)
      - Check if ANY site has values assigned
      - Check if default values exist
-- [ ] Create multi-tier deletion lists:
-  - `preferences_safe_to_delete.txt` - No code, no values, no usage
-  - `preferences_review_deprecated.txt` - Only in deprecated cartridges
-  - `preferences_review_values.txt` - Has values but unused in code
+- [x] Create multi-tier deletion list (single file with priority sections):
+  - `[P1]` Safe to Delete — No code, no values, no usage
+  - `[P2]` Likely Safe — No code, but has values/defaults
+  - `[P3]` Review: Deprecated Only — Only in deprecated cartridges, no values
+  - `[P4]` Review: Deprecated + Values — Only in deprecated cartridges, has values
 - [ ] Allow override flags in CLI for aggressive deletion modes
 
 ---

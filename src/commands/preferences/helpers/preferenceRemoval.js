@@ -29,18 +29,36 @@ export function loadPreferencesForDeletion(instanceType) {
     let inPreferenceSection = false;
 
     for (const line of lines) {
-        if (line.trim() === '--- Preferences for Deletion ---') {
+        const trimmed = line.trim();
+
+        // Detect any priority section header: --- [P1] ..., --- [P2] ..., etc.
+        // Also support legacy format: --- Preferences for Deletion ---
+        if (trimmed.startsWith('--- [P') || trimmed === '--- Preferences for Deletion ---') {
             inPreferenceSection = true;
             continue;
         }
 
         // Stop parsing at the blacklisted section
-        if (line.trim() === '--- Blacklisted Preferences (Protected) ---') {
+        if (trimmed === '--- Blacklisted Preferences (Protected) ---') {
             break;
         }
 
-        if (inPreferenceSection && line.trim() && !line.startsWith('=')) {
-            preferences.push(line.trim());
+        // Skip separator lines and empty lines
+        if (!trimmed || trimmed.startsWith('=')) {
+            // A separator between sections doesn't stop parsing — it may be followed
+            // by another [P*] section header
+            if (trimmed.startsWith('=')) {
+                inPreferenceSection = false;
+            }
+            continue;
+        }
+
+        if (inPreferenceSection) {
+            // Extract preference ID (strip metadata after "  |  ")
+            const prefId = trimmed.split('  |  ')[0].trim();
+            if (prefId) {
+                preferences.push(prefId);
+            }
         }
     }
 

@@ -4,6 +4,7 @@ import path from 'path';
 import { setImmediate } from 'timers/promises';
 import { findAllMatrixFiles } from './util.js';
 import { ensureResultsDir } from './util.js';
+import { parseCSVToNestedArray } from './csv.js';
 import { logStatusUpdate, logStatusClear, logProgress } from '../scripts/loggingScript/log.js';
 import {
     DIRECTORIES,
@@ -422,25 +423,99 @@ function parseCartridgePreferencesFile(filePath) {
 }
 
 /**
- * Compare unused and cartridge preferences files and generate deletion candidates
- * @param {string} [instanceTypeOverride] - Optional instance type for output path scoping
+ * Build a map of preference value data from matrix CSV files
+ * @param {string|null} instanceTypeOverride - Instance type for matrix file scoping
+ * @returns {Map<string, {hasValues: boolean, hasDefault: boolean, siteCount: number}>}
+ */
+function buildPreferenceValueMap(instanceTypeOverride = null) {
+    const valueMap = new Map();
+    const matrixFiles = findAllMatrixFiles();
+
+    for (const { matrixFile } of matrixFiles) {
+        // Filter by instance type if specified
+        if (instanceTypeOverride) {
+            const normalizedPath = matrixFile.replace(/\\/g, '/');
+            if (!normalizedPath.includes(`/${instanceTypeOverride}/`)) {
+                continue;
+            }
+        }
+
+        const csvData = parseCSVToNestedArray(matrixFile);
+
+        if (csvData.length <= 1) {
+            continue;
+        }
+
+        const headers = csvData[0];
+        const preferenceIdIndex = headers.indexOf('preferenceId');
+        const defaultValueIndex = headers.indexOf('defaultValue');
+
+        if (preferenceIdIndex === -1) {
+            continue;
+        }
+
+        const siteDataStart = defaultValueIndex > -1 ? defaultValueIndex + 1 : 1;
+
+        for (let i = 1; i < csvData.length; i++) {
+            const row = csvData[i];
+            const preferenceId = row[preferenceIdIndex];
+
+            if (!preferenceId) {
+                continue;
+            }
+
+            const defaultValue = defaultValueIndex > -1 ? (row[defaultValueIndex] || '') : '';
+            const hasDefault = defaultValue.trim() !== '';
+            const sitesWithValues = row.slice(siteDataStart)
+                .filter(v => v === 'X' || v === 'x').length;
+            const hasValues = sitesWithValues > 0;
+
+            // Merge across realms: if ANY realm has values/defaults, record it
+            const existing = valueMap.get(preferenceId);
+            if (existing) {
+                existing.hasValues = existing.hasValues || hasValues;
+                existing.hasDefault = existing.hasDefault || hasDefault;
+                existing.siteCount = existing.siteCount + sitesWithValues;
+            } else {
+                valueMap.set(preferenceId, { hasValues, hasDefault, siteCount: sitesWithValues });
+            }
+        }
+    }
+
+    return valueMap;
+}
+
+/**
+ * Compare unused and cartridge preferences files, classify using code scan results,
+ * and generate priority-ranked deletion candidates.
+ *
+ * Priority tiers:
+ *   [P1] No code references, no values / defaults         — safest to remove
+ *   [P2] No code references, but has values / defaults     — likely safe, verify values
+ *   [P3] Only in deprecated cartridges, no values          — probably safe
+ *   [P4] Only in deprecated cartridges, has values         — needs careful review
+ *
+ * @param {string|null} instanceTypeOverride - Optional instance type for output path scoping
+ * @param {Array} [codeResults] - Results from findAllActivePreferencesUsage (enriched)
  * @returns {string|null} Path to the generated file, or null if no candidates found
  */
-export function generatePreferenceDeletionCandidates(instanceTypeOverride = null) {
+export function generatePreferenceDeletionCandidates(instanceTypeOverride = null, codeResults = []) {
     const dirName = instanceTypeOverride || IDENTIFIERS.ALL_REALMS;
     const resultsDir = ensureResultsDir(IDENTIFIERS.ALL_REALMS, instanceTypeOverride);
 
     const unusedFilePath = path.join(resultsDir, `${dirName}${FILE_PATTERNS.UNUSED_PREFERENCES}`);
-    const cartridgeFilePath = path.join(resultsDir, `${dirName}${FILE_PATTERNS.CARTRIDGE_PREFERENCES}`);
+    const cartridgeFilePath = path.join(
+        resultsDir, `${dirName}${FILE_PATTERNS.CARTRIDGE_PREFERENCES}`
+    );
 
     // Check if both files exist
     if (!fs.existsSync(unusedFilePath)) {
-        console.log(`⚠ Unused preferences file not found: ${unusedFilePath}`);
+        console.log(`\u26a0 Unused preferences file not found: ${unusedFilePath}`);
         return null;
     }
 
     if (!fs.existsSync(cartridgeFilePath)) {
-        console.log(`⚠ Cartridge preferences file not found: ${cartridgeFilePath}`);
+        console.log(`\u26a0 Cartridge preferences file not found: ${cartridgeFilePath}`);
         return null;
     }
 
@@ -448,24 +523,109 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
     const unusedPreferences = parseUnusedPreferencesFile(unusedFilePath);
     const usedPreferences = parseCartridgePreferencesFile(cartridgeFilePath);
 
-    // Find preferences that are in unused but NOT in used (truly safe to delete)
-    const rawCandidates = Array.from(unusedPreferences)
-        .filter(pref => !usedPreferences.has(pref))
-        .sort();
+    // Build code usage lookup from enriched results
+    const codeUsageMap = new Map();
+    for (const result of codeResults) {
+        codeUsageMap.set(result.preferenceId, {
+            activeCartridges: result.activeCartridges || [],
+            deprecatedCartridges: result.deprecatedCartridges || []
+        });
+    }
 
-    // Apply blacklist filter
+    // Build value/default lookup from matrix CSVs
+    const valueMap = buildPreferenceValueMap(instanceTypeOverride);
+
+    // Classify ALL preferences into tiers
+    const p1 = []; // No code, no values
+    const p2 = []; // No code, has values
+    const p3 = []; // Deprecated code only, no values
+    const p4 = []; // Deprecated code only, has values
+
+    // Set of all candidate preference IDs (for blacklist filtering later)
+    const allCandidateIds = new Set();
+
+    // --- Tier 1 & 2: Preferences with NO code references ---
+    // These are in "unused" (no cartridge code refs) and not in "used"
+    for (const prefId of unusedPreferences) {
+        if (usedPreferences.has(prefId)) {
+            continue;
+        }
+
+        allCandidateIds.add(prefId);
+        const valData = valueMap.get(prefId) || { hasValues: false, hasDefault: false, siteCount: 0 };
+
+        if (valData.hasValues || valData.hasDefault) {
+            p2.push({ id: prefId, ...valData });
+        } else {
+            p1.push({ id: prefId });
+        }
+    }
+
+    // --- Tier 3 & 4: Preferences ONLY in deprecated cartridges ---
+    // These have code refs, but ALL refs are in deprecated cartridges
+    for (const [prefId, usage] of codeUsageMap) {
+        // Skip if already classified (no code refs)
+        if (allCandidateIds.has(prefId)) {
+            continue;
+        }
+
+        // Skip if there are active (non-deprecated) cartridge references
+        if (usage.activeCartridges.length > 0) {
+            continue;
+        }
+
+        // Only deprecated cartridge references exist
+        if (usage.deprecatedCartridges.length > 0) {
+            allCandidateIds.add(prefId);
+            const valData = valueMap.get(prefId)
+                || { hasValues: false, hasDefault: false, siteCount: 0 };
+
+            if (valData.hasValues || valData.hasDefault) {
+                p4.push({
+                    id: prefId,
+                    deprecatedCartridges: usage.deprecatedCartridges,
+                    ...valData
+                });
+            } else {
+                p3.push({
+                    id: prefId,
+                    deprecatedCartridges: usage.deprecatedCartridges
+                });
+            }
+        }
+    }
+
+    // Sort each tier alphabetically
+    p1.sort((a, b) => a.id.localeCompare(b.id));
+    p2.sort((a, b) => a.id.localeCompare(b.id));
+    p3.sort((a, b) => a.id.localeCompare(b.id));
+    p4.sort((a, b) => a.id.localeCompare(b.id));
+
+    // Apply blacklist filter to all candidates
+    const allCandidateArray = [...p1, ...p2, ...p3, ...p4].map(c => c.id);
     const blacklistEntries = loadBlacklist().blacklist;
-    const { allowed: deletionCandidates, blocked: blacklistedPreferences } =
-        filterBlacklisted(rawCandidates, blacklistEntries);
+    const { blocked: blacklistedPreferences } = filterBlacklisted(allCandidateArray, blacklistEntries);
+    const blacklistedSet = new Set(blacklistedPreferences);
+
+    // Remove blacklisted from each tier
+    const filterBlacklisted_ = (arr) => arr.filter(c => !blacklistedSet.has(c.id));
+    const fp1 = filterBlacklisted_(p1);
+    const fp2 = filterBlacklisted_(p2);
+    const fp3 = filterBlacklisted_(p3);
+    const fp4 = filterBlacklisted_(p4);
+
+    const totalCandidates = fp1.length + fp2.length + fp3.length + fp4.length;
 
     if (blacklistedPreferences.length > 0) {
         console.log(
-            `✓ Blacklist protected ${blacklistedPreferences.length} preference(s) from deletion`
+            `\u2713 Blacklist protected ${blacklistedPreferences.length} preference(s) from deletion`
         );
     }
 
-    if (deletionCandidates.length === 0) {
-        console.log('✓ No preferences marked for deletion (all unused preferences have some usage)');
+    if (totalCandidates === 0) {
+        console.log(
+            '\u2713 No preferences marked for deletion (all unused preferences have some usage)'
+        );
         return null;
     }
 
@@ -473,43 +633,106 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
     const outputFilename = `${dirName}${FILE_PATTERNS.PREFERENCES_FOR_DELETION}`;
     const outputFilePath = path.join(resultsDir, outputFilename);
 
-    const summaryLines = [
-        `  • Total unused preferences: ${unusedPreferences.size}`,
-        `  • Total used preferences: ${usedPreferences.size}`,
-        `  • Preferences marked for deletion: ${deletionCandidates.length}`
-    ];
-
-    if (blacklistedPreferences.length > 0) {
-        summaryLines.push(
-            `  • Blacklisted (protected): ${blacklistedPreferences.length}`
-        );
-    }
-
     const lines = [
-        'Site Preferences Marked for Deletion',
+        'Site Preferences \u2014 Deletion Candidates (Priority Ranked)',
         `Generated: ${new Date().toISOString()}`,
         '',
         'Analysis Summary:',
-        ...summaryLines,
+        `  \u2022 Total preferences analyzed: ${codeResults.length || unusedPreferences.size + usedPreferences.size}`,
+        `  \u2022 [P1] Safe to delete (no code, no values): ${fp1.length}`,
+        `  \u2022 [P2] Likely safe (no code, has values): ${fp2.length}`,
+        `  \u2022 [P3] Review: deprecated code only, no values: ${fp3.length}`,
+        `  \u2022 [P4] Review: deprecated code only, has values: ${fp4.length}`,
+        `  \u2022 Total deletion candidates: ${totalCandidates}`
+    ];
+
+    if (blacklistedPreferences.length > 0) {
+        lines.push(`  \u2022 Blacklisted (protected): ${blacklistedPreferences.length}`);
+    }
+
+    lines.push(
         '',
-        'These preferences are:',
-        '  1. Not referenced in any cartridge code',
-        '  2. Not listed in the cartridge preferences mapping',
-        '  3. Not on the preference blacklist',
-        '  4. Safe to delete from site preferences',
+        'Priority Legend:',
+        '  [P1] No code references, no values \u2014 safest to remove',
+        '  [P2] No code references, but has values/defaults \u2014 likely unused but verify',
+        '  [P3] Only in deprecated cartridges, no values \u2014 probably safe',
+        '  [P4] Only in deprecated cartridges, has values \u2014 needs careful review',
         '',
         'NOTE: Preferences matching patterns in preference_blacklist.json are excluded',
         'from this list and will never be deleted. To manage the blacklist, run:',
-        '  • node src/main.js list-blacklist        — View all protected patterns',
-        '  • node src/main.js add-to-blacklist       — Add a new pattern',
-        '  • node src/main.js remove-from-blacklist  — Remove a pattern',
-        '',
-        '================================================================================',
-        '',
-        '--- Preferences for Deletion ---',
-        ...deletionCandidates
-    ];
+        '  \u2022 node src/main.js list-blacklist        \u2014 View all protected patterns',
+        '  \u2022 node src/main.js add-to-blacklist       \u2014 Add a new pattern',
+        '  \u2022 node src/main.js remove-from-blacklist  \u2014 Remove a pattern'
+    );
 
+    // --- P1 Section ---
+    if (fp1.length > 0) {
+        lines.push(
+            '',
+            '================================================================================',
+            '',
+            `--- [P1] Safe to Delete (No Code, No Values) --- [${fp1.length} preferences]`,
+            ...fp1.map(c => c.id)
+        );
+    }
+
+    // --- P2 Section ---
+    if (fp2.length > 0) {
+        lines.push(
+            '',
+            '================================================================================',
+            '',
+            `--- [P2] Likely Safe (No Code, Has Values) --- [${fp2.length} preferences]`
+        );
+
+        for (const c of fp2) {
+            const details = [];
+            if (c.hasDefault) {
+                details.push('has default value');
+            }
+            if (c.hasValues) {
+                details.push(`sites with values: ${c.siteCount}`);
+            }
+            lines.push(`${c.id}  |  ${details.join('  |  ')}`);
+        }
+    }
+
+    // --- P3 Section ---
+    if (fp3.length > 0) {
+        lines.push(
+            '',
+            '================================================================================',
+            '',
+            `--- [P3] Review: Deprecated Code Only (No Values) --- [${fp3.length} preferences]`
+        );
+
+        for (const c of fp3) {
+            lines.push(`${c.id}  |  deprecated: ${c.deprecatedCartridges.join(', ')}`);
+        }
+    }
+
+    // --- P4 Section ---
+    if (fp4.length > 0) {
+        lines.push(
+            '',
+            '================================================================================',
+            '',
+            `--- [P4] Review: Deprecated Code + Values --- [${fp4.length} preferences]`
+        );
+
+        for (const c of fp4) {
+            const details = [`deprecated: ${c.deprecatedCartridges.join(', ')}`];
+            if (c.hasDefault) {
+                details.push('has default value');
+            }
+            if (c.hasValues) {
+                details.push(`sites with values: ${c.siteCount}`);
+            }
+            lines.push(`${c.id}  |  ${details.join('  |  ')}`);
+        }
+    }
+
+    // --- Blacklisted Section ---
     if (blacklistedPreferences.length > 0) {
         lines.push(
             '',
@@ -613,8 +836,10 @@ export async function findAllActivePreferencesUsage(repositoryPath, options = {}
     // Build results array
     const results = activePreferences.map(preferenceId => {
         const cartridgeData = preferenceToCartridges.get(preferenceId);
-        const allCartridges = Array.from(cartridgeData.active)
-            .concat(Array.from(cartridgeData.deprecated).map(c => `${c} [possibly deprecated]`))
+        const activeCartridgeList = Array.from(cartridgeData.active).sort();
+        const deprecatedCartridgeList = Array.from(cartridgeData.deprecated).sort();
+        const allCartridges = activeCartridgeList
+            .concat(deprecatedCartridgeList.map(c => `${c} [possibly deprecated]`))
             .sort();
 
         return {
@@ -623,7 +848,9 @@ export async function findAllActivePreferencesUsage(repositoryPath, options = {}
             comparisonFilePath,
             deprecatedCartridgesCount: deprecatedCartridges.size,
             totalMatches: allCartridges.length,
-            cartridges: allCartridges
+            cartridges: allCartridges,
+            activeCartridges: activeCartridgeList,
+            deprecatedCartridges: deprecatedCartridgeList
         };
     });
 
@@ -642,8 +869,8 @@ export async function findAllActivePreferencesUsage(repositoryPath, options = {}
         console.log(`✓ Cartridge preference mapping saved to: ${cartridgeFile}`);
     }
 
-    // Generate deletion candidates by comparing unused vs used preferences
-    const deletionFile = generatePreferenceDeletionCandidates(instanceTypeOverride);
+    // Generate deletion candidates with priority ranking
+    const deletionFile = generatePreferenceDeletionCandidates(instanceTypeOverride, results);
     if (deletionFile) {
         console.log(`✓ Preferences marked for deletion: ${deletionFile}`);
     }
