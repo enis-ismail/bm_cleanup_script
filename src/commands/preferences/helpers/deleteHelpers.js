@@ -44,22 +44,37 @@ export function runAnalyzePreferencesSubprocess() {
 }
 
 /**
- * Delete preferences across multiple realms via OCAPI
+ * Delete preferences across multiple realms via OCAPI.
+ * Supports per-realm preference lists: each realm may have a different set of
+ * preferences to delete based on realm tags in the deletion file.
+ *
  * @param {Object} options - Deletion options
- * @param {string[]} options.realmsToProcess - Realms to delete from
- * @param {string[]} options.preferences - Preference IDs to delete
+ * @param {Map<string, string[]>} options.realmPreferenceMap - Map of realm → preference IDs
  * @param {string} options.objectType - Object type (e.g. 'SitePreferences')
+ * @param {boolean} [options.dryRun=false] - Simulate without making changes
  * @returns {Promise<{totalDeleted: number, totalFailed: number}>}
  */
-export async function deletePreferencesForRealms({ realmsToProcess, preferences, objectType, dryRun = false }) {
+export async function deletePreferencesForRealms({ realmPreferenceMap, objectType, dryRun = false }) {
     const modeLabel = dryRun ? '[DRY RUN] Simulating' : 'Deleting';
-    console.log(`${modeLabel} ${preferences.length} preferences from ${realmsToProcess.length} realm(s)...\n`);
+    const realmCount = realmPreferenceMap.size;
+    const totalUniquePrefs = new Set(
+        Array.from(realmPreferenceMap.values()).flat()
+    ).size;
+    console.log(
+        `${modeLabel} deletion across ${realmCount} realm(s)`
+        + ` (${totalUniquePrefs} unique preferences)...\n`
+    );
 
     let totalDeleted = 0;
     let totalFailed = 0;
 
-    for (const realm of realmsToProcess) {
-        console.log(`Processing realm: ${realm}\n`);
+    for (const [realm, preferences] of realmPreferenceMap) {
+        if (preferences.length === 0) {
+            console.log(`Realm ${realm}: No preferences to delete (skipped)\n`);
+            continue;
+        }
+
+        console.log(`Processing realm: ${realm} (${preferences.length} preferences)\n`);
 
         let realmDeleted = 0;
         let realmFailed = 0;

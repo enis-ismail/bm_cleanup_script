@@ -37,8 +37,16 @@
 - [x] Site.xml validation (WIP)
 - [x] Preference restore functionality (restoreHelper.js)
 - [x] Preference blacklist/whitelist for ignored preferences
-- [ ] Refine deletion candidate logic with priority ranking
-- [ ] Create logic that defines which preferences are used in what realms
+- [x] Refine deletion candidate logic with priority ranking
+- [x] Create logic that defines which preferences are used in what realms
+  - [x] Per-realm value maps for deletion targeting
+  - [x] Per-realm cartridge sets for code-per-realm analysis
+  - [x] Realm tags on deletion candidates (ALL or specific realms)
+  - [x] P5 tier: Active code only in some realms
+  - [ ] **TEST:** Validate per-realm deletion in remove-preferences workflow
+  - [ ] **TEST:** Verify realm tag parsing and per-realm preference mapping
+  - [ ] **TEST:** Check P5 tier generation with real code scan results
+- [ ] Create a command to map where preferences are used and if they should be moved to specific realms
   - [ ] Identify preferences that are used in ALL realms (consolidation candidates)
   - [ ] Identify preferences that are used in only 1 realm
   - [ ] add logic to suggest moving realm-specific preferences to specific realms if they are only used there

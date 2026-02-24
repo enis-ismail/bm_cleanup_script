@@ -49,7 +49,8 @@ import {
 import {
     loadPreferencesForDeletion,
     openPreferencesForDeletionInEditor,
-    generateDeletionSummary
+    generateDeletionSummary,
+    buildRealmPreferenceMap
 } from './helpers/preferenceRemoval.js';
 import { loadBackupFile } from '../../io/backupUtils.js';
 import { refreshMetadataBackupForRealm } from '../../helpers/backupJob.js';
@@ -283,22 +284,40 @@ async function removePreferences(options = {}) {
 
     // --- STEP 2: Load Preferences for Deletion ---
     logSectionTitle('STEP 2: Load Preferences for Deletion');
-    const preferences = await loadOrGenerateDeletionList(instanceType, timer);
-    if (!preferences) {
+    const loaded = await loadOrGenerateDeletionList(instanceType, timer);
+    if (!loaded) {
         return;
     }
+    const { preferenceData, preferenceIds } = loaded;
 
     // --- STEP 3: Review Preferences for Deletion ---
     logSectionTitle('STEP 3: Review Preferences for Deletion');
     if (!await reviewPreferencesInEditor(instanceType, timer)) {
         return;
     }
-    logDeletionPrefixSummary(preferences);
+    logDeletionPrefixSummary(preferenceIds);
 
     // --- STEP 4: Select Realms to Process ---
     logSectionTitle('STEP 4: Select Realms to Process');
     const realmsToProcess = await selectRealmsForInstance(instanceType);
     if (!realmsToProcess) {
+        logRuntime(timer);
+        return;
+    }
+
+    // --- STEP 4b: Build Per-Realm Preference Lists ---
+    const realmPreferenceMap = buildRealmPreferenceMap(preferenceData, realmsToProcess);
+    logPerRealmDeletionSummary(realmPreferenceMap, dryRun);
+
+    // Check if any realm has preferences to delete
+    const totalUniquePrefs = new Set(
+        Array.from(realmPreferenceMap.values()).flat()
+    ).size;
+    if (totalUniquePrefs === 0) {
+        console.log(
+            `\n${LOG_PREFIX.INFO} No preferences to delete for selected realms`
+            + ' (realm tags don\'t match selection).\n'
+        );
         logRuntime(timer);
         return;
     }
@@ -326,17 +345,17 @@ async function removePreferences(options = {}) {
     if (dryRun) {
         console.log('Dry-Run Summary:');
         console.log(`  - Realms to process: ${realmsToProcess.length}`);
-        console.log(`  - Preferences to simulate: ${preferences.length}`);
+        console.log(`  - Total unique preferences: ${totalUniquePrefs}`);
         console.log('  - No actual changes will be made\n');
     } else {
         console.log('Backup Summary:');
         console.log(`  - Realms processed: ${realmsToProcess.length}`);
-        console.log(`  - Preferences backed up: ${preferences.length}`);
+        console.log(`  - Total unique preferences: ${totalUniquePrefs}`);
         console.log('  - Backup files ready for restore if needed\n');
     }
 
     const confirmAnswers = await inquirer.prompt(confirmPreferenceDeletionPrompt(
-        preferences.length, dryRun
+        totalUniquePrefs, dryRun
     ));
     if (!confirmAnswers.confirm) {
         console.log(`\n${LOG_PREFIX.INFO} Preference removal cancelled.`);
@@ -347,10 +366,10 @@ async function removePreferences(options = {}) {
         return;
     }
 
-    // --- STEP 7: Delete Preferences ---
+    // --- STEP 7: Delete Preferences (Per-Realm) ---
     logSectionTitle(`STEP 7: Remove Preferences${dryRun ? ' (Dry Run)' : ''}`);
     const { totalDeleted, totalFailed } = await deletePreferencesForRealms({
-        realmsToProcess, preferences, objectType, dryRun
+        realmPreferenceMap, objectType, dryRun
     });
     logDeletionSummary({
         deleted: totalDeleted, failed: totalFailed, realms: realmsToProcess.length, dryRun
@@ -377,7 +396,7 @@ async function removePreferences(options = {}) {
     }
 
     const { totalRestored, totalFailed: restoreFailed } = await restorePreferencesFromBackups({
-        realmsToProcess, preferences, objectType, instanceType
+        realmsToProcess, preferences: preferenceIds, objectType, instanceType
     });
     logRestoreSummary({ restored: totalRestored, failed: restoreFailed, realm: realmsToProcess.length });
 }
@@ -483,14 +502,16 @@ async function backupSitePreferences() {
  * Load deletion list, or run analyze-preferences if not found
  * @param {string} instanceType - Instance type
  * @param {Object} timer - Timer instance for runtime logging
- * @returns {Promise<string[]|null>} Preference IDs or null if unavailable
+ * @returns {Promise<{preferenceData: Array<{id: string, realms: string[]}>, preferenceIds: string[]}|null>}
+ *   Realm-tagged preference data and flat ID list, or null if unavailable
  */
 async function loadOrGenerateDeletionList(instanceType, timer) {
     let result = loadPreferencesForDeletion(instanceType);
-    let preferences = result?.allowed || null;
+    let preferenceData = result?.allowed || null;
 
-    if (preferences) {
-        return preferences;
+    if (preferenceData) {
+        const preferenceIds = preferenceData.map(p => p.id);
+        return { preferenceData, preferenceIds };
     }
 
     console.log(`\n${LOG_PREFIX.WARNING} Preferences for deletion file not found`
@@ -513,15 +534,16 @@ async function loadOrGenerateDeletionList(instanceType, timer) {
     }
 
     result = loadPreferencesForDeletion(instanceType);
-    preferences = result?.allowed || null;
-    if (!preferences) {
+    preferenceData = result?.allowed || null;
+    if (!preferenceData) {
         console.log(`\n${LOG_PREFIX.WARNING} Preferences file still not found.`
             + ' Please check the analyze-preferences output.\n');
         logRuntime(timer);
         return null;
     }
 
-    return preferences;
+    const preferenceIds = preferenceData.map(p => p.id);
+    return { preferenceData, preferenceIds };
 }
 
 /**
@@ -570,6 +592,43 @@ function logDeletionPrefixSummary(preferences) {
         console.log(`  - ${prefix}: ${count} (${percentage}%)`);
     });
     console.log('');
+}
+
+/**
+ * Log per-realm deletion summary showing how many preferences each realm will have deleted
+ * @param {Map<string, string[]>} realmPreferenceMap - Map of realm → preference IDs
+ * @param {boolean} dryRun - Whether in dry-run mode
+ */
+function logPerRealmDeletionSummary(realmPreferenceMap, dryRun) {
+    const label = dryRun ? 'would be deleted from' : 'to delete from';
+    console.log('\nPer-Realm Deletion Breakdown:');
+
+    for (const [realm, prefs] of realmPreferenceMap) {
+        console.log(`  ${realm}: ${prefs.length} preference(s) ${label}`);
+    }
+
+    // Show ALL-realm vs realm-specific counts
+    const allRealmPrefs = new Set();
+    const realmSpecificPrefs = new Set();
+
+    for (const [, prefs] of realmPreferenceMap) {
+        for (const p of prefs) {
+            allRealmPrefs.add(p);
+        }
+    }
+
+    // Preferences in ALL selected realms = "core" deletions
+    const realms = Array.from(realmPreferenceMap.keys());
+    for (const prefId of allRealmPrefs) {
+        const inAllRealms = realms.every(r => realmPreferenceMap.get(r).includes(prefId));
+        if (!inAllRealms) {
+            realmSpecificPrefs.add(prefId);
+        }
+    }
+
+    const coreCount = allRealmPrefs.size - realmSpecificPrefs.size;
+    console.log(`\n  Core (all selected realms): ${coreCount} preference(s)`);
+    console.log(`  Realm-specific: ${realmSpecificPrefs.size} preference(s)\n`);
 }
 
 /**

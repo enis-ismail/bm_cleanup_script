@@ -77,6 +77,13 @@ export const IDENTIFIERS = {
 };
 
 /**
+ * Realm tag values used in deletion candidate files and parsing logic
+ */
+export const REALM_TAGS = {
+    ALL: 'ALL'
+};
+
+/**
  * File naming patterns and suffixes
  */
 export const FILE_PATTERNS = {

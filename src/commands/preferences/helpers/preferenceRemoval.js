@@ -7,13 +7,14 @@ import fs from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
 import { ensureResultsDir } from '../../../io/util.js';
-import { IDENTIFIERS, FILE_PATTERNS } from '../../../config/constants.js';
+import { IDENTIFIERS, FILE_PATTERNS, REALM_TAGS } from '../../../config/constants.js';
 import { filterBlacklisted } from '../../../helpers/blacklistHelper.js';
 
 /**
- * Load preferences marked for deletion from file
+ * Load preferences marked for deletion from file.
+ * Parses realm tags from each preference line (e.g., "realms: ALL" or "realms: EU05, GB").
  * @param {string} instanceType - Instance type (sandbox, development, staging, production)
- * @returns {Array<string>|null} Array of preference IDs or null if file doesn't exist
+ * @returns {{ allowed: Array<{id: string, realms: string[]}> | null, blocked: string[] } | null}
  */
 export function loadPreferencesForDeletion(instanceType) {
     const resultsDir = ensureResultsDir(IDENTIFIERS.ALL_REALMS, instanceType);
@@ -54,11 +55,28 @@ export function loadPreferencesForDeletion(instanceType) {
         }
 
         if (inPreferenceSection) {
-            // Extract preference ID (strip metadata after "  |  ")
-            const prefId = trimmed.split('  |  ')[0].trim();
-            if (prefId) {
-                preferences.push(prefId);
+            // Split on metadata separator "  |  "
+            const parts = trimmed.split('  |  ');
+            const prefId = parts[0].trim();
+
+            if (!prefId) {
+                continue;
             }
+
+            // Extract realm tags from metadata parts
+            let realms = [REALM_TAGS.ALL];
+            for (const part of parts.slice(1)) {
+                const realmMatch = part.trim().match(/^realms:\s*(.+)$/i);
+                if (realmMatch) {
+                    const realmStr = realmMatch[1].trim();
+                    realms = realmStr === REALM_TAGS.ALL
+                        ? [REALM_TAGS.ALL]
+                        : realmStr.split(',').map(r => r.trim()).filter(Boolean);
+                    break;
+                }
+            }
+
+            preferences.push({ id: prefId, realms });
         }
     }
 
@@ -67,9 +85,44 @@ export function loadPreferencesForDeletion(instanceType) {
     }
 
     // Safety net: filter out any blacklisted preferences
-    const { allowed, blocked } = filterBlacklisted(preferences);
+    const allIds = preferences.map(p => p.id);
+    const { allowed: allowedIds, blocked } = filterBlacklisted(allIds);
 
-    return { allowed: allowed.length > 0 ? allowed : null, blocked };
+    if (allowedIds.length === 0) {
+        return { allowed: null, blocked };
+    }
+
+    const allowedSet = new Set(allowedIds);
+    const allowed = preferences.filter(p => allowedSet.has(p.id));
+
+    return { allowed, blocked };
+}
+
+/**
+ * Build a per-realm preference map from loaded preference data and selected realms.
+ * Maps each selected realm to the list of preference IDs that should be deleted from it.
+ * @param {Array<{id: string, realms: string[]}>} preferenceData - Realm-tagged preference data
+ * @param {string[]} selectedRealms - Realms selected by the user for deletion
+ * @returns {Map<string, string[]>} Map of realm → preference IDs to delete from that realm
+ */
+export function buildRealmPreferenceMap(preferenceData, selectedRealms) {
+    const realmMap = new Map();
+
+    for (const realm of selectedRealms) {
+        realmMap.set(realm, []);
+    }
+
+    for (const { id, realms } of preferenceData) {
+        const isAllRealms = realms.length === 1 && realms[0] === REALM_TAGS.ALL;
+
+        for (const realm of selectedRealms) {
+            if (isAllRealms || realms.includes(realm)) {
+                realmMap.get(realm).push(id);
+            }
+        }
+    }
+
+    return realmMap;
 }
 
 /**
