@@ -219,6 +219,10 @@ export async function createRealmBackup({
     }
 
     console.log(`${LOG_PREFIX.INFO} Backup created: ${result.outputPath}`);
+    console.log(
+        `   Parsed deletion candidates: ${result.stats.parsedUniqueIds}`
+        + ` unique (${result.stats.parsedInputIds} listed)`
+    );
     console.log(`   Total attributes: ${result.stats.total}`);
     console.log(`   Groups added: ${result.stats.groups}`);
     console.log(`   Preferences with site values: ${result.stats.withValues}\n`);

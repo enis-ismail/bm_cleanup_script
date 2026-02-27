@@ -1,10 +1,4 @@
 {
   "description": "",
-  "whitelist": [
-    {
-      "type": "exact",
-      "id": "ThisTestAttribute",
-      "reason": "testing"
-    }
-  ]
+  "whitelist": []
 }

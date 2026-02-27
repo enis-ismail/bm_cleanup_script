@@ -60,34 +60,39 @@ function createLogger(verbose = true) {
  */
 function parseUnusedPreferences(filePath) {
     const content = fs.readFileSync(filePath, 'utf-8');
-    const lines = content.split('\n');
-
-    const sectionMarkers = [
-        '--- Preference IDs ---',
-        '--- Preferences for Deletion ---'
-    ];
-    const startIdx = lines.findIndex(line =>
-        sectionMarkers.some(marker => line.includes(marker))
-    );
-
+    const lines = content.split(/\r?\n/);
     const prefIds = [];
-    if (startIdx !== -1) {
-        for (let i = startIdx + 1; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (line && !line.startsWith('---')) {
-                prefIds.push(line);
-            }
-        }
-        return prefIds;
-    }
+    let inDeletionSection = false;
 
-    for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('---')) {
+    for (const rawLine of lines) {
+        const line = rawLine.trim();
+
+        if (!line) {
             continue;
         }
-        if (/^[A-Za-z0-9_]+$/.test(trimmed)) {
-            prefIds.push(trimmed);
+
+        const isPriorityHeader = line.startsWith('--- [P');
+        const isLegacyDeletionHeader = line === '--- Preferences for Deletion ---'
+            || line === '--- Preference IDs ---';
+
+        if (isPriorityHeader || isLegacyDeletionHeader) {
+            inDeletionSection = true;
+            continue;
+        }
+
+        if (line === '--- Blacklisted Preferences (Protected) ---') {
+            break;
+        }
+
+        if (!inDeletionSection || line.startsWith('---') || line.startsWith('=')) {
+            continue;
+        }
+
+        // New format: "PreferenceID  |  realms: ALL"
+        // Legacy format: "PreferenceID"
+        const preferenceId = line.split('  |  ')[0].trim();
+        if (preferenceId) {
+            prefIds.push(preferenceId);
         }
     }
 
@@ -365,6 +370,7 @@ async function generate(userConfig = {}) {
     try {
         logger.section('📋 Reading unused preferences...');
         const unusedPrefIds = parseUnusedPreferences(config.unusedPreferencesFile);
+        const uniqueUnusedPrefIds = [...new Set(unusedPrefIds)];
         logger.info(`Found ${unusedPrefIds.length} unused preference IDs`);
 
         logger.section('📖 Reading CSV data...');
@@ -413,7 +419,9 @@ async function generate(userConfig = {}) {
                 fromCsv: csvMatches,
                 minimal,
                 groups: result.attribute_groups.length,
-                withValues: Object.keys(result.site_values).length
+                withValues: Object.keys(result.site_values).length,
+                parsedInputIds: unusedPrefIds.length,
+                parsedUniqueIds: uniqueUnusedPrefIds.length
             },
             outputPath: config.outputFile
         };

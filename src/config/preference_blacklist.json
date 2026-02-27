@@ -7,19 +7,29 @@
       "reason": "Required for Adyen payment integration"
     },
     {
-      "pattern": "c_klarna*",
+      "pattern": "klarna*",
       "type": "wildcard",
       "reason": "Required for Klarna payment integration"
     },
     {
-      "pattern": "c_paypal*",
+      "pattern": "paypal*",
       "type": "wildcard",
       "reason": "Required for PayPal payment integration"
     },
     {
-      "pattern": "c_slas*",
+      "pattern": "slas*",
       "type": "wildcard",
       "reason": "Required for SLAS authentication"
+    },
+    {
+      "pattern": "paazl*",
+      "type": "wildcard",
+      "reason": "Required for Paazl payment integration"
+    },
+        {
+      "pattern": "payment*",
+      "type": "wildcard",
+      "reason": "Required for payment integration"
     }
   ]
 }
