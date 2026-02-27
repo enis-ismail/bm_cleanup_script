@@ -14,16 +14,19 @@ import {
 import { startTimer } from '../../helpers/timer.js';
 import { RealmProgressDisplay } from '../../scripts/loggingScript/progressDisplay.js';
 import {
-    objectTypePrompt,
-    scopePrompts,
     repositoryPrompt,
-    includeDefaultsPrompt,
     resolveRealmScopeSelection,
     instanceTypePrompt,
     confirmPreferenceDeletionPrompt,
     runAnalyzePreferencesPrompt,
     realmPrompt,
-    promptBackupCachePreference
+    promptBackupCachePreference,
+    confirmRestoreAfterDeletionPrompt,
+    confirmProceedRestorePrompt,
+    overwriteBackupsPrompt,
+    refreshMetadataPrompt,
+    applyBackupCorrectionsPrompt,
+    selectRealmsForInstancePrompt
 } from '../../commands/prompts/index.js';
 import {
     LOG_PREFIX, DIRECTORIES, IDENTIFIERS, FILE_PATTERNS, ANALYSIS_STEPS
@@ -121,17 +124,14 @@ async function analyzePreferences() {
         return;
     }
 
-    const answers = await inquirer.prompt([
-        ...objectTypePrompt(IDENTIFIERS.SITE_PREFERENCES),
-        ...scopePrompts(),
-        ...includeDefaultsPrompt()
-    ]);
+    // Hardcoded defaults — objectType is always SitePreferences,
+    // scope is always all sites, and defaults are always included
+    const objectType = IDENTIFIERS.SITE_PREFERENCES;
+    const scope = 'all';
+    const siteId = undefined;
+    const includeDefaults = true;
 
-    const { objectType, scope, siteId, includeDefaults } = answers;
-
-    const useCachedBackup = includeDefaults
-        ? await promptBackupCachePreference(realmsToProcess, objectType)
-        : false;
+    const useCachedBackup = await promptBackupCachePreference(realmsToProcess, objectType);
 
     // --- STEP 2: Backup, Fetch & Summarize ---
     logSectionTitle('STEP 2: Backup, Fetch & Summarize Preferences');
@@ -307,8 +307,16 @@ async function analyzePreferences() {
     logSectionTitle('STEP 5: Finding Preference Usage in Cartridges');
 
     if (repositoryPath && realmsProcessed.length > 0) {
-        const firstRealmInstanceType = getInstanceType(realmsProcessed[0]);
         const repoName = path.basename(repositoryPath);
+        const realmsByInstanceType = new Map();
+
+        for (const realm of realmsProcessed) {
+            const instanceType = getInstanceType(realm);
+            if (!realmsByInstanceType.has(instanceType)) {
+                realmsByInstanceType.set(instanceType, []);
+            }
+            realmsByInstanceType.get(instanceType).push(realm);
+        }
 
         const scanDisplay = new RealmProgressDisplay(250);
         const scanStep = `scan_${Date.now()}`;
@@ -331,18 +339,42 @@ async function analyzePreferences() {
             );
         };
 
-        const origLog = console.log;
-        console.log = () => {};
         try {
-            await findAllActivePreferencesUsage(repositoryPath, {
-                instanceTypeOverride: firstRealmInstanceType,
-                progressCallback: scanCallback,
-                realmFilter: realmsProcessed
-            });
+            for (const [instanceType, realmsForType] of realmsByInstanceType.entries()) {
+                console.log(
+                    `${LOG_PREFIX.INFO} Creating deletion list for instance type `
+                    + `${instanceType} (${realmsForType.length} realm(s))...`
+                );
+
+                await findAllActivePreferencesUsage(repositoryPath, {
+                    instanceTypeOverride: instanceType,
+                    progressCallback: scanCallback,
+                    realmFilter: realmsForType
+                });
+
+                const deletionFilePath = path.join(
+                    process.cwd(),
+                    DIRECTORIES.RESULTS,
+                    instanceType,
+                    IDENTIFIERS.ALL_REALMS,
+                    `${instanceType}${FILE_PATTERNS.PREFERENCES_FOR_DELETION}`
+                );
+
+                if (fs.existsSync(deletionFilePath)) {
+                    console.log(`${LOG_PREFIX.INFO} Deletion list created: ${deletionFilePath}`);
+                } else {
+                    console.log(
+                        `${LOG_PREFIX.WARNING} No deletion list created for ${instanceType}. `
+                        + 'This usually means no candidates were found after safety filters.'
+                    );
+                }
+            }
 
             scanDisplay.completeStep('codeScanner', scanStep);
+        } catch (scanError) {
+            scanDisplay.failStep('codeScanner', scanStep);
+            throw scanError;
         } finally {
-            console.log = origLog;
             scanDisplay.finish();
         }
     }
@@ -471,12 +503,7 @@ async function removePreferences(options = {}) {
 
     // --- STEP 8: Optional Restore ---
     logSectionTitle('STEP 8: Restore from Backups (Optional)');
-    const restoreAnswers = await inquirer.prompt([{
-        type: 'confirm',
-        name: 'restore',
-        message: 'Would you like to restore the preferences from backups?',
-        default: false
-    }]);
+    const restoreAnswers = await inquirer.prompt(confirmRestoreAfterDeletionPrompt());
 
     if (!restoreAnswers.restore) {
         console.log(`\n${LOG_PREFIX.INFO} Restore skipped. Deleted preferences remain removed.\n`);
@@ -504,13 +531,7 @@ async function restorePreferences() {
         return;
     }
 
-    const realmAnswers = await inquirer.prompt([{
-        type: 'list',
-        name: 'realm',
-        message: 'Select realm to restore:',
-        choices: availableRealms
-    }]);
-
+    const realmAnswers = await inquirer.prompt(realmPrompt());
     const realm = realmAnswers.realm;
     const objectType = IDENTIFIERS.SITE_PREFERENCES;
     const instanceType = getInstanceType(realm);
@@ -529,12 +550,7 @@ async function restorePreferences() {
 
     console.log(`${LOG_PREFIX.INFO} Found backup: ${path.basename(backupFilePath)}\n`);
 
-    const confirmAnswers = await inquirer.prompt([{
-        type: 'confirm',
-        name: 'proceed',
-        message: 'Proceed with restoration?',
-        default: false
-    }]);
+    const confirmAnswers = await inquirer.prompt(confirmProceedRestorePrompt());
 
     if (!confirmAnswers.proceed) {
         console.log(`\n${LOG_PREFIX.INFO} Restore cancelled.\n`);
@@ -594,12 +610,48 @@ async function backupSitePreferences() {
  *   Realm-tagged preference data and flat ID list, or null if unavailable
  */
 async function loadOrGenerateDeletionList(instanceType, timer) {
+    const deletionFilePath = getDeletionFilePath(instanceType);
     let result = loadPreferencesForDeletion(instanceType);
     let preferenceData = result?.allowed || null;
+    let blockedByBlacklist = result?.blocked || [];
+    let skippedByWhitelist = result?.skippedByWhitelist || [];
+    let deletionFileExists = fs.existsSync(deletionFilePath);
+
+    if (skippedByWhitelist.length > 0) {
+        console.log(`${LOG_PREFIX.INFO} Whitelist skipped ${skippedByWhitelist.length} preference(s).`);
+    }
+
+    if (blockedByBlacklist.length > 0) {
+        console.log(`${LOG_PREFIX.INFO} Blacklist protected ${blockedByBlacklist.length} preference(s).`);
+    }
 
     if (preferenceData) {
         const preferenceIds = preferenceData.map(p => p.id);
         return { preferenceData, preferenceIds };
+    }
+
+    if (result && !preferenceData) {
+        console.log(
+            `\n${LOG_PREFIX.WARNING} Deletion list found for '${instanceType}',`
+            + ' but no preferences are currently eligible after whitelist/blacklist filters.\n'
+        );
+        if (skippedByWhitelist.length > 0) {
+            console.log(
+                `${LOG_PREFIX.INFO} Review whitelist entries with "list-whitelist"`
+                + ' or remove restrictions before running remove-preferences.\n'
+            );
+        }
+        logRuntime(timer);
+        return null;
+    }
+
+    if (deletionFileExists && !result) {
+        console.log(
+            `\n${LOG_PREFIX.WARNING} Deletion file exists but contains no parsable preference entries:`
+            + ` ${deletionFilePath}\n`
+        );
+        logRuntime(timer);
+        return null;
     }
 
     console.log(`\n${LOG_PREFIX.WARNING} Preferences for deletion file not found`
@@ -623,6 +675,42 @@ async function loadOrGenerateDeletionList(instanceType, timer) {
 
     result = loadPreferencesForDeletion(instanceType);
     preferenceData = result?.allowed || null;
+    blockedByBlacklist = result?.blocked || [];
+    skippedByWhitelist = result?.skippedByWhitelist || [];
+    deletionFileExists = fs.existsSync(deletionFilePath);
+
+    if (skippedByWhitelist.length > 0) {
+        console.log(`${LOG_PREFIX.INFO} Whitelist skipped ${skippedByWhitelist.length} preference(s).`);
+    }
+
+    if (blockedByBlacklist.length > 0) {
+        console.log(`${LOG_PREFIX.INFO} Blacklist protected ${blockedByBlacklist.length} preference(s).`);
+    }
+
+    if (result && !preferenceData) {
+        console.log(
+            `\n${LOG_PREFIX.WARNING} Deletion list found for '${instanceType}',`
+            + ' but no preferences are currently eligible after whitelist/blacklist filters.\n'
+        );
+        if (skippedByWhitelist.length > 0) {
+            console.log(
+                `${LOG_PREFIX.INFO} Review whitelist entries with "list-whitelist"`
+                + ' or remove restrictions before running remove-preferences.\n'
+            );
+        }
+        logRuntime(timer);
+        return null;
+    }
+
+    if (deletionFileExists && !result) {
+        console.log(
+            `\n${LOG_PREFIX.WARNING} Deletion file exists but contains no parsable preference entries:`
+            + ` ${deletionFilePath}\n`
+        );
+        logRuntime(timer);
+        return null;
+    }
+
     if (!preferenceData) {
         console.log(`\n${LOG_PREFIX.WARNING} Preferences file still not found.`
             + ' Please check the analyze-preferences output.\n');
@@ -645,8 +733,9 @@ async function reviewPreferencesInEditor(instanceType, timer) {
         const filePath = await openPreferencesForDeletionInEditor(instanceType);
         console.log(`${LOG_PREFIX.INFO} Opened preferences file in VS Code: ${filePath}\n`);
 
-        // Show blacklist reminder right after opening the file
-        const { listBlacklist } = await import('../../helpers/blacklistHelper.js');
+        // Show blacklist/whitelist reminders right after opening the file
+        const { listBlacklist } = await import('../setup/helpers/blacklistHelper.js');
+        const { listWhitelist } = await import('../setup/helpers/whitelistHelper.js');
         const entries = listBlacklist();
         if (entries.length > 0) {
             const yellow = '\x1b[33m';
@@ -657,6 +746,18 @@ async function reviewPreferencesInEditor(instanceType, timer) {
                 console.log(`${yellow}     • [${entry.type}] ${key}${reset}`);
             }
             console.log(`${yellow}     Manage with: list-blacklist, add-to-blacklist, remove-from-blacklist${reset}\n`);
+        }
+
+        const whitelistEntries = listWhitelist();
+        if (whitelistEntries.length > 0) {
+            const cyan = '\x1b[36m';
+            const reset = '\x1b[0m';
+            console.log(`${cyan}  ℹ  Whitelist active (only matching preferences are eligible):${reset}`);
+            for (const entry of whitelistEntries) {
+                const key = entry.type === 'exact' ? (entry.id || entry.pattern) : entry.pattern;
+                console.log(`${cyan}     • [${entry.type}] ${key}${reset}`);
+            }
+            console.log(`${cyan}     Manage with: list-whitelist, add-to-whitelist, remove-from-whitelist${reset}\n`);
         }
 
         return true;
@@ -731,13 +832,7 @@ async function selectRealmsForInstance(instanceType) {
         return null;
     }
 
-    const realmSelection = await inquirer.prompt([{
-        name: 'realms',
-        message: 'Select realms to process:',
-        type: 'checkbox',
-        choices: realmsForInstance,
-        default: realmsForInstance
-    }]);
+    const realmSelection = await inquirer.prompt(selectRealmsForInstancePrompt(instanceType));
 
     const selected = realmSelection.realms;
     if (!selected || selected.length === 0) {
@@ -780,13 +875,9 @@ async function handleBackupCreation(realmsToProcess, objectType, instanceType, p
     let realmsToBackup = withoutBackups;
 
     if (withBackups.length > 0) {
-        const overwriteAnswers = await inquirer.prompt([{
-            type: 'confirm',
-            name: 'createNew',
-            message: `${withBackups.length} realm(s) already have backup files.`
-                + ' Create new ones anyway?',
-            default: false
-        }]);
+        const overwriteAnswers = await inquirer.prompt(
+            overwriteBackupsPrompt(withBackups.length)
+        );
 
         if (overwriteAnswers.createNew) {
             console.log(`${LOG_PREFIX.INFO} Will create new backups for all realms.\n`);
@@ -803,12 +894,7 @@ async function handleBackupCreation(realmsToProcess, objectType, instanceType, p
         return true;
     }
 
-    const refreshAnswers = await inquirer.prompt([{
-        type: 'confirm',
-        name: 'refreshMetadata',
-        message: 'Trigger backup job and download latest metadata for realms needing backup?',
-        default: false
-    }]);
+    const refreshAnswers = await inquirer.prompt(refreshMetadataPrompt());
 
     const { successCount } = await createBackupsForRealms({
         realmsToBackup,
@@ -846,12 +932,7 @@ async function loadAndValidateBackup(backupFilePath) {
         console.log(`${LOG_PREFIX.WARNING} Found issues in backup file:\n`);
         validation.corrections.forEach(msg => console.log(msg));
 
-        const correctAnswers = await inquirer.prompt([{
-            type: 'confirm',
-            name: 'applyCorrections',
-            message: '\nApply these corrections before restore?',
-            default: true
-        }]);
+        const correctAnswers = await inquirer.prompt(applyBackupCorrectionsPrompt());
 
         if (correctAnswers.applyCorrections) {
             backup = validation.backup;

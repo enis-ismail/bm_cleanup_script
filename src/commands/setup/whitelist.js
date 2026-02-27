@@ -1,50 +1,50 @@
 /**
- * Blacklist CLI Commands
- * Manage the preference blacklist (add, remove, list)
+ * Whitelist CLI Commands
+ * Manage the preference whitelist (add, remove, list)
  */
 
 import inquirer from 'inquirer';
 import {
-    addToBlacklist,
-    removeFromBlacklist,
-    listBlacklist
-} from './helpers/blacklistHelper.js';
+    addToWhitelist,
+    removeFromWhitelist,
+    listWhitelist
+} from './helpers/whitelistHelper.js';
 import { LOG_PREFIX } from '../../config/constants.js';
 
 /**
- * Register blacklist management commands
+ * Register whitelist management commands
  * @param {Command} program - Commander.js program instance
  */
-export function registerBlacklistCommands(program) {
+export function registerWhitelistCommands(program) {
     program
-        .command('add-to-blacklist')
-        .description('Add a preference pattern to the blacklist (protected from deletion)')
-        .action(addToBlacklistCommand);
+        .command('add-to-whitelist')
+        .description('Add a preference pattern to the whitelist (only these can be tested/deleted)')
+        .action(addToWhitelistCommand);
 
     program
-        .command('remove-from-blacklist')
-        .description('Remove a preference pattern from the blacklist')
-        .action(removeFromBlacklistCommand);
+        .command('remove-from-whitelist')
+        .description('Remove a preference pattern from the whitelist')
+        .action(removeFromWhitelistCommand);
 
     program
-        .command('list-blacklist')
-        .description('Show all blacklisted preference patterns')
-        .action(listBlacklistCommand);
+        .command('list-whitelist')
+        .description('Show all whitelisted preference patterns')
+        .action(listWhitelistCommand);
 }
 
 // ============================================================================
-// ADD TO BLACKLIST
+// ADD TO WHITELIST
 // ============================================================================
 
-async function addToBlacklistCommand() {
+async function addToWhitelistCommand() {
     const typeAnswer = await inquirer.prompt([{
         type: 'list',
         name: 'type',
-        message: 'What type of blacklist entry?',
+        message: 'What type of whitelist entry?',
         choices: [
             { name: 'Exact match (single preference ID)', value: 'exact' },
-            { name: 'Wildcard pattern (e.g., c_adyen*)', value: 'wildcard' },
-            { name: 'Regex pattern (e.g., c_(adyen|klarna).*)', value: 'regex' }
+            { name: 'Wildcard pattern (e.g., c_test*)', value: 'wildcard' },
+            { name: 'Regex pattern (e.g., c_(test|pilot).*)', value: 'regex' }
         ]
     }]);
 
@@ -62,7 +62,7 @@ async function addToBlacklistCommand() {
         {
             type: 'input',
             name: 'reason',
-            message: 'Reason for blacklisting (optional):',
+            message: 'Reason for whitelisting (optional):',
             default: ''
         }
     ]);
@@ -78,28 +78,28 @@ async function addToBlacklistCommand() {
         entry.pattern = answers.pattern.trim();
     }
 
-    const added = addToBlacklist(entry);
+    const added = addToWhitelist(entry);
 
     if (added) {
         const display = entry.id || entry.pattern;
-        console.log(`${LOG_PREFIX.INFO} Added to blacklist: ${display} (${typeAnswer.type})`);
+        console.log(`${LOG_PREFIX.INFO} Added to whitelist: ${display} (${typeAnswer.type})`);
         if (answers.reason) {
             console.log(`  Reason: ${answers.reason}`);
         }
     } else {
-        console.log(`${LOG_PREFIX.WARNING} Entry already exists in blacklist`);
+        console.log(`${LOG_PREFIX.WARNING} Entry already exists in whitelist`);
     }
 }
 
 // ============================================================================
-// REMOVE FROM BLACKLIST
+// REMOVE FROM WHITELIST
 // ============================================================================
 
-async function removeFromBlacklistCommand() {
-    const entries = listBlacklist();
+async function removeFromWhitelistCommand() {
+    const entries = listWhitelist();
 
     if (entries.length === 0) {
-        console.log('Blacklist is empty — nothing to remove.');
+        console.log('Whitelist is empty — nothing to remove.');
         return;
     }
 
@@ -121,7 +121,7 @@ async function removeFromBlacklistCommand() {
     const { confirm } = await inquirer.prompt([{
         type: 'confirm',
         name: 'confirm',
-        message: `Remove "${selected}" from blacklist?`,
+        message: `Remove "${selected}" from whitelist?`,
         default: true
     }]);
 
@@ -130,30 +130,30 @@ async function removeFromBlacklistCommand() {
         return;
     }
 
-    const removed = removeFromBlacklist(selected);
+    const removed = removeFromWhitelist(selected);
 
     if (removed) {
-        console.log(`${LOG_PREFIX.INFO} Removed from blacklist: ${selected}`);
+        console.log(`${LOG_PREFIX.INFO} Removed from whitelist: ${selected}`);
     } else {
-        console.log(`${LOG_PREFIX.ERROR} Entry not found in blacklist`);
+        console.log(`${LOG_PREFIX.ERROR} Entry not found in whitelist`);
     }
 }
 
 // ============================================================================
-// LIST BLACKLIST
+// LIST WHITELIST
 // ============================================================================
 
-function listBlacklistCommand() {
-    const entries = listBlacklist();
+function listWhitelistCommand() {
+    const entries = listWhitelist();
 
     if (entries.length === 0) {
-        console.log('Blacklist is empty. No preferences are protected from deletion.');
-        console.log('Use "add-to-blacklist" to add entries.\n');
+        console.log('Whitelist is empty. All preferences are eligible for analysis.');
+        console.log('Use "add-to-whitelist" to restrict analysis to specific preferences.\n');
         return;
     }
 
     console.log('\n================================================================================');
-    console.log('PREFERENCE BLACKLIST');
+    console.log('PREFERENCE WHITELIST');
     console.log('================================================================================\n');
     console.log(`Total entries: ${entries.length}\n`);
 

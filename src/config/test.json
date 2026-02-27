@@ -1,0 +1,101 @@
+{
+					"resource_id": "/site_preferences/preference_groups/*/*/preference_search",
+					"methods": [
+						"post"
+					],
+					"read_attributes": "(**)",
+					"write_attributes": "(**)"
+				},
+				{
+					"resource_id": "/sites",
+					"methods": [
+						"get"
+					],
+					"read_attributes": "(**)",
+					"write_attributes": "(**)"
+				},
+				{
+					"resource_id": "/sites/*",
+					"methods": [
+						"get"
+					],
+					"read_attributes": "(**)",
+					"write_attributes": "(**)"
+				},
+				{
+					"resource_id": "/system_object_definitions/*",
+					"methods": [
+						"get"
+					],
+					"read_attributes": "(**)",
+					"write_attributes": "(**)"
+				},
+				{
+					"resource_id": "/system_object_definitions/*/attribute_definitions",
+					"methods": [
+						"get"
+					],
+					"read_attributes": "(**)",
+					"write_attributes": "(**)"
+				},
+				{
+					"resource_id": "/system_object_definitions/*/attribute_definitions/*",
+					"methods": [
+						"get",
+						"put",
+						"delete"
+					],
+					"read_attributes": "(**)",
+					"write_attributes": "(**)"
+				},
+				{
+					"resource_id": "/system_object_definitions/*/attribute_groups",
+					"methods": [
+						"get"
+					],
+					"read_attributes": "(**)",
+					"write_attributes": "(**)"
+				},
+				{
+					"resource_id": "/system_object_definitions/*/attribute_groups/*",
+					"methods": [
+						"get"
+					],
+					"read_attributes": "(**)",
+					"write_attributes": "(**)"
+				},
+				{
+					"resource_id": "/system_object_definitions/*/attribute_groups/*/attribute_definitions/*",
+					"methods": [
+						"delete",
+						"put"
+					],
+					"read_attributes": "()",
+					"write_attributes": "()"
+				},
+				{
+					"resource_id": "/sites/*/site_preferences/preference_groups/*/*",
+					"methods": [
+						"get",
+						"patch"
+					],
+					"read_attributes": "(**)",
+					"write_attributes": "(**)"
+				},
+				{
+					"resource_id": "/jobs/*/executions",
+					"methods": [
+						"post",
+						"get"
+					],
+					"read_attributes": "(**)",
+					"write_attributes": "(**)"
+				},
+				{
+					"resource_id": "/jobs/*/executions/*",
+					"methods": [
+						"get"
+					],
+					"read_attributes": "(**)",
+					"write_attributes": "(**)"
+				}

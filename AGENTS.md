@@ -26,7 +26,7 @@ This document defines the AI agents and their capabilities for the Cleanup-Scrip
   - [src/api.js](src/api.js)
   - [src/helpers/backupJob.js](src/helpers/backupJob.js)
   - [src/helpers/batch.js](src/helpers/batch.js)
-  - [ocapi_config.json](ocapi_config.json)
+  - [src/config/ocapi_config.json](src/config/ocapi_config.json)
 
 - **Key Functions:**
   - `getAllSites()`, `getSiteById()` - Site retrieval
@@ -142,7 +142,7 @@ Located in [test-runs/](test-runs/):
 ### Configuration Files
 - [config.json](config.json) - Active project configuration
 - [config.example.json](config.example.json) - Configuration template
-- [ocapi_config.json](ocapi_config.json) - OCAPI endpoint settings
+- [src/config/ocapi_config.json](src/config/ocapi_config.json) - OCAPI endpoint settings
 
 ### Environment Requirements
 - **Node Engine:** >=16.0.0 (from package.json)

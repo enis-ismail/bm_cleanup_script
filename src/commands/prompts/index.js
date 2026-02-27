@@ -6,19 +6,25 @@ export {
     selectRealmToRemovePrompt,
     confirmRealmRemovalPrompt,
     instanceTypePrompt,
-    realmByInstanceTypePrompt
+    realmByInstanceTypePrompt,
+    selectRealmsForInstancePrompt
 } from './realmPrompts.js';
 
 export {
-    objectTypePrompt,
-    scopePrompts,
-    includeDefaultsPrompt,
     preferenceIdPrompt,
     confirmPreferenceDeletionPrompt,
     runAnalyzePreferencesPrompt,
+    confirmRestoreAfterDeletionPrompt,
+    confirmProceedRestorePrompt,
+    overwriteBackupsPrompt,
+    refreshMetadataPrompt,
+    applyBackupCorrectionsPrompt,
     useExistingBackupPrompt,
     useExistingBackupsForAllRealmsPrompt,
-    promptBackupCachePreference
+    promptBackupCachePreference,
+    objectTypePrompt,
+    scopePrompts,
+    includeDefaultsPrompt
 } from './preferencePrompts.js';
 
 export {

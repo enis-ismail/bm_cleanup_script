@@ -1,6 +1,11 @@
 ﻿import { LOG_PREFIX, IDENTIFIERS } from '../../../config/constants.js';
 import { buildCreateSafeBody } from '../../../io/backupUtils.js';
-import { updateAttributeDefinitionById, assignAttributeToGroup, patchSitePreferencesGroup } from '../../../api/api.js';
+import {
+    updateAttributeDefinitionById,
+    assignAttributeToGroup,
+    createOrUpdateAttributeGroup,
+    patchSitePreferencesGroup
+} from '../../../api/api.js';
 
 /**
  * Restore a single preference: definition, group assignments, and site values
@@ -22,7 +27,9 @@ export async function restorePreference({ preferenceId, backup, objectType, inst
 
     // Restore attribute definition
     const safeRestoreBody = buildCreateSafeBody(attributeToRestore);
-    const restored = await updateAttributeDefinitionById(objectType, preferenceId, 'put', safeRestoreBody, realm);
+    const restored = await updateAttributeDefinitionById(
+        objectType, preferenceId, 'put', safeRestoreBody, realm, instanceType
+    );
 
     if (!restored) {
         console.log(`  ${LOG_PREFIX.ERROR} Failed to restore: ${preferenceId}`);
@@ -31,13 +38,31 @@ export async function restorePreference({ preferenceId, backup, objectType, inst
 
     console.log(`  ${LOG_PREFIX.INFO} Restored: ${preferenceId}`);
 
-    // Restore group assignments
+    // Restore group assignments (ensure group exists, then assign attribute)
     const groupsToRestore = backup.attribute_groups.filter(group =>
         group.attributes.includes(preferenceId)
     );
 
     for (const group of groupsToRestore) {
-        const assigned = await assignAttributeToGroup(objectType, group.group_id, preferenceId, realm);
+        // Ensure the group exists before assigning the attribute
+        const groupPayload = {
+            display_name: { default: group.group_display_name || group.group_id }
+        };
+        const groupCreated = await createOrUpdateAttributeGroup(
+            objectType, group.group_id, groupPayload, realm, instanceType
+        );
+
+        if (!groupCreated) {
+            console.log(
+                `    ${LOG_PREFIX.ERROR} Failed to ensure group exists: `
+                + `${group.group_id} — skipping assignment`
+            );
+            continue;
+        }
+
+        const assigned = await assignAttributeToGroup(
+            objectType, group.group_id, preferenceId, realm, instanceType
+        );
         if (assigned) {
             console.log(`    ${LOG_PREFIX.INFO} Assigned to group: ${group.group_id}`);
         } else {

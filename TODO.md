@@ -64,14 +64,15 @@
 ### Priority 1: Complete Removal Implementation
 
 **A. Implement OCAPI Preference Deletion**
-- [ ] Research correct OCAPI endpoint for preference deletion
+- [x] Research correct OCAPI endpoint for preference deletion
   - Document API endpoint and parameters
   - Verify permissions required
   - Test on sandbox first
 - [x] Add deletion logic to remove-preferences Step 4
-- [ ] Implement error handling and rollback on failure
+- [x] Implement error handling and rollback on failure
 - [x] Add dry-run mode for testing without actual deletion
-- [ ] Log each deletion attempt (success/failure)
+- [x] Log each deletion attempt (success/failure)
+- [x] Implement OCAPI PUT method override (POST + x-dw-http-method-override header + ?method=PUT query param)
 
 **B. Backup & Restore System**
 - [x] Implement restore function from backup JSON (restoreHelper.js)
@@ -239,12 +240,12 @@ XML (`backup_downloads/`) already contains all of this data in one file.
 ## 📂 File Structure Progress
 
 ### Helper Files (src/helpers/)
-- [x] `api.js` - OCAPI integration
+- [x] `api.js` - OCAPI integration (with PUT method override)
 - [x] `backupJob.js` - Backup job triggering
 - [x] `batch.js` - Batch processing with delays
 - [x] `preferenceHelper.js` - Preference processing
 - [x] `preferenceUsage.js` - Code scanning
-- [x] `preferenceRemoval.js` - Deletion workflow (partial)
+- [x] `preferenceRemoval.js` - Deletion workflow
 - [x] `preferenceBackup.js` - Backup generation
 - [x] `summarize.js` - Data aggregation
 - [x] `csv.js` - CSV generation
@@ -257,8 +258,15 @@ XML (`backup_downloads/`) already contains all of this data in one file.
 - [x] `restoreHelper.js` - Backup restore logic
 - [ ] `metaXmlHelper.js` - Meta.xml parsing (future)
 - [x] `blacklistHelper.js` - Preference blacklist management
+- [x] `whitelistHelper.js` - Preference whitelist management
 - [ ] `metadataManager.js` - Centralized metadata handling (future)
 - [ ] `gitHelper.js` - Git integration and automation (future)
+
+### Configuration Files (src/config/)
+- [x] `ocapi_config.json` - OCAPI endpoint definitions (single source of truth)
+- [x] `preference_blacklist.json` - Preferences protected from deletion
+- [x] `preference_whitelist.json` - Preferences allowed for targeted deletion
+- [x] `constants.js` - Application constants
 
 ### Directory Structure
 ```
@@ -350,9 +358,5 @@ Priority 3 (Analysis)  ←→  Priority 4 (Meta.xml)
 
 ---
 
-*Last Updated: February 17, 2026*
-*Maintained by development team*
-
-
-*Last Updated: February 17, 2026*
+*Last Updated: February 26, 2026*
 *Maintained by development team*

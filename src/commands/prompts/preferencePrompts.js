@@ -3,6 +3,81 @@ import { IDENTIFIERS, LOG_PREFIX, BACKUP_CONFIG } from '../../config/constants.j
 import { logSectionTitle } from '../../scripts/loggingScript/log.js';
 import { checkBackupStatusForRealms } from '../../io/backupUtils.js';
 
+export const confirmPreferenceDeletionPrompt = (count, dryRun = false) => ([
+    {
+        name: 'confirm',
+        message: dryRun
+            ? `Proceed with dry-run simulation for ${count} preferences? (no changes will be made)`
+            : `Are you sure you want to delete these ${count} preferences? This action cannot be undone.`,
+        type: 'confirm',
+        default: dryRun
+    }
+]);
+
+export const runAnalyzePreferencesPrompt = (instanceType) => ([
+    {
+        name: 'runAnalyze',
+        message: `Preferences for deletion file hasn't been generated yet for '${instanceType}'.`
+            + ' Would you like to run analyze-preferences to generate this file?',
+        type: 'confirm',
+        default: true
+    }
+]);
+
+export const confirmRestoreAfterDeletionPrompt = () => ([
+    {
+        type: 'confirm',
+        name: 'restore',
+        message: 'Would you like to restore the deleted preferences from backups?',
+        default: false
+    }
+]);
+
+export const confirmProceedRestorePrompt = () => ([
+    {
+        type: 'confirm',
+        name: 'proceed',
+        message: 'Proceed with restoration?',
+        default: false
+    }
+]);
+
+export const overwriteBackupsPrompt = (count) => ([
+    {
+        type: 'confirm',
+        name: 'createNew',
+        message: `${count} realm(s) already have today's backup. Create new ones anyway?`,
+        default: false
+    }
+]);
+
+export const refreshMetadataPrompt = () => ([
+    {
+        type: 'confirm',
+        name: 'refreshMetadata',
+        message: 'Download latest metadata from SFCC before creating backups?',
+        default: false
+    }
+]);
+
+export const applyBackupCorrectionsPrompt = () => ([
+    {
+        type: 'confirm',
+        name: 'applyCorrections',
+        message: 'Apply these corrections before restore?',
+        default: true
+    }
+]);
+
+export const preferenceIdPrompt = () => ([
+    {
+        name: 'preferenceId',
+        message: 'Preference ID to search for?',
+        validate: (input) => input && input.trim().length > 0 ? true : 'Preference ID is required'
+    }
+]);
+
+// Used by debug commands only — main analyze-preferences hardcodes these values
 export const objectTypePrompt = (defaultValue = IDENTIFIERS.SITE_PREFERENCES) => ([
     {
         name: 'objectType',
@@ -34,35 +109,6 @@ export const includeDefaultsPrompt = () => ([
         type: 'confirm',
         name: 'includeDefaults',
         message: 'Include default values? (slower)',
-        default: true
-    }
-]);
-
-export const preferenceIdPrompt = () => ([
-    {
-        name: 'preferenceId',
-        message: 'Preference ID to search for?',
-        validate: (input) => input && input.trim().length > 0 ? true : 'Preference ID is required'
-    }
-]);
-
-export const confirmPreferenceDeletionPrompt = (count, dryRun = false) => ([
-    {
-        name: 'confirm',
-        message: dryRun
-            ? `Proceed with dry-run simulation for ${count} preferences? (no changes will be made)`
-            : `Are you sure you want to delete these ${count} preferences? This action cannot be undone.`,
-        type: 'confirm',
-        default: dryRun
-    }
-]);
-
-export const runAnalyzePreferencesPrompt = (instanceType) => ([
-    {
-        name: 'runAnalyze',
-        message: `Preferences for deletion file hasn't been generated yet for '${instanceType}'.
-            Would you like to run analyze-preferences to generate this file?`,
-        type: 'confirm',
         default: true
     }
 ]);

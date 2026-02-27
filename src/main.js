@@ -4,6 +4,7 @@ import { registerPreferenceCommands } from './commands/preferences/preferences.j
 import { registerCartridgeCommands } from './commands/cartridges/cartridges.js';
 import { registerSetupCommands } from './commands/setup/setup.js';
 import { registerBlacklistCommands } from './commands/setup/blacklist.js';
+import { registerWhitelistCommands } from './commands/setup/whitelist.js';
 
 // ============================================================================
 // CLI ENTRYPOINT
@@ -38,6 +39,17 @@ registerSetupCommands(program);
 //   - list-blacklist: Show all blacklisted preference patterns
 
 registerBlacklistCommands(program);
+
+// ============================================================================
+// REGISTER WHITELIST COMMANDS
+// ============================================================================
+// Location: src/commands/setup/whitelist.js
+// Commands:
+//   - add-to-whitelist: Add a preference pattern to the whitelist
+//   - remove-from-whitelist: Remove a preference pattern from the whitelist
+//   - list-whitelist: Show all whitelisted preference patterns
+
+registerWhitelistCommands(program);
 
 // ============================================================================
 // REGISTER CARTRIDGE COMMANDS

@@ -3,10 +3,21 @@ import fs from 'fs';
 import fsPromises from 'fs/promises';
 import path from 'path';
 import { withLoadShedding, processBatch } from '../helpers/batch.js';
-import { getSandboxConfig } from '../config/helpers/helpers.js';
+import { getSandboxConfig, getInstanceType } from '../config/helpers/helpers.js';
+
+/**
+ * Resolve instance type: use explicit value if provided, otherwise look it up from config.
+ * @param {string} realm - Realm name
+ * @param {string} [instanceType] - Optional explicit instance type
+ * @returns {string} Resolved instance type
+ * @private
+ */
+function resolveInstanceType(realm, instanceType) {
+    return instanceType || getInstanceType(realm);
+}
 import { logError, logRateLimitCountdown } from '../scripts/loggingScript/log.js';
 import { loadCachedBackup } from '../io/backupUtils.js';
-import { getApiConfig } from '../config/constants.js';
+import { getApiConfig, LOG_PREFIX } from '../config/constants.js';
 
 /* eslint-disable no-undef */
 
@@ -31,6 +42,109 @@ function buildApiHeaders(token, ifMatch = null) {
         headers['If-Match'] = ifMatch;
     }
     return headers;
+}
+
+/**
+ * Transient error codes that justify an automatic retry
+ * @type {string[]}
+ * @private
+ */
+const RETRYABLE_CODES = ['ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT', 'EPIPE', 'EAI_AGAIN'];
+
+/**
+ * Execute an async function with automatic retry on transient network errors.
+ * Uses exponential back-off (1 s → 2 s → 4 s …).
+ * @param {Function} fn - Async function to execute
+ * @param {number} [maxRetries=2] - Maximum number of retries (0 = no retry)
+ * @returns {Promise<*>} Result of fn()
+ * @private
+ */
+async function withRetry(fn, maxRetries = 2) {
+    let lastError;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            return await fn();
+        } catch (error) {
+            lastError = error;
+            const code = error.code || error.cause?.code || '';
+            const isRetryable = RETRYABLE_CODES.includes(code);
+
+            if (!isRetryable || attempt >= maxRetries) {
+                throw error;
+            }
+
+            const delay = 1000 * Math.pow(2, attempt);
+            console.log(
+                `${LOG_PREFIX.WARNING} ${code} on attempt ${attempt + 1} — `
+                + `retrying in ${delay / 1000}s…`
+            );
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+    throw lastError;
+}
+
+/**
+ * Execute an OCAPI request method, using HTTP method override for logical PUT.
+ * B2C Commerce blocks direct PUT for staging/production; using POST +
+ * x-dw-http-method-override keeps calls portable across all environments.
+ * @param {string} url - Request URL
+ * @param {'patch'|'put'|'delete'} method - Logical HTTP method
+ * @param {Object|null} payload - Request payload (if applicable)
+ * @param {Object} headers - Request headers
+ * @param {string} instanceType - Instance type (sandbox, development, staging, production).
+ *   When 'sandbox' or 'development', uses direct PUT. When 'staging' or 'production',
+ *   applies POST + x-dw-http-method-override workaround.
+ * @returns {Promise<Object>} Axios response
+ * @private
+ */
+async function executeOcapiWrite(url, method, payload, headers, instanceType) {
+    // Staging / production block direct PUT – use POST + x-dw-http-method-override.
+    // Development / sandbox accept direct PUT so the override is unnecessary.
+    const needsOverride = ['staging', 'production'].includes(instanceType);
+
+    return withRetry(async () => {
+        const methodLower = method.toLowerCase();
+
+        if (methodLower === 'put') {
+            if (needsOverride) {
+                const urlObj = new URL(url);
+                urlObj.searchParams.set('method', 'PUT');
+
+                const overrideHeaders = {
+                    ...headers,
+                    'x-dw-http-method-override': 'PUT',
+                    'X-DW-HTTP-Method-Override': 'PUT'
+                };
+
+                const hasPayload = payload !== null && payload !== undefined;
+                const body = hasPayload ? payload : '';
+
+                if (!hasPayload) {
+                    overrideHeaders['Content-Length'] = '0';
+                }
+
+                return axios.post(urlObj.toString(), body, { headers: overrideHeaders });
+            }
+
+            // Direct PUT for development / sandbox
+            const config = { headers };
+            if (payload === null || payload === undefined) {
+                return axios.put(url, '', { ...config, headers: { ...headers, 'Content-Length': '0' } });
+            }
+            return axios.put(url, payload, config);
+        }
+
+        if (methodLower === 'patch') {
+            return axios.patch(url, payload, { headers });
+        }
+
+        if (methodLower === 'delete') {
+            return axios.delete(url, { headers });
+        }
+
+        throw new Error(`Unsupported write method: ${method}`);
+    });
 }
 
 /**
@@ -418,9 +532,14 @@ export async function getSitePreferences(
  * @param {string} objectType - SFCC system object type (e.g., "SitePreferences")
  * @param {string} attributeId - Attribute ID to retrieve
  * @param {Object} sandbox - Sandbox configuration object
+ * @param {Object} [progressInfo] - Optional progress tracking info
+ * @param {Object} [options] - Optional settings
+ * @param {boolean} [options.silent] - Suppress error logging (e.g. when 404 is expected)
  * @returns {Promise<Object|null>} Single attribute definition object with full details including default_value
  */
-export async function getAttributeDefinitionById(objectType, attributeId, realm, progressInfo = null) {
+export async function getAttributeDefinitionById(
+    objectType, attributeId, realm, progressInfo = null, { silent = false } = {}
+) {
     try {
         const sandbox = getSandboxConfig(realm);
         const token = await getOAuthToken(sandbox, progressInfo);
@@ -429,7 +548,12 @@ export async function getAttributeDefinitionById(objectType, attributeId, realm,
         const response = await axios.get(url, { headers });
         return response.data;
     } catch (error) {
-        logError(`Failed to fetch attribute ${attributeId}: ${error.response?.data?.message || error.message}`);
+        if (!silent) {
+            logError(
+                `Failed to fetch attribute ${attributeId}: `
+                + `${error.response?.data?.message || error.message}`
+            );
+        }
         return null;
     }
 }
@@ -443,8 +567,11 @@ export async function getAttributeDefinitionById(objectType, attributeId, realm,
  * @param {string} realm - Realm name
  * @returns {Promise<Object|boolean|null>} Response data or boolean for delete
  */
-export async function updateAttributeDefinitionById(objectType, attributeId, method, payload, realm) {
+export async function updateAttributeDefinitionById(
+    objectType, attributeId, method, payload, realm, instanceType = null
+) {
     const methodLower = method.toLowerCase();
+    const resolved = resolveInstanceType(realm, instanceType);
     try {
         const sandbox = getSandboxConfig(realm);
         const token = await getOAuthToken(sandbox);
@@ -455,7 +582,10 @@ export async function updateAttributeDefinitionById(objectType, attributeId, met
         case 'patch':
         case 'put': {
             // For PATCH/PUT, try to fetch the current attribute to get its ETag (for updates)
-            const currentAttr = await getAttributeDefinitionById(objectType, attributeId, realm);
+            // silent: true because a 404 is expected when creating a new attribute via PUT
+            const currentAttr = await getAttributeDefinitionById(
+                objectType, attributeId, realm, null, { silent: true }
+            );
             let headers;
             if (currentAttr && currentAttr._resource_state) {
                 // Attribute exists - use ETag for update
@@ -464,16 +594,12 @@ export async function updateAttributeDefinitionById(objectType, attributeId, met
                 // Attribute doesn't exist - create without ETag (for PUT creation)
                 headers = buildApiHeaders(token);
             }
-            if (methodLower === 'patch') {
-                response = await axios.patch(url, payload, { headers });
-            } else {
-                response = await axios.put(url, payload, { headers });
-            }
+            response = await executeOcapiWrite(url, methodLower, payload, headers, resolved);
             return response.data;
         }
         case 'delete': {
             const headers = buildApiHeaders(token);
-            await axios.delete(url, { headers });
+            await executeOcapiWrite(url, methodLower, null, headers, resolved);
             return true;
         }
         default:
@@ -481,6 +607,22 @@ export async function updateAttributeDefinitionById(objectType, attributeId, met
             return null;
         }
     } catch (error) {
+        const status = error.response?.status;
+        const sandbox = getSandboxConfig(realm);
+
+        if (status === 403) {
+            console.log(
+                `${LOG_PREFIX.WARNING} Permission denied for ${method.toUpperCase()} attribute ${attributeId}`
+                + ` in realm ${realm}.`
+            );
+            console.log(
+                `${LOG_PREFIX.WARNING} Client for host ${sandbox.hostname} must allow `
+                + 'PUT and POST on /system_object_definitions/*/attribute_definitions/* '
+                + '(POST is required for method override).'
+            );
+            return methodLower === 'delete' ? false : null;
+        }
+
         logError(`Failed to ${method} attribute ${attributeId}: ${error.response?.data?.message || error.message}`);
         console.error('Full error response:', error.response?.data || error);
         return methodLower === 'delete' ? false : null;
@@ -572,23 +714,66 @@ export async function getAttributeGroupById(objectType, groupId, realm) {
 }
 
 /**
+ * Create or update an attribute group via PUT (idempotent)
+ * @param {string} objectType - SFCC system object type (e.g., "SitePreferences")
+ * @param {string} groupId - Attribute group ID to create/update
+ * @param {Object} groupPayload - Group body (e.g., { display_name: { default: "..." } })
+ * @param {string} realm - Realm name
+ * @returns {Promise<Object|null>} Created/updated group object, or null on failure
+ */
+export async function createOrUpdateAttributeGroup(
+    objectType, groupId, groupPayload, realm, instanceType = null
+) {
+    const resolved = resolveInstanceType(realm, instanceType);
+    try {
+        const sandbox = getSandboxConfig(realm);
+        const token = await getOAuthToken(sandbox);
+        const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_groups/${encodeURIComponent(groupId)}`;
+        const headers = buildApiHeaders(token);
+        const response = await executeOcapiWrite(url, 'put', groupPayload, headers, resolved);
+        return response?.data ?? true;
+    } catch (error) {
+        const msg = error.response?.data?.message || error.message;
+        logError(`Failed to create/update attribute group ${groupId}: ${msg}`);
+        console.error('Full error response:', error.response?.data || error);
+        return null;
+    }
+}
+
+/**
  * Assign an attribute definition to an attribute group
  * @param {string} objectType - SFCC system object type (e.g., "SitePreferences")
  * @param {string} groupId - Attribute group ID to assign to
  * @param {string} attributeId - Attribute definition ID to assign
  * @param {string} realm - Realm name
- * @returns {Promise<Object|null>} Assignment response or null on failure
+ * @returns {Promise<Object|boolean|null>} Assignment response, true on empty-success, or null on failure
  */
-export async function assignAttributeToGroup(objectType, groupId, attributeId, realm) {
+export async function assignAttributeToGroup(objectType, groupId, attributeId, realm, instanceType = null) {
+    const resolved = resolveInstanceType(realm, instanceType);
     try {
         const sandbox = getSandboxConfig(realm);
         const token = await getOAuthToken(sandbox);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_groups/${encodeURIComponent(groupId)}/attribute_definitions/${encodeURIComponent(attributeId)}`;
         const headers = buildApiHeaders(token);
-        const response = await axios.put(url, {}, { headers });
-        return response.data;
+        const response = await executeOcapiWrite(url, 'put', null, headers, resolved);
+        return response?.data ?? true;
     } catch (error) {
+        const status = error.response?.status;
+        const sandbox = getSandboxConfig(realm);
         const msg = error.response?.data?.message || error.message;
+
+        if (status === 403) {
+            console.log(
+                `${LOG_PREFIX.WARNING} Permission denied assigning attribute ${attributeId} `
+                + `to group ${groupId} in realm ${realm}.`
+            );
+            console.log(
+                `${LOG_PREFIX.WARNING} Client for host ${sandbox.hostname} must allow `
+                + 'PUT on /system_object_definitions/*/attribute_groups/*/attribute_definitions/*.'
+            );
+            return null;
+        }
+
         logError(`Failed to assign attribute ${attributeId} to group ${groupId}: ${msg}`);
         console.error('Full error response:', error.response?.data || error);
         return null;
@@ -639,7 +824,8 @@ export async function patchSitePreferencesGroup(siteId, groupId, instanceType, p
         const token = await getOAuthToken(sandbox);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/sites/${encodeURIComponent(siteId)}/site_preferences/preference_groups/${encodeURIComponent(groupId)}/${encodeURIComponent(instanceType)}`;
         const headers = buildApiHeaders(token);
-        const response = await axios.patch(url, payload, { headers });
+        const resolved = resolveInstanceType(realm, instanceType);
+        const response = await executeOcapiWrite(url, 'patch', payload, headers, resolved);
         return response.data;
     } catch (error) {
         const msg = error.response?.data?.message || error.message;

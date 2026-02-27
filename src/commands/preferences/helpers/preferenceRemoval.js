@@ -8,13 +8,18 @@ import path from 'path';
 import { exec } from 'child_process';
 import { ensureResultsDir } from '../../../io/util.js';
 import { IDENTIFIERS, FILE_PATTERNS, REALM_TAGS } from '../../../config/constants.js';
-import { filterBlacklisted } from '../../../helpers/blacklistHelper.js';
+import { filterBlacklisted } from '../../setup/helpers/blacklistHelper.js';
+import { filterWhitelisted } from '../../setup/helpers/whitelistHelper.js';
 
 /**
  * Load preferences marked for deletion from file.
  * Parses realm tags from each preference line (e.g., "realms: ALL" or "realms: EU05, GB").
  * @param {string} instanceType - Instance type (sandbox, development, staging, production)
- * @returns {{ allowed: Array<{id: string, realms: string[]}> | null, blocked: string[] } | null}
+ * @returns {{
+ *   allowed: Array<{id: string, realms: string[]}> | null,
+ *   blocked: string[],
+ *   skippedByWhitelist: string[]
+ * } | null}
  */
 export function loadPreferencesForDeletion(instanceType) {
     const resultsDir = ensureResultsDir(IDENTIFIERS.ALL_REALMS, instanceType);
@@ -84,18 +89,19 @@ export function loadPreferencesForDeletion(instanceType) {
         return null;
     }
 
-    // Safety net: filter out any blacklisted preferences
+    // Safety nets: apply whitelist first (if active), then blacklist
     const allIds = preferences.map(p => p.id);
-    const { allowed: allowedIds, blocked } = filterBlacklisted(allIds);
+    const { allowed: whitelistedIds, blocked: skippedByWhitelist } = filterWhitelisted(allIds);
+    const { allowed: allowedIds, blocked } = filterBlacklisted(whitelistedIds);
 
     if (allowedIds.length === 0) {
-        return { allowed: null, blocked };
+        return { allowed: null, blocked, skippedByWhitelist };
     }
 
     const allowedSet = new Set(allowedIds);
     const allowed = preferences.filter(p => allowedSet.has(p.id));
 
-    return { allowed, blocked };
+    return { allowed, blocked, skippedByWhitelist };
 }
 
 /**

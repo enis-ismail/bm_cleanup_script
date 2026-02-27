@@ -1,4 +1,5 @@
 {
+  "description": "Required OCAPI Data API resource permissions for all commands. Copy the 'resources' array into your Business Manager OCAPI configuration for each API client.",
   "resources": [
     {
       "resource_id": "/sites",
@@ -26,7 +27,7 @@
     },
     {
       "resource_id": "/system_object_definitions/*/attribute_definitions/*",
-      "methods": ["get", "patch", "put", "delete"],
+      "methods": ["get", "put", "post", "patch", "delete"],
       "read_attributes": "(**)",
       "write_attributes": "(**)"
     },
@@ -37,14 +38,26 @@
       "write_attributes": "(**)"
     },
     {
-      "resource_id": "/system_object_definitions/*/attribute_groups/*/attribute_definitions/*",
+      "resource_id": "/system_object_definitions/*/attribute_groups/*",
       "methods": ["get"],
+      "read_attributes": "(**)",
+      "write_attributes": "(**)"
+    },
+    {
+      "resource_id": "/system_object_definitions/*/attribute_groups/*/attribute_definitions/*",
+      "methods": ["get", "put", "post", "delete"],
       "read_attributes": "(**)",
       "write_attributes": "(**)"
     },
     {
       "resource_id": "/sites/*/site_preferences/preference_groups/*/*",
       "methods": ["get", "patch"],
+      "read_attributes": "(**)",
+      "write_attributes": "(**)"
+    },
+    {
+      "resource_id": "/site_preferences/preference_groups/*/*/preference_search",
+      "methods": ["post"],
       "read_attributes": "(**)",
       "write_attributes": "(**)"
     },

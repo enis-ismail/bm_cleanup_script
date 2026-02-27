@@ -33,7 +33,7 @@ Complete this checklist to run the full `analyze-preferences` → `remove-prefer
 1. [ ] Log in to Business Manager (https://your-instance.salesforceecommerce.com/on/demandware.admin)
 2. [ ] Navigate to **Data API** section
 3. [ ] Find or create your API client configuration
-4. [ ] Add the required resources from `ocapi_config.json`:
+4. [ ] Add the required resources from `src/config/ocapi_config.json`:
 
 **Minimum Resources Needed:**
 - [ ] `/sites` (GET)

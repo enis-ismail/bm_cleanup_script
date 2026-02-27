@@ -80,7 +80,7 @@ Before running the analysis, you must add OCAPI resource permissions to your API
 
 **Required OCAPI Endpoints:**
 
-Copy the `resources` array from [ocapi_config.json](ocapi_config.json) and add to your Business Manager configuration. These are the minimum required:
+Copy the `resources` array from [src/config/ocapi_config.json](src/config/ocapi_config.json) and add to your Business Manager configuration. These are the minimum required:
 
 | Resource ID | Methods | Purpose |
 |---|---|---|
@@ -88,11 +88,16 @@ Copy the `resources` array from [ocapi_config.json](ocapi_config.json) and add t
 | `/sites/*` | GET | Get site details |
 | `/system_object_definitions/*` | GET | Get object definitions (SitePreferences, etc.) |
 | `/system_object_definitions/*/attribute_definitions` | GET | List all attribute definitions |
-| `/system_object_definitions/*/attribute_definitions/*` | GET, DELETE, PUT, PATCH | Read/write individual attributes |
+| `/system_object_definitions/*/attribute_definitions/*` | GET, PUT, POST, PATCH, DELETE | Read/write/delete individual attributes |
 | `/system_object_definitions/*/attribute_groups` | GET | List attribute groups |
 | `/system_object_definitions/*/attribute_groups/*` | GET | Get group details |
-| `/system_object_definitions/*/attribute_groups/*/attribute_definitions/*` | PUT | Assign attributes to groups |
+| `/system_object_definitions/*/attribute_groups/*/attribute_definitions/*` | GET, PUT, POST, DELETE | Assign/remove attributes in groups |
 | `/sites/*/site_preferences/preference_groups/*/*` | GET, PATCH | Read/write site preferences |
+| `/site_preferences/preference_groups/*/*/preference_search` | POST | Search preferences in a group |
+| `/jobs/*/executions` | POST, GET | Trigger and list backup jobs |
+| `/jobs/*/executions/*` | GET | Poll backup job status |
+
+> **Note:** `POST` is required alongside `PUT` because SFCC blocks direct PUT on non-sandbox instances. The tool uses the OCAPI method override pattern (`POST` + `x-dw-http-method-override: PUT`) for write operations.
 
 **Technical Endpoint Reference:**
 
@@ -137,68 +142,7 @@ Administration
 
 **OCAPI Resources JSON for Business Manager:**
 
-Copy-paste this into your Business Manager OCAPI Data API configuration:
-
-```json
-{
-  "resources": [
-    {
-      "resource_id": "/sites",
-      "methods": ["get"],
-      "read_attributes": ["(**)"  ],
-      "write_attributes": ["(**)"  ]
-    },
-    {
-      "resource_id": "/sites/*",
-      "methods": ["get"],
-      "read_attributes": ["(**)"  ],
-      "write_attributes": ["(**)"  ]
-    },
-    {
-      "resource_id": "/system_object_definitions/*",
-      "methods": ["get"],
-      "read_attributes": ["(**)"  ],
-      "write_attributes": ["(**)"  ]
-    },
-    {
-      "resource_id": "/system_object_definitions/*/attribute_definitions",
-      "methods": ["get"],
-      "read_attributes": ["(**)"  ],
-      "write_attributes": ["(**)"  ]
-    },
-    {
-      "resource_id": "/system_object_definitions/*/attribute_definitions/*",
-      "methods": ["get", "delete", "put", "patch"],
-      "read_attributes": ["(**)"  ],
-      "write_attributes": ["(**)"  ]
-    },
-    {
-      "resource_id": "/system_object_definitions/*/attribute_groups",
-      "methods": ["get"],
-      "read_attributes": ["(**)"  ],
-      "write_attributes": ["(**)"  ]
-    },
-    {
-      "resource_id": "/system_object_definitions/*/attribute_groups/*",
-      "methods": ["get"],
-      "read_attributes": ["(**)"  ],
-      "write_attributes": ["(**)"  ]
-    },
-    {
-      "resource_id": "/system_object_definitions/*/attribute_groups/*/attribute_definitions/*",
-      "methods": ["put"],
-      "read_attributes": ["(**)"  ],
-      "write_attributes": ["(**)"  ]
-    },
-    {
-      "resource_id": "/sites/*/site_preferences/preference_groups/*/*",
-      "methods": ["get", "patch"],
-      "read_attributes": ["(**)"  ],
-      "write_attributes": ["(**)"  ]
-    }
-  ]
-}
-```
+Copy the `resources` array from [src/config/ocapi_config.json](src/config/ocapi_config.json) into your Business Manager OCAPI Data API configuration. This is the single source of truth for all required endpoints.
 
 ---
 
@@ -313,13 +257,19 @@ Organized in `results/{instanceType}/`:
 | `{realm}_preferences_matrix.csv` | Matrix of site × preference usage |
 | `{realm}_preferences_usage.csv` | Actual preference values per site |
 
-**Deletion logic:**
+**Deletion logic (priority tiers):**
 
-A preference is marked for deletion if:
-- ✓ No site has a value (matrix is empty)
-- ✓ No default value exists in attribute definitions
-- ✓ Not referenced in any active cartridge code
-- ✓ OR only referenced in deprecated/removed cartridges
+Preferences are ranked into priority tiers in the deletion file:
+
+| Tier | Label | Criteria |
+|---|---|---|
+| **P1** | Safe to Delete | No code references, no values, no defaults |
+| **P2** | Likely Safe | No code references, but has values or defaults |
+| **P3** | Review: Deprecated Only | Only referenced in deprecated cartridges, no values |
+| **P4** | Review: Deprecated + Values | Only referenced in deprecated cartridges, has values |
+| **P5** | Realm-Specific Code | Active code in some realms only |
+
+Preferences matching the **blacklist** (e.g., payment integrations) are automatically excluded and listed in a separate "Blacklisted Preferences (Protected)" section at the bottom of the file.
 
 ---
 
@@ -450,6 +400,95 @@ results/
 - `*_preferences_for_deletion.txt` - **Safe to delete** (unused + not in code)
 
 Each realm creates its own folder within `results/`, organized by instance type.
+
+---
+
+## Whitelist & Blacklist System
+
+The tool uses two complementary filter lists that control which preferences can be deleted during the `remove-preferences` command. Both are applied **at load time** when the deletion file is read — they do not affect what `analyze-preferences` generates.
+
+### Blacklist — Preferences That Can Never Be Deleted
+
+**File:** `src/config/preference_blacklist.json`
+
+Preferences matching blacklist patterns are **excluded from deletion**, even if they appear in the deletion candidates file. Use this to protect critical preferences (payment integrations, authentication, etc.).
+
+**Default entries:**
+```json
+{
+  "blacklist": [
+    { "pattern": "Adyen_*", "type": "wildcard", "reason": "Required for Adyen payment integration" },
+    { "pattern": "c_klarna*", "type": "wildcard", "reason": "Required for Klarna payment integration" },
+    { "pattern": "c_paypal*", "type": "wildcard", "reason": "Required for PayPal payment integration" },
+    { "pattern": "c_slas*", "type": "wildcard", "reason": "Required for SLAS authentication" }
+  ]
+}
+```
+
+**Additionally:** During `analyze-preferences`, blacklisted preferences are filtered out of the deletion file itself and listed in a separate "Blacklisted Preferences (Protected)" section at the bottom of the generated file.
+
+### Whitelist — Restrict Deletion to Specific Preferences Only
+
+**File:** `src/config/preference_whitelist.json`
+
+When a whitelist is active (non-empty), **only preferences matching the whitelist** are eligible for deletion. All other preferences are skipped. If the whitelist is empty, all preferences from the deletion file are allowed (subject to the blacklist).
+
+**Use case:** When you want to target a specific batch — for example, only delete `ThisTestAttribute` to verify the workflow works before doing a full run.
+
+```json
+{
+  "whitelist": [
+    { "type": "exact", "id": "ThisTestAttribute", "reason": "testing" }
+  ]
+}
+```
+
+### Filter Evaluation Order
+
+When `remove-preferences` loads the deletion file:
+
+1. **Parse** all preference IDs from `{instance}_preferences_for_deletion.txt`
+2. **Whitelist filter** — If whitelist is non-empty, keep only matching IDs (skip others)
+3. **Blacklist filter** — Remove any IDs matching blacklist patterns
+4. **Result** — Only remaining IDs are presented for deletion
+
+```
+Deletion File → [Whitelist: keep matches only] → [Blacklist: remove matches] → Eligible for deletion
+```
+
+> **Important:** If you have a whitelist active and it filters out all preferences, `remove-preferences` will report "No eligible preferences found" rather than "file not found". Clear the whitelist entries to allow all preferences through.
+
+### Pattern Types
+
+Both lists support three pattern matching modes:
+
+| Type | Syntax | Example | Matches |
+|---|---|---|---|
+| `exact` | `{ "type": "exact", "id": "c_myPref" }` | `c_myPref` | Only `c_myPref` |
+| `wildcard` | `{ "type": "wildcard", "pattern": "Adyen_*" }` | `Adyen_*` | `Adyen_Enabled`, `Adyen_Mode`, etc. |
+| `regex` | `{ "type": "regex", "pattern": "^c_test" }` | `^c_test` | `c_testMode`, `c_testFlag`, etc. |
+
+### CLI Commands
+
+```bash
+# Blacklist management
+node src/main.js add-to-blacklist       # Add a pattern interactively
+node src/main.js remove-from-blacklist   # Remove a pattern
+node src/main.js list-blacklist          # Show all blacklisted patterns
+
+# Whitelist management
+node src/main.js add-to-whitelist        # Add a pattern interactively
+node src/main.js remove-from-whitelist   # Remove a pattern
+node src/main.js list-whitelist          # Show all whitelisted patterns
+```
+
+### Typical Workflow
+
+1. **First run:** Clear the whitelist (or leave empty), rely on the blacklist to protect payment/auth preferences
+2. **Test run:** Add a single test preference to the whitelist, run `remove-preferences` to verify the flow end-to-end
+3. **Production run:** Clear the whitelist again so all deletion candidates are eligible, confirm via the interactive prompts
+
+---
 
 ## API Capabilities
 
@@ -777,7 +816,7 @@ Text outputs (unused, cartridge mapping, deletion list)
 - **[src/helpers/preferenceBackup.js](src/helpers/preferenceBackup.js)** - Backup file generation
 - **[src/helpers/backupJob.js](src/helpers/backupJob.js)** - SFCC backup job triggering
 - **[config.json](config.json)** - Realm configuration (credentials)
-- **[ocapi_config.json](ocapi_config.json)** - OCAPI resource definitions
+- **[src/config/ocapi_config.json](src/config/ocapi_config.json)** - OCAPI resource definitions
 
 ---
 

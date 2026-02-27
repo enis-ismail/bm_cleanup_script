@@ -95,3 +95,16 @@ export const realmByInstanceTypePrompt = (instanceType) => {
         }
     ];
 };
+
+export const selectRealmsForInstancePrompt = (instanceType) => {
+    const realms = getRealmsByInstanceType(instanceType);
+    return [
+        {
+            name: 'realms',
+            message: 'Select realms to process:',
+            type: 'checkbox',
+            choices: realms,
+            default: realms
+        }
+    ];
+};

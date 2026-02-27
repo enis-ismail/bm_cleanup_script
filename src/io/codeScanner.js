@@ -15,7 +15,7 @@ import {
     SKIP_DIRECTORIES,
     REALM_TAGS
 } from '../config/constants.js';
-import { filterBlacklisted, loadBlacklist } from '../helpers/blacklistHelper.js';
+import { filterBlacklisted, loadBlacklist } from '../commands/setup/helpers/blacklistHelper.js';
 
 const DEFAULT_COMPARISON_FILE_PATH = path.join(
     process.cwd(),
@@ -935,7 +935,7 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
         '  mean only those realms. The remove-preferences command uses these tags to',
         '  determine per-realm deletion targeting.',
         '',
-        'NOTE: Preferences matching patterns in preference_blacklist.json are excluded',
+        'NOTE: Preferences matching patterns in src/config/preference_blacklist.json are excluded',
         'from this list and will never be deleted. To manage the blacklist, run:',
         '  \u2022 node src/main.js list-blacklist        \u2014 View all protected patterns',
         '  \u2022 node src/main.js add-to-blacklist       \u2014 Add a new pattern',

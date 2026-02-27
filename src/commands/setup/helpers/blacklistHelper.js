@@ -7,17 +7,17 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { logError } from '../scripts/loggingScript/log.js';
+import { logError } from '../../../scripts/loggingScript/log.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
- * Resolve the absolute path to preference_blacklist.json in the project root
+ * Resolve the absolute path to src/config/preference_blacklist.json
  * @returns {string} Absolute path to the blacklist file
  */
 function getBlacklistPath() {
-    return path.resolve(__dirname, '../../preference_blacklist.json');
+    return path.resolve(__dirname, '../../../config/preference_blacklist.json');
 }
 
 /**
@@ -39,7 +39,7 @@ export function loadBlacklist() {
             blacklist: Array.isArray(config.blacklist) ? config.blacklist : []
         };
     } catch (error) {
-        logError(`Failed to parse preference_blacklist.json: ${error.message}`);
+        logError(`Failed to parse src/config/preference_blacklist.json: ${error.message}`);
         return { description: '', blacklist: [] };
     }
 }
@@ -62,9 +62,9 @@ export function saveBlacklist(config) {
  */
 function wildcardToRegex(pattern) {
     const escaped = pattern
-        .replace(/[.+^${}()|[\]\\]/g, '\\$&')  // Escape regex special chars (except * and ?)
-        .replace(/\*/g, '.*')                     // * → .*
-        .replace(/\?/g, '.');                     // ? → .
+        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+        .replace(/\*/g, '.*')
+        .replace(/\?/g, '.');
     return new RegExp(`^${escaped}$`, 'i');
 }
 
@@ -150,7 +150,6 @@ export function addToBlacklist(entry) {
     const type = (entry.type || 'exact').toLowerCase();
     const key = type === 'exact' ? (entry.id || entry.pattern) : entry.pattern;
 
-    // Check for duplicate
     const exists = config.blacklist.some(existing => {
         const existingType = (existing.type || 'exact').toLowerCase();
         const existingKey = existingType === 'exact'
@@ -163,7 +162,6 @@ export function addToBlacklist(entry) {
         return false;
     }
 
-    // Normalize entry shape
     const normalized = { type };
     if (type === 'exact') {
         normalized.id = key;
