@@ -293,3 +293,39 @@ export function findAllMatrixFiles(realmFilter = null) {
 
     return matrixFiles;
 }
+/**
+ * Find all preference usage CSV files in the results directory
+ * Expected file pattern: results/{instanceType}/{realm}/{realm}_*_preferences_usage.csv
+ * @param {string[]|null} realmFilter - Optional list of realm names to filter by
+ * @returns {Array<{realm: string, usageFile: string}>} Array of realm and usage file paths
+ */
+export function findAllUsageFiles(realmFilter = null) {
+    const usageFiles = [];
+    const realms = realmFilter && realmFilter.length > 0
+        ? realmFilter
+        : getAvailableRealms();
+
+    for (const realmName of realms) {
+        try {
+            const realmDir = getResultsPath(realmName);
+
+            if (!fs.existsSync(realmDir)) {
+                continue;
+            }
+
+            const files = fs.readdirSync(realmDir);
+            const usageFile = files.find(f => f.includes(FILE_PATTERNS.PREFERENCES_USAGE));
+
+            if (usageFile) {
+                usageFiles.push({
+                    realm: realmName,
+                    usageFile: path.join(realmDir, usageFile)
+                });
+            }
+        } catch {
+            // Skip realms with read errors
+        }
+    }
+
+    return usageFiles;
+}

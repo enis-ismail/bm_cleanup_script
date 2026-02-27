@@ -2,7 +2,7 @@
 import fs from 'fs';
 import path from 'path';
 import { setImmediate } from 'timers/promises';
-import { findAllMatrixFiles, getResultsPath } from './util.js';
+import { findAllMatrixFiles, findAllUsageFiles, getResultsPath } from './util.js';
 import { ensureResultsDir } from './util.js';
 import { parseCSVToNestedArray } from './csv.js';
 import { getRealmsByInstanceType } from '../config/helpers/helpers.js';
@@ -676,6 +676,103 @@ function filterRealmsByValues(candidateRealms, prefId, perRealmValues, allRealms
 }
 
 /**
+ * Find deletion candidates whose IDs appear as exact values of other site preferences.
+ *
+ * Scenario: A preference stores another preference's ID as its value, e.g.
+ *   var attr = Site.current.getPreferenceValue('dynamicAttr'); // value = "myPref"
+ *   product.custom[attr] = ...;  // uses myPref without it appearing in code
+ *
+ * This check reads all usage CSVs and compares each value cell (defaultValue +
+ * per-site value columns) against the set of candidate IDs. Exact match only.
+ *
+ * @param {Set<string>} candidateIds - Set of preference IDs that are deletion candidates
+ * @param {string|null} instanceTypeOverride - Instance type for file scoping
+ * @returns {Map<string, Array<{parentId: string, column: string}>>}
+ *   Map of candidateId → array of { parentId, column } where the value was found
+ */
+function findDynamicPreferenceReferences(candidateIds, instanceTypeOverride = null) {
+    const dynamicRefs = new Map();
+    const usageFiles = findAllUsageFiles();
+
+    for (const { usageFile } of usageFiles) {
+        // Filter by instance type if specified
+        if (instanceTypeOverride) {
+            const normalizedPath = usageFile.replace(/\\/g, '/');
+            if (!normalizedPath.includes(`/${instanceTypeOverride}/`)) {
+                continue;
+            }
+        }
+
+        const csvData = parseCSVToNestedArray(usageFile);
+
+        if (csvData.length <= 1) {
+            continue;
+        }
+
+        const headers = csvData[0];
+        const preferenceIdIndex = headers.indexOf('preferenceId');
+        const defaultValueIndex = headers.indexOf('defaultValue');
+
+        if (preferenceIdIndex === -1) {
+            continue;
+        }
+
+        // Identify value columns (defaultValue + value_* columns)
+        const valueColumnIndices = [];
+        const valueColumnNames = [];
+
+        if (defaultValueIndex !== -1) {
+            valueColumnIndices.push(defaultValueIndex);
+            valueColumnNames.push('defaultValue');
+        }
+
+        for (let col = 0; col < headers.length; col++) {
+            if (headers[col].startsWith('value_')) {
+                valueColumnIndices.push(col);
+                valueColumnNames.push(headers[col]);
+            }
+        }
+
+        // Check each row's values against candidate IDs
+        for (let i = 1; i < csvData.length; i++) {
+            const row = csvData[i];
+            const parentId = row[preferenceIdIndex];
+
+            if (!parentId) {
+                continue;
+            }
+
+            for (let v = 0; v < valueColumnIndices.length; v++) {
+                const cellValue = (row[valueColumnIndices[v]] || '').trim();
+
+                // Skip self-references (a preference whose value equals its own ID)
+                if (cellValue && cellValue !== parentId && candidateIds.has(cellValue)) {
+                    if (!dynamicRefs.has(cellValue)) {
+                        dynamicRefs.set(cellValue, []);
+                    }
+
+                    // Avoid duplicate parent entries for the same parent+column
+                    const existing = dynamicRefs.get(cellValue);
+                    const alreadyRecorded = existing.some(
+                        e => e.parentId === parentId
+                            && e.column === valueColumnNames[v]
+                    );
+
+                    if (!alreadyRecorded) {
+                        existing.push({
+                            parentId,
+                            column: valueColumnNames[v]
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    return dynamicRefs;
+}
+
+/**
  * Compare unused and cartridge preferences files, classify using code scan results,
  * and generate priority-ranked deletion candidates with per-realm targeting.
  *
@@ -881,6 +978,73 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
     const fp4 = filterBlacklisted_(p4);
     const fp5 = filterBlacklisted_(p5);
 
+    // --- Dynamic value check ---
+    // Detect candidates whose IDs appear as stored values of other preferences.
+    // These may be dynamically referenced at runtime (e.g. product.custom[prefValue]).
+    const remainingCandidateIds = new Set(
+        [...fp1, ...fp2, ...fp3, ...fp4, ...fp5].map(c => c.id)
+    );
+    const dynamicRefs = findDynamicPreferenceReferences(
+        remainingCandidateIds, instanceTypeOverride
+    );
+
+    // Build tier lookup so we can match a child to its parent's tier
+    const tierLookup = new Map();
+    for (const c of fp1) { tierLookup.set(c.id, 1); }
+    for (const c of fp2) { tierLookup.set(c.id, 2); }
+    for (const c of fp3) { tierLookup.set(c.id, 3); }
+    for (const c of fp4) { tierLookup.set(c.id, 4); }
+    for (const c of fp5) { tierLookup.set(c.id, 5); }
+
+    // Annotate candidates and move to parent's tier when applicable
+    let dynamicRefCount = 0;
+    for (const [candidateId, refs] of dynamicRefs) {
+        const parentIds = refs.map(r => r.parentId);
+        const uniqueParents = [...new Set(parentIds)];
+        dynamicRefCount++;
+
+        // Find the tier of each parent that is also a candidate
+        const parentTiers = uniqueParents
+            .filter(pid => tierLookup.has(pid))
+            .map(pid => tierLookup.get(pid));
+
+        // If any parent is also a candidate, adopt the highest (least safe) tier number
+        const currentTier = tierLookup.get(candidateId);
+        const targetTier = parentTiers.length > 0
+            ? Math.max(currentTier, ...parentTiers)
+            : currentTier;
+
+        // Annotate the candidate object in its current tier array
+        const currentArray = [fp1, fp2, fp3, fp4, fp5][currentTier - 1];
+        const candidate = currentArray.find(c => c.id === candidateId);
+
+        if (candidate) {
+            candidate.dynamicValueOf = uniqueParents;
+        }
+
+        // Move to a higher tier if needed
+        if (targetTier > currentTier && candidate) {
+            // Remove from current tier
+            const idx = currentArray.indexOf(candidate);
+            if (idx !== -1) {
+                currentArray.splice(idx, 1);
+            }
+
+            // Add to target tier
+            const targetArray = [fp1, fp2, fp3, fp4, fp5][targetTier - 1];
+            targetArray.push(candidate);
+            targetArray.sort((a, b) => a.id.localeCompare(b.id));
+            tierLookup.set(candidateId, targetTier);
+        }
+    }
+
+    if (dynamicRefCount > 0) {
+        console.log(
+            `\u26a0 ${dynamicRefCount} candidate(s) detected as dynamic `
+            + 'preference values (annotated in output)'
+        );
+    }
+
     const totalCandidates = fp1.length + fp2.length + fp3.length + fp4.length + fp5.length;
 
     if (blacklistedPreferences.length > 0) {
@@ -916,6 +1080,12 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
         `  \u2022 Total deletion candidates: ${totalCandidates}`
     ];
 
+    if (dynamicRefCount > 0) {
+        lines.push(
+            `  \u2022 Dynamic value references: ${dynamicRefCount} (annotated with \u26a0)`
+        );
+    }
+
     if (blacklistedPreferences.length > 0) {
         lines.push(`  \u2022 Blacklisted (protected): ${blacklistedPreferences.length}`);
     }
@@ -935,6 +1105,13 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
         '  mean only those realms. The remove-preferences command uses these tags to',
         '  determine per-realm deletion targeting.',
         '',
+        'Dynamic Value References:',
+        '  Preferences marked with \u26a0 have their ID stored as the value of another',
+        '  preference. This may indicate dynamic/indirect usage at runtime, e.g.:',
+        '    var attr = Site.current.getPreferenceValue("parentPref");',
+        '    product.custom[attr] = ...;  // uses this pref without code reference',
+        '  Review these carefully before deleting.',
+        '',
         'NOTE: Preferences matching patterns in src/config/preference_blacklist.json are excluded',
         'from this list and will never be deleted. To manage the blacklist, run:',
         '  \u2022 node src/main.js list-blacklist        \u2014 View all protected patterns',
@@ -952,7 +1129,11 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
         );
 
         for (const c of fp1) {
-            lines.push(`${c.id}  |  realms: ${c.realms.join(', ')}`);
+            const parts = [`realms: ${c.realms.join(', ')}`];
+            if (c.dynamicValueOf) {
+                parts.push(`\u26a0 dynamic value of: ${c.dynamicValueOf.join(', ')}`);
+            }
+            lines.push(`${c.id}  |  ${parts.join('  |  ')}`);
         }
     }
 
@@ -977,6 +1158,11 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
                 details.push(c.realmValueDetail);
             }
             details.push(`realms: ${c.realms.join(', ')}`);
+            if (c.dynamicValueOf) {
+                details.push(
+                    `\u26a0 dynamic value of: ${c.dynamicValueOf.join(', ')}`
+                );
+            }
             lines.push(`${c.id}  |  ${details.join('  |  ')}`);
         }
     }
@@ -991,9 +1177,12 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
         );
 
         for (const c of fp3) {
+            const suffix = c.dynamicValueOf
+                ? `  |  \u26a0 dynamic value of: ${c.dynamicValueOf.join(', ')}`
+                : '';
             lines.push(
                 `${c.id}  |  deprecated: ${c.deprecatedCartridges.join(', ')}`
-                + `  |  realms: ${c.realms.join(', ')}`
+                + `  |  realms: ${c.realms.join(', ')}${suffix}`
             );
         }
     }
@@ -1019,6 +1208,11 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
                 details.push(c.realmValueDetail);
             }
             details.push(`realms: ${c.realms.join(', ')}`);
+            if (c.dynamicValueOf) {
+                details.push(
+                    `\u26a0 dynamic value of: ${c.dynamicValueOf.join(', ')}`
+                );
+            }
             lines.push(`${c.id}  |  ${details.join('  |  ')}`);
         }
     }
@@ -1041,6 +1235,11 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
                 details.push(c.realmValueDetail);
             }
             details.push(`realms: ${c.realms.join(', ')}`);
+            if (c.dynamicValueOf) {
+                details.push(
+                    `\u26a0 dynamic value of: ${c.dynamicValueOf.join(', ')}`
+                );
+            }
             lines.push(`${c.id}  |  ${details.join('  |  ')}`);
         }
     }
