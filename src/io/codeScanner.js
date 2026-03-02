@@ -996,27 +996,47 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
     for (const c of fp4) { tierLookup.set(c.id, 4); }
     for (const c of fp5) { tierLookup.set(c.id, 5); }
 
-    // Annotate candidates and move to parent's tier when applicable
+    // Process dynamic references:
+    // - If ANY parent is actively used (not a candidate), the child is
+    //   effectively used at runtime too → remove from deletion list.
+    // - If ALL parents are also candidates, adopt the highest (least safe)
+    //   parent tier number.
     let dynamicRefCount = 0;
+    const dynamicProtected = [];
     for (const [candidateId, refs] of dynamicRefs) {
         const parentIds = refs.map(r => r.parentId);
         const uniqueParents = [...new Set(parentIds)];
-        dynamicRefCount++;
 
-        // Find the tier of each parent that is also a candidate
+        // Check if any parent is NOT a deletion candidate (= actively used in code)
+        const activeParents = uniqueParents.filter(pid => !tierLookup.has(pid));
+
+        const currentTier = tierLookup.get(candidateId);
+        const currentArray = [fp1, fp2, fp3, fp4, fp5][currentTier - 1];
+        const candidate = currentArray.find(c => c.id === candidateId);
+
+        if (activeParents.length > 0 && candidate) {
+            // Parent is in active code → child is indirectly used → remove
+            const idx = currentArray.indexOf(candidate);
+            if (idx !== -1) {
+                currentArray.splice(idx, 1);
+            }
+            tierLookup.delete(candidateId);
+            dynamicProtected.push({
+                id: candidateId,
+                parents: activeParents
+            });
+            continue;
+        }
+
+        // All parents are also candidates — inherit the highest parent tier
+        dynamicRefCount++;
         const parentTiers = uniqueParents
             .filter(pid => tierLookup.has(pid))
             .map(pid => tierLookup.get(pid));
 
-        // If any parent is also a candidate, adopt the highest (least safe) tier number
-        const currentTier = tierLookup.get(candidateId);
         const targetTier = parentTiers.length > 0
             ? Math.max(currentTier, ...parentTiers)
             : currentTier;
-
-        // Annotate the candidate object in its current tier array
-        const currentArray = [fp1, fp2, fp3, fp4, fp5][currentTier - 1];
-        const candidate = currentArray.find(c => c.id === candidateId);
 
         if (candidate) {
             candidate.dynamicValueOf = uniqueParents;
@@ -1024,13 +1044,11 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
 
         // Move to a higher tier if needed
         if (targetTier > currentTier && candidate) {
-            // Remove from current tier
             const idx = currentArray.indexOf(candidate);
             if (idx !== -1) {
                 currentArray.splice(idx, 1);
             }
 
-            // Add to target tier
             const targetArray = [fp1, fp2, fp3, fp4, fp5][targetTier - 1];
             targetArray.push(candidate);
             targetArray.sort((a, b) => a.id.localeCompare(b.id));
@@ -1038,10 +1056,20 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
         }
     }
 
+    if (dynamicProtected.length > 0) {
+        console.log(
+            `\u2713 Dynamic value check protected ${dynamicProtected.length}`
+            + ' preference(s) referenced by active code'
+        );
+        for (const { id, parents } of dynamicProtected) {
+            console.log(`    ${id}  \u2190 value of: ${parents.join(', ')}`);
+        }
+    }
+
     if (dynamicRefCount > 0) {
         console.log(
             `\u26a0 ${dynamicRefCount} candidate(s) detected as dynamic `
-            + 'preference values (annotated in output)'
+            + 'preference values of other candidates (annotated in output)'
         );
     }
 
@@ -1086,6 +1114,13 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
         );
     }
 
+    if (dynamicProtected.length > 0) {
+        lines.push(
+            `  \u2022 Dynamic value protected: ${dynamicProtected.length}`
+            + ' (referenced by active code)'
+        );
+    }
+
     if (blacklistedPreferences.length > 0) {
         lines.push(`  \u2022 Blacklisted (protected): ${blacklistedPreferences.length}`);
     }
@@ -1106,11 +1141,14 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
         '  determine per-realm deletion targeting.',
         '',
         'Dynamic Value References:',
-        '  Preferences marked with \u26a0 have their ID stored as the value of another',
-        '  preference. This may indicate dynamic/indirect usage at runtime, e.g.:',
+        '  When a preference ID appears as the stored value of another preference,',
+        '  it may be dynamically referenced at runtime, e.g.:',
         '    var attr = Site.current.getPreferenceValue("parentPref");',
         '    product.custom[attr] = ...;  // uses this pref without code reference',
-        '  Review these carefully before deleting.',
+        '  If the parent preference is in active code, the child is treated as',
+        '  actively used and removed from this deletion list.',
+        '  If the parent is also a deletion candidate, the child inherits the',
+        '  parent\'s tier and is marked with \u26a0 for review.',
         '',
         'NOTE: Preferences matching patterns in src/config/preference_blacklist.json are excluded',
         'from this list and will never be deleted. To manage the blacklist, run:',
