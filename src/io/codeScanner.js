@@ -1387,7 +1387,12 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
  * @param {Object} [options] - Optional settings
  * @returns {Promise<Array>} Array of results for each preference
  */
-export async function findAllActivePreferencesUsage(repositoryPath, options = {}) {
+export async function findAllActivePreferencesUsage(repositoryPathOrPaths, options = {}) {
+    // Normalize to array so callers can pass a single string or an array
+    const repositoryPaths = Array.isArray(repositoryPathOrPaths)
+        ? repositoryPathOrPaths
+        : [repositoryPathOrPaths];
+
     const matrixFiles = findAllMatrixFiles(options.realmFilter || null);
     const comparisonFilePath = options.comparisonFilePath || DEFAULT_COMPARISON_FILE_PATH;
     const progressCallback = options.progressCallback || null;
@@ -1409,9 +1414,15 @@ export async function findAllActivePreferencesUsage(repositoryPath, options = {}
     // Get deprecated cartridges for tagging
     const deprecatedCartridges = getDeprecatedCartridges(comparisonFilePath);
 
-    // Collect all file paths (synchronous - may take time for large repos)
+    // Collect all file paths from every selected repository
     log('Collecting all file paths...');
-    const allFiles = collectAllFilePaths(repositoryPath);
+    const allFiles = [];
+    for (const repoPath of repositoryPaths) {
+        const repoName = path.basename(repoPath);
+        const filesForRepo = collectAllFilePaths(repoPath);
+        log(`  ${repoName}: ${filesForRepo.length} files`);
+        allFiles.push(...filesForRepo);
+    }
     log(`Total files to scan: ${allFiles.length}\n`);
 
     // Track which preferences are found in which cartridges (with deprecation status)
@@ -1488,7 +1499,7 @@ export async function findAllActivePreferencesUsage(repositoryPath, options = {}
 
         return {
             preferenceId,
-            repositoryPath,
+            repositoryPaths,
             comparisonFilePath,
             deprecatedCartridgesCount: deprecatedCartridges.size,
             totalMatches: allCartridges.length,

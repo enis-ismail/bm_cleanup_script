@@ -14,19 +14,7 @@ import {
 import { startTimer } from '../../helpers/timer.js';
 import { RealmProgressDisplay } from '../../scripts/loggingScript/progressDisplay.js';
 import {
-    repositoryPrompt,
-    resolveRealmScopeSelection,
-    instanceTypePrompt,
-    confirmPreferenceDeletionPrompt,
-    runAnalyzePreferencesPrompt,
-    realmPrompt,
-    promptBackupCachePreference,
-    confirmRestoreAfterDeletionPrompt,
-    confirmProceedRestorePrompt,
-    overwriteBackupsPrompt,
-    refreshMetadataPrompt,
-    applyBackupCorrectionsPrompt,
-    selectRealmsForInstancePrompt
+    prompts
 } from '../../commands/prompts/index.js';
 import {
     LOG_PREFIX, DIRECTORIES, IDENTIFIERS, FILE_PATTERNS, ANALYSIS_STEPS
@@ -114,10 +102,14 @@ async function analyzePreferences() {
     logSectionTitle('STEP 1: Configure Scope & Options');
 
     const siblings = await getSiblingRepositories();
-    const repositoryAnswers = await inquirer.prompt(await repositoryPrompt(siblings));
-    const repositoryPath = path.join(path.dirname(process.cwd()), repositoryAnswers.repository);
+    const repositoryAnswers = await inquirer.prompt(
+        await prompts.repositoriesMultiSelectPrompt(siblings)
+    );
+    const repositoryPaths = repositoryAnswers.repositories.map(
+        repo => path.join(path.dirname(process.cwd()), repo)
+    );
 
-    const selection = await resolveRealmScopeSelection(inquirer.prompt);
+    const selection = await prompts.resolveRealmScopeSelection(inquirer.prompt);
     const realmsToProcess = selection.realmList;
 
     if (!validateRealmsSelection(realmsToProcess)) {
@@ -131,7 +123,7 @@ async function analyzePreferences() {
     const siteId = undefined;
     const includeDefaults = true;
 
-    const useCachedBackup = await promptBackupCachePreference(realmsToProcess, objectType);
+    const useCachedBackup = await prompts.promptBackupCachePreference(realmsToProcess, objectType);
 
     // --- STEP 2: Backup, Fetch & Summarize ---
     logSectionTitle('STEP 2: Backup, Fetch & Summarize Preferences');
@@ -194,7 +186,7 @@ async function analyzePreferences() {
                             {
                                 realm, objectType, instanceType, scope, siteId,
                                 metadataFilePath: refreshResult.filePath,
-                                repositoryPath
+                                repositoryPaths
                             },
                             { display, hostname: realmHostname, realmName: realm }
                         );
@@ -218,7 +210,7 @@ async function analyzePreferences() {
                     const result = await executePreferenceSummarization(
                         {
                             realm, objectType, instanceType, scope, siteId,
-                            includeDefaults, useCachedBackup, repositoryPath
+                            includeDefaults, useCachedBackup, repositoryPaths
                         },
                         { display, hostname: realmHostname, realmName: realm }
                     );
@@ -306,8 +298,11 @@ async function analyzePreferences() {
     // --- STEP 5: Find Preference Usage in Cartridges ---
     logSectionTitle('STEP 5: Finding Preference Usage in Cartridges');
 
-    if (repositoryPath && realmsProcessed.length > 0) {
-        const repoName = path.basename(repositoryPath);
+    if (repositoryPaths.length > 0 && realmsProcessed.length > 0) {
+        const repoNames = repositoryPaths.map(p => path.basename(p));
+        const repoLabel = repoNames.length === 1
+            ? repoNames[0]
+            : `${repoNames.length} repositories`;
         const realmsByInstanceType = new Map();
 
         for (const realm of realmsProcessed) {
@@ -322,7 +317,7 @@ async function analyzePreferences() {
         const scanStep = `scan_${Date.now()}`;
         scanDisplay.startStep(
             'codeScanner', 'Code Scanner', scanStep,
-            `Scanning ${repoName} for references`
+            `Scanning ${repoLabel} for references`
         );
         scanDisplay.start();
 
@@ -346,7 +341,7 @@ async function analyzePreferences() {
                     + `${instanceType} (${realmsForType.length} realm(s))...`
                 );
 
-                await findAllActivePreferencesUsage(repositoryPath, {
+                await findAllActivePreferencesUsage(repositoryPaths, {
                     instanceTypeOverride: instanceType,
                     progressCallback: scanCallback,
                     realmFilter: realmsForType
@@ -400,7 +395,7 @@ async function removePreferences(options = {}) {
 
     // --- STEP 1: Select Instance Type ---
     logSectionTitle('STEP 1: Select Instance Type');
-    const { instanceType } = await inquirer.prompt(instanceTypePrompt('development'));
+    const { instanceType } = await inquirer.prompt(prompts.instanceTypePrompt('development'));
 
     // --- STEP 2: Load Preferences for Deletion ---
     logSectionTitle('STEP 2: Load Preferences for Deletion');
@@ -474,7 +469,7 @@ async function removePreferences(options = {}) {
         console.log('  - Backup files ready for restore if needed\n');
     }
 
-    const confirmAnswers = await inquirer.prompt(confirmPreferenceDeletionPrompt(
+    const confirmAnswers = await inquirer.prompt(prompts.confirmPreferenceDeletionPrompt(
         totalUniquePrefs, dryRun
     ));
     if (!confirmAnswers.confirm) {
@@ -503,7 +498,7 @@ async function removePreferences(options = {}) {
 
     // --- STEP 8: Optional Restore ---
     logSectionTitle('STEP 8: Restore from Backups (Optional)');
-    const restoreAnswers = await inquirer.prompt(confirmRestoreAfterDeletionPrompt());
+    const restoreAnswers = await inquirer.prompt(prompts.confirmRestoreAfterDeletionPrompt());
 
     if (!restoreAnswers.restore) {
         console.log(`\n${LOG_PREFIX.INFO} Restore skipped. Deleted preferences remain removed.\n`);
@@ -531,7 +526,7 @@ async function restorePreferences() {
         return;
     }
 
-    const realmAnswers = await inquirer.prompt(realmPrompt());
+    const realmAnswers = await inquirer.prompt(prompts.realmPrompt());
     const realm = realmAnswers.realm;
     const objectType = IDENTIFIERS.SITE_PREFERENCES;
     const instanceType = getInstanceType(realm);
@@ -550,7 +545,7 @@ async function restorePreferences() {
 
     console.log(`${LOG_PREFIX.INFO} Found backup: ${path.basename(backupFilePath)}\n`);
 
-    const confirmAnswers = await inquirer.prompt(confirmProceedRestorePrompt());
+    const confirmAnswers = await inquirer.prompt(prompts.confirmProceedRestorePrompt());
 
     if (!confirmAnswers.proceed) {
         console.log(`\n${LOG_PREFIX.INFO} Restore cancelled.\n`);
@@ -581,7 +576,7 @@ async function restorePreferences() {
 
 async function backupSitePreferences() {
     const timer = startTimer();
-    const realmAnswers = await inquirer.prompt(realmPrompt());
+    const realmAnswers = await inquirer.prompt(prompts.realmPrompt());
     const realm = realmAnswers.realm;
     const instanceType = getInstanceType(realm);
 
@@ -657,7 +652,7 @@ async function loadOrGenerateDeletionList(instanceType, timer) {
     console.log(`\n${LOG_PREFIX.WARNING} Preferences for deletion file not found`
         + ` for instance type: ${instanceType}\n`);
 
-    const analyzeAnswers = await inquirer.prompt(runAnalyzePreferencesPrompt(instanceType));
+    const analyzeAnswers = await inquirer.prompt(prompts.runAnalyzePreferencesPrompt(instanceType));
 
     if (!analyzeAnswers.runAnalyze) {
         console.log(`\n${LOG_PREFIX.INFO} Preference removal cancelled.\n`);
@@ -832,7 +827,7 @@ async function selectRealmsForInstance(instanceType) {
         return null;
     }
 
-    const realmSelection = await inquirer.prompt(selectRealmsForInstancePrompt(instanceType));
+    const realmSelection = await inquirer.prompt(prompts.selectRealmsForInstancePrompt(instanceType));
 
     const selected = realmSelection.realms;
     if (!selected || selected.length === 0) {
@@ -876,7 +871,7 @@ async function handleBackupCreation(realmsToProcess, objectType, instanceType, p
 
     if (withBackups.length > 0) {
         const overwriteAnswers = await inquirer.prompt(
-            overwriteBackupsPrompt(withBackups.length)
+            prompts.overwriteBackupsPrompt(withBackups.length)
         );
 
         if (overwriteAnswers.createNew) {
@@ -894,7 +889,7 @@ async function handleBackupCreation(realmsToProcess, objectType, instanceType, p
         return true;
     }
 
-    const refreshAnswers = await inquirer.prompt(refreshMetadataPrompt());
+    const refreshAnswers = await inquirer.prompt(prompts.refreshMetadataPrompt());
 
     const { successCount } = await createBackupsForRealms({
         realmsToBackup,
@@ -932,7 +927,7 @@ async function loadAndValidateBackup(backupFilePath) {
         console.log(`${LOG_PREFIX.WARNING} Found issues in backup file:\n`);
         validation.corrections.forEach(msg => console.log(msg));
 
-        const correctAnswers = await inquirer.prompt(applyBackupCorrectionsPrompt());
+        const correctAnswers = await inquirer.prompt(prompts.applyBackupCorrectionsPrompt());
 
         if (correctAnswers.applyCorrections) {
             backup = validation.backup;

@@ -49,3 +49,22 @@ export const getRealmsForInstanceType = (instanceType) => {
     }
     return realms;
 };
+
+export const repositoryPrompt = async (siblings) => ([
+    {
+        type: 'rawlist',
+        name: 'repository',
+        message: 'Select repository to validate cartridges for:',
+        choices: siblings
+    }
+]);
+
+export const repositoriesMultiSelectPrompt = async (siblings) => ([
+    {
+        type: 'checkbox',
+        name: 'repositories',
+        message: 'Select repositories to scan for preference usage:',
+        choices: siblings,
+        validate: (input) => input.length > 0 ? true : 'Select at least one repository'
+    }
+]);
