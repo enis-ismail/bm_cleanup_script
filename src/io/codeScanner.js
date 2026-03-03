@@ -1,7 +1,8 @@
 
 import fs from 'fs';
+import fsPromises from 'fs/promises';
 import path from 'path';
-import { setImmediate } from 'timers/promises';
+import pLimit from 'p-limit';
 import { findAllMatrixFiles, findAllUsageFiles, getResultsPath } from './util.js';
 import { ensureResultsDir } from './util.js';
 import { parseCSVToNestedArray } from './csv.js';
@@ -157,11 +158,11 @@ function collectAllFilePaths(dirPath, fileList = []) {
     return fileList;
 }
 
-function searchMultiplePreferencesInFile(filePath, preferenceIds) {
+async function searchMultiplePreferencesInFileAsync(filePath, preferenceIds) {
     const foundPreferences = new Set();
 
     try {
-        const content = fs.readFileSync(filePath, 'utf-8');
+        const content = await fsPromises.readFile(filePath, 'utf-8');
 
         for (const prefId of preferenceIds) {
             if (content.includes(prefId)) {
@@ -685,13 +686,20 @@ function filterRealmsByValues(candidateRealms, prefId, perRealmValues, allRealms
  * This check reads all usage CSVs and compares each value cell (defaultValue +
  * per-site value columns) against the set of candidate IDs. Exact match only.
  *
+ * Also identifies "untracked parents" — preferences that reference candidate IDs
+ * but are not themselves candidates (e.g. missing from OCAPI attribute definitions).
+ * Value metadata is collected for these parents so the caller can classify them.
+ *
  * @param {Set<string>} candidateIds - Set of preference IDs that are deletion candidates
  * @param {string|null} instanceTypeOverride - Instance type for file scoping
- * @returns {Map<string, Array<{parentId: string, column: string}>>}
- *   Map of candidateId → array of { parentId, column } where the value was found
+ * @returns {{ dynamicRefs: Map<string, Array<{parentId: string, column: string}>>,
+ *            untrackedParents: Map<string, {hasValues: boolean, hasDefault: boolean, siteCount: number}> }}
+ *   dynamicRefs: Map of candidateId → array of { parentId, column } where the value was found
+ *   untrackedParents: Map of parentId → value metadata for parents NOT in candidateIds
  */
 function findDynamicPreferenceReferences(candidateIds, instanceTypeOverride = null) {
     const dynamicRefs = new Map();
+    const untrackedParents = new Map();
     const usageFiles = findAllUsageFiles();
 
     for (const { usageFile } of usageFiles) {
@@ -764,12 +772,26 @@ function findDynamicPreferenceReferences(candidateIds, instanceTypeOverride = nu
                             column: valueColumnNames[v]
                         });
                     }
+
+                    // Track value metadata for parents not already candidates
+                    if (!candidateIds.has(parentId) && !untrackedParents.has(parentId)) {
+                        const defaultVal = defaultValueIndex > -1
+                            ? (row[defaultValueIndex] || '').trim() : '';
+                        const sitesWithValues = valueColumnIndices
+                            .filter((_, idx) => valueColumnNames[idx] !== 'defaultValue')
+                            .filter(ci => (row[ci] || '').trim() !== '').length;
+                        untrackedParents.set(parentId, {
+                            hasValues: sitesWithValues > 0,
+                            hasDefault: defaultVal !== '',
+                            siteCount: sitesWithValues
+                        });
+                    }
                 }
             }
         }
     }
 
-    return dynamicRefs;
+    return { dynamicRefs, untrackedParents };
 }
 
 /**
@@ -984,9 +1006,54 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
     const remainingCandidateIds = new Set(
         [...fp1, ...fp2, ...fp3, ...fp4, ...fp5].map(c => c.id)
     );
-    const dynamicRefs = findDynamicPreferenceReferences(
+    const { dynamicRefs, untrackedParents } = findDynamicPreferenceReferences(
         remainingCandidateIds, instanceTypeOverride
     );
+
+    // --- Add untracked parents as candidates ---
+    // Parents that reference candidate IDs but were not in the matrix (e.g. missing
+    // from OCAPI attribute definitions). If they are also not in active code, they
+    // should be classified as P1/P2 candidates themselves.
+    let untrackedParentCount = 0;
+    for (const [parentId, valData] of untrackedParents) {
+        // Skip if parent is in active code — it's legitimately used
+        if (usedPreferences.has(parentId)) {
+            continue;
+        }
+
+        // Skip if blacklisted
+        if (blacklistedSet.has(parentId)) {
+            continue;
+        }
+
+        untrackedParentCount++;
+        remainingCandidateIds.add(parentId);
+
+        if (valData.hasValues || valData.hasDefault) {
+            const { realms, realmValueDetail } = hasRealmData
+                ? filterRealmsByValues(
+                    [REALM_TAGS.ALL], parentId, perRealmValues, allRealms
+                )
+                : { realms: [REALM_TAGS.ALL], realmValueDetail: '' };
+
+            fp2.push({
+                id: parentId, realms, realmValueDetail, ...valData,
+                untrackedParent: true
+            });
+        } else {
+            fp1.push({ id: parentId, realms: [REALM_TAGS.ALL], untrackedParent: true });
+        }
+    }
+
+    if (untrackedParentCount > 0) {
+        // Re-sort P1 and P2 after adding untracked parents
+        fp1.sort((a, b) => a.id.localeCompare(b.id));
+        fp2.sort((a, b) => a.id.localeCompare(b.id));
+        console.log(
+            `\u2713 ${untrackedParentCount} untracked parent preference(s) added as`
+            + ' candidates (not in attribute definitions but reference other candidates)'
+        );
+    }
 
     // Build tier lookup so we can match a child to its parent's tier
     const tierLookup = new Map();
@@ -997,25 +1064,30 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
     for (const c of fp5) { tierLookup.set(c.id, 5); }
 
     // Process dynamic references:
-    // - If ANY parent is actively used (not a candidate), the child is
-    //   effectively used at runtime too → remove from deletion list.
-    // - If ALL parents are also candidates, adopt the highest (least safe)
-    //   parent tier number.
+    // A parent can be in one of three states:
+    //   1. Actively used in code (in usedPreferences) → child is indirectly
+    //      used at runtime → remove from deletion list.
+    //   2. Also a deletion candidate (in tierLookup) → child inherits the
+    //      parent's tier (higher P = less safe).
+    //   3. Unknown / never analyzed (not in either set, e.g. missing from
+    //      attribute definitions) → annotate for review but keep in list.
     let dynamicRefCount = 0;
     const dynamicProtected = [];
     for (const [candidateId, refs] of dynamicRefs) {
         const parentIds = refs.map(r => r.parentId);
         const uniqueParents = [...new Set(parentIds)];
 
-        // Check if any parent is NOT a deletion candidate (= actively used in code)
-        const activeParents = uniqueParents.filter(pid => !tierLookup.has(pid));
+        // Check if any parent is confirmed active in cartridge code
+        const activeParents = uniqueParents.filter(
+            pid => usedPreferences.has(pid)
+        );
 
         const currentTier = tierLookup.get(candidateId);
         const currentArray = [fp1, fp2, fp3, fp4, fp5][currentTier - 1];
         const candidate = currentArray.find(c => c.id === candidateId);
 
         if (activeParents.length > 0 && candidate) {
-            // Parent is in active code → child is indirectly used → remove
+            // Parent is confirmed in active code → child is indirectly used → remove
             const idx = currentArray.indexOf(candidate);
             if (idx !== -1) {
                 currentArray.splice(idx, 1);
@@ -1028,31 +1100,35 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
             continue;
         }
 
-        // All parents are also candidates — inherit the highest parent tier
-        dynamicRefCount++;
-        const parentTiers = uniqueParents
-            .filter(pid => tierLookup.has(pid))
-            .map(pid => tierLookup.get(pid));
+        // Check parents that are also deletion candidates (for tier inheritance)
+        const candidateParents = uniqueParents.filter(
+            pid => tierLookup.has(pid)
+        );
 
-        const targetTier = parentTiers.length > 0
-            ? Math.max(currentTier, ...parentTiers)
-            : currentTier;
+        dynamicRefCount++;
 
         if (candidate) {
             candidate.dynamicValueOf = uniqueParents;
         }
 
-        // Move to a higher tier if needed
-        if (targetTier > currentTier && candidate) {
-            const idx = currentArray.indexOf(candidate);
-            if (idx !== -1) {
-                currentArray.splice(idx, 1);
-            }
+        // Inherit the highest parent tier when parents are also candidates
+        if (candidateParents.length > 0 && candidate) {
+            const parentTiers = candidateParents.map(
+                pid => tierLookup.get(pid)
+            );
+            const targetTier = Math.max(currentTier, ...parentTiers);
 
-            const targetArray = [fp1, fp2, fp3, fp4, fp5][targetTier - 1];
-            targetArray.push(candidate);
-            targetArray.sort((a, b) => a.id.localeCompare(b.id));
-            tierLookup.set(candidateId, targetTier);
+            if (targetTier > currentTier) {
+                const idx = currentArray.indexOf(candidate);
+                if (idx !== -1) {
+                    currentArray.splice(idx, 1);
+                }
+
+                const targetArray = [fp1, fp2, fp3, fp4, fp5][targetTier - 1];
+                targetArray.push(candidate);
+                targetArray.sort((a, b) => a.id.localeCompare(b.id));
+                tierLookup.set(candidateId, targetTier);
+            }
         }
     }
 
@@ -1118,6 +1194,13 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
         lines.push(
             `  \u2022 Dynamic value protected: ${dynamicProtected.length}`
             + ' (referenced by active code)'
+        );
+    }
+
+    if (untrackedParentCount > 0) {
+        lines.push(
+            `  \u2022 Untracked parents added: ${untrackedParentCount}`
+            + ' (not in attribute definitions, reference candidates)'
         );
     }
 
@@ -1351,35 +1434,46 @@ export async function findAllActivePreferencesUsage(repositoryPath, options = {}
         progressCallback(0, allFiles.length);
     }
 
-    // Scan each file once, looking for all preferences
-    // We yield to event loop after each file to allow smooth spinner animation and Ctrl+C
-    for (const fileInfo of allFiles) {
-        const foundPrefs = searchMultiplePreferencesInFile(fileInfo.path, activePreferences);
+    // Scan files in parallel using p-limit to cap concurrent async reads.
+    // UV_THREADPOOL_SIZE should be set to >= concurrency (done in main.js).
+    const FILE_SCAN_CONCURRENCY = 50;
+    const limit = pLimit(FILE_SCAN_CONCURRENCY);
 
-        // Record cartridges for each found preference
-        foundPrefs.forEach(pref => {
-            if (fileInfo.cartridge) {
-                const isDeprecated = deprecatedCartridges.has(fileInfo.cartridge);
-                const category = isDeprecated ? 'deprecated' : 'active';
-                preferenceToCartridges.get(pref)[category].add(fileInfo.cartridge);
+    const scanTasks = allFiles.map(fileInfo =>
+        limit(async () => {
+            const foundPrefs = await searchMultiplePreferencesInFileAsync(
+                fileInfo.path, activePreferences
+            );
+
+            // Record cartridges for each found preference
+            foundPrefs.forEach(pref => {
+                if (fileInfo.cartridge) {
+                    const isDeprecated = deprecatedCartridges.has(fileInfo.cartridge);
+                    const category = isDeprecated ? 'deprecated' : 'active';
+                    preferenceToCartridges.get(pref)[category].add(fileInfo.cartridge);
+                }
+            });
+
+            scannedFiles += 1;
+
+            // Update progress callback every logEvery files
+            if (scannedFiles % logEvery === 0 || scannedFiles === allFiles.length) {
+                const percent = (
+                    (scannedFiles / allFiles.length) * 100
+                ).toFixed(1);
+                if (progressCallback) {
+                    progressCallback(scannedFiles, allFiles.length);
+                } else {
+                    logStatusUpdate(
+                        `Scanned ${scannedFiles}/${allFiles.length}`
+                        + ` files (${percent}%)`
+                    );
+                }
             }
-        });
+        })
+    );
 
-        scannedFiles += 1;
-
-        // Update progress callback every logEvery files, or log to console if no callback
-        if (scannedFiles % logEvery === 0 || scannedFiles === allFiles.length) {
-            const percent = ((scannedFiles / allFiles.length) * 100).toFixed(1);
-            if (progressCallback) {
-                progressCallback(scannedFiles, allFiles.length);
-            } else {
-                logStatusUpdate(`Scanned ${scannedFiles}/${allFiles.length} files (${percent}%)`);
-            }
-        }
-
-        // Yield to event loop after each file for smooth spinner animation
-        await setImmediate();
-    }
+    await Promise.all(scanTasks);
 
     logStatusClear();
 

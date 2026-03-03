@@ -271,6 +271,19 @@ Preferences are ranked into priority tiers in the deletion file:
 
 Preferences matching the **blacklist** (e.g., payment integrations) are automatically excluded and listed in a separate "Blacklisted Preferences (Protected)" section at the bottom of the file.
 
+**Dynamic value detection:**
+
+Some preferences store the ID of another preference as their value, creating an indirect runtime reference:
+```javascript
+var attr = Site.current.getPreferenceValue('parentPref'); // value = "childPref"
+product.custom[attr] = ...;  // uses childPref without it appearing in code
+```
+
+The analyzer detects these dynamic references by scanning usage CSVs for exact matches between stored values and candidate IDs:
+- If the **parent** preference is in active code → the child is treated as used and **removed** from the deletion list
+- If the **parent** is also a deletion candidate → the child **inherits** the parent's tier and is annotated with `⚠ dynamic value of: <parent>`
+- If the **parent** is missing from the attribute definitions (not returned by OCAPI) but exists in the usage CSV → it is automatically added as a P1/P2 candidate itself
+
 ---
 
 ### 2. **remove-preferences** - Delete Selected Preferences
@@ -768,6 +781,16 @@ This will show:
 ---
 
 ## Performance Tips
+
+### Parallel File Scanning
+
+Cartridge code scanning uses **parallel async I/O** with [`p-limit`](https://www.npmjs.com/package/p-limit) for significantly faster file reads:
+
+- **Concurrency:** 50 concurrent file reads (configurable via `FILE_SCAN_CONCURRENCY` in `src/io/codeScanner.js`)
+- **Thread pool:** `UV_THREADPOOL_SIZE` is set to 64 at startup (default Node.js is 4), allowing the libuv thread pool to keep up with parallel reads
+- **Impact:** File scanning that previously ran sequentially now saturates disk I/O, reducing scan times on SSD by 3-5x
+
+The thread pool size is set automatically in `src/main.js` before any imports. No manual `set UV_THREADPOOL_SIZE=64` is needed.
 
 ### For Large Realms (1000+ sites)
 

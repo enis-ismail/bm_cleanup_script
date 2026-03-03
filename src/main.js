@@ -1,4 +1,9 @@
-﻿import { Command } from 'commander';
+﻿// Increase libuv thread pool for parallel file I/O (default is 4, must be set
+// before any async I/O occurs).  This allows p-limit batched reads to saturate
+// the disk instead of queuing behind 4 threads.
+process.env.UV_THREADPOOL_SIZE = '64';
+
+import { Command } from 'commander';
 import { registerDebugCommands } from './commands/debug/debug.js';
 import { registerPreferenceCommands } from './commands/preferences/preferences.js';
 import { registerCartridgeCommands } from './commands/cartridges/cartridges.js';
