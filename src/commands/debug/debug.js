@@ -2,7 +2,6 @@ import inquirer from 'inquirer';
 import { startTimer } from '../../helpers/timer.js';
 import { RealmProgressDisplay } from '../../scripts/loggingScript/progressDisplay.js';
 import {
-    getSitePreferences,
     updateAttributeDefinitionById,
     patchSitePreferencesGroup,
     getAttributeDefinitionById,
@@ -10,29 +9,18 @@ import {
     getAttributeGroups,
     getAttributeGroupById
 } from '../../api/api.js';
-import { exportAttributesToCSV } from '../../io/csv.js';
 import { loadBackupFile } from '../../io/backupUtils.js';
 import {
     realmPrompt,
     objectTypePrompt,
-    scopePrompts,
-    includeDefaultsPrompt,
-    resolveRealmScopeSelection,
     instanceTypePrompt
 } from '../prompts/index.js';
-import {
-    logCheckPreferencesStart,
-    logNoMatrixFiles,
-    logMatrixFilesFound,
-    logSummaryHeader,
-    logRealmSummary,
-    logSummaryFooter
-} from '../../scripts/loggingScript/log.js';
+
 import path from 'path';
 import fs from 'fs';
 import { findAllMatrixFiles, getSiblingRepositories } from '../../io/util.js';
-import { processPreferenceMatrixFiles, executePreferenceSummarization } from '../../helpers/analyzer.js';
-import { getActivePreferencesFromMatrices, findAllActivePreferencesUsage, findPreferenceUsage } from '../../io/codeScanner.js';
+
+import { getActivePreferencesFromMatrices, findPreferenceUsage } from '../../io/codeScanner.js';
 import { repositoryPrompt, preferenceIdPrompt } from '../prompts/index.js';
 import { findAttributeInMetaFiles } from '../../io/siteXmlHelper.js';
 import { refreshMetadataBackupForRealm, getMetadataBackupPathForRealm } from '../../helpers/backupJob.js';
@@ -40,22 +28,7 @@ import { getInstanceType, getRealmsByInstanceType } from '../../config/helpers/h
 
 // ============================================================================
 // DEBUG COMMANDS
-// Deprecated commands kept for backward compatibility and debugging
 // ============================================================================
-
-/**
- * Validate realm selection and return list to process
- * @param {Array<string>} realmsToProcess - List of realms from selection
- * @returns {boolean} True if realms are valid, false otherwise
- * @private
- */
-function validateRealmsSelection(realmsToProcess) {
-    if (!realmsToProcess || realmsToProcess.length === 0) {
-        console.log('No realms found for the selected scope.');
-        return false;
-    }
-    return true;
-}
 
 /**
  * Find the latest usage CSV file for a realm
@@ -87,37 +60,6 @@ function findLatestUsageCsv(realm, instanceType) {
  * @param {Command} program - Commander.js program instance
  */
 export function registerDebugCommands(program) {
-    program
-        .command('get-preferences')
-        .description('(Deprecated: use analyze-preferences) Export preference definitions to CSV')
-        .action(async () => {
-            console.log('Note: This command is simplified. Use "analyze-preferences" for full workflow.');
-            const realmAnswers = await inquirer.prompt(realmPrompt());
-            const realmName = realmAnswers.realm;
-            const answers = await inquirer.prompt([
-                ...objectTypePrompt(),
-                ...includeDefaultsPrompt()
-            ]);
-            const allAttributes = await getSitePreferences(
-                answers.objectType,
-                realmName,
-                answers.includeDefaults
-            );
-
-            console.log('\n================================================================================');
-            console.log('FULL RESPONSE OF FIRST ATTRIBUTE:');
-            console.log('================================================================================\n');
-            if (allAttributes && allAttributes.length > 0) {
-                console.log(JSON.stringify(allAttributes[0], null, 2));
-                console.log('\n================================================================================\n');
-            } else {
-                console.log('No attributes found.');
-                console.log('\n================================================================================\n');
-            }
-
-            await exportAttributesToCSV(allAttributes, realmName);
-        });
-
     program
         .command('list-attribute-groups')
         .description('(Debug) List attribute groups for an object type')
@@ -216,67 +158,6 @@ export function registerDebugCommands(program) {
         });
 
     program
-        .command('summarize-preferences')
-        .description('(Deprecated: use analyze-preferences) Summarize preferences (includes fetching)')
-        .action(async () => {
-            console.log('Note: This command is simplified. Use "analyze-preferences" for full workflow.');
-            const timer = startTimer();
-            const selection = await resolveRealmScopeSelection(inquirer.prompt);
-            const realmsToProcess = selection.realmList;
-
-            if (!validateRealmsSelection(realmsToProcess)) {
-                return;
-            }
-
-            const answers = await inquirer.prompt([
-                ...objectTypePrompt('SitePreferences'),
-                ...scopePrompts(),
-                ...includeDefaultsPrompt()
-            ]);
-
-            const { objectType, scope, siteId, includeDefaults } = answers;
-
-            for (const realm of realmsToProcess) {
-                console.log(`\nProcessing realm: ${realm}`);
-                await executePreferenceSummarization({
-                    realm,
-                    objectType,
-                    instanceType: getInstanceType(realm),
-                    scope,
-                    siteId,
-                    includeDefaults
-                });
-            }
-
-            console.log(`\n✓ Total runtime: ${timer.stop()}`);
-        });
-
-    program
-        .command('check-preferences')
-        .description('(Deprecated: use analyze-preferences) Check preference usage from matrix files')
-        .action(async () => {
-            console.log('Note: This command is simplified. Use "analyze-preferences" for full workflow.');
-            logCheckPreferencesStart();
-
-            const matrixFiles = findAllMatrixFiles();
-
-            if (matrixFiles.length === 0) {
-                logNoMatrixFiles();
-                return;
-            }
-
-            logMatrixFilesFound(matrixFiles.length);
-
-            const summary = await processPreferenceMatrixFiles(matrixFiles);
-
-            logSummaryHeader();
-            for (const stats of summary) {
-                logRealmSummary(stats);
-            }
-            logSummaryFooter();
-        });
-
-    program
         .command('test-active-preferences')
         .description('(Debug) Display all active preferences from matrix files')
         .action(async () => {
@@ -297,40 +178,6 @@ export function registerDebugCommands(program) {
             activePreferences.forEach((pref) => {
                 console.log(`  • ${pref}`);
             });
-        });
-
-    program
-        .command('find-all-preference-usage')
-        .description('(Deprecated: use analyze-preferences STEP 5) Find usage for all active preferences across all realms')
-        .action(async () => {
-            console.log('Note: This command is now STEP 5 of "analyze-preferences" for full workflow.');
-            const timer = startTimer();
-            const siblings = await getSiblingRepositories();
-
-            if (siblings.length === 0) {
-                console.log('No sibling repositories found.');
-                return;
-            }
-
-            const siblingAnswers = await inquirer.prompt(await repositoryPrompt(siblings));
-            const targetPath = path.join(path.dirname(process.cwd()), siblingAnswers.repository);
-
-            const results = await findAllActivePreferencesUsage(targetPath);
-
-            console.log('\nPREFERENCE USAGE SUMMARY\n');
-
-            for (const result of results) {
-                console.log(`${result.preferenceId}:`);
-                if (result.cartridges.length === 0) {
-                    console.log('  (not used in any cartridge)');
-                } else {
-                    result.cartridges.forEach((cartridge) => {
-                        console.log(`  • ${cartridge}`);
-                    });
-                }
-            }
-
-            console.log(`\n✓ Total runtime: ${timer.stop()}`);
         });
 
     program

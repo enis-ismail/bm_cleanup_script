@@ -195,7 +195,7 @@ Then edit `config.json` with real credentials.
 
 ## Core Workflow: Analyze & Remove Preferences
 
-The main workflow consists of two commands:
+The main workflow consists of two commands. For the full command reference with all options, config requirements, and step-by-step details, see [COMMANDS.md](COMMANDS.md).
 
 ### 1. **analyze-preferences** - Find Unused Preferences
 
@@ -209,57 +209,13 @@ This command analyzes site preferences across realms to identify which ones are 
    - No values in any site
    - No default values defined
    - No references in active cartridge code
-5. Generates a **deletion candidate list**
+5. Generates a **deletion candidate list** with priority tiers (P1–P5)
 
-**How to run:**
 ```bash
 node src/main.js analyze-preferences
 ```
 
-**Interactive prompts:**
-```
-STEP 1: Configure Scope & Options
-  → Select sibling repository (cartridge folder to analyze)
-  → Choose realm(s): single, by instance type, or ALL realms
-  → Object type (default: SitePreferences)
-  → Scope: ALL_SITES or specific site ID
-  → Include default values? (Y/N)
-  → Reuse existing backups if <14 days old? (Y/N)
-
-STEP 2: Fetching & Summarizing Preferences
-  (Runs in background, shows progress)
-
-STEP 3: Checking Preference Usage
-  (Processes matrix files, shows statistics)
-
-STEP 4: Active Preferences Summary
-  (Lists all preferences found across realms)
-
-STEP 5: Finding Preference Usage in Cartridges
-  (Scans code for references, generates cartridge mapping)
-
-STEP 6: Create Backups (Optional)
-  → Create backup files? (Y/N, default: yes)
-  → Refresh metadata from SFCC? (Y/N, default: no)
-  (Creates backup JSON for each realm with all preference definitions)
-```
-
-**Output files created:**
-
-Organized in `results/{instanceType}/`:
-
-| File | Purpose |
-|---|---|
-| `{instance}_preferences_for_deletion.txt` | **MAIN OUTPUT** - Safe-to-delete preferences |
-| `{instance}_unused_preferences.txt` | Preferences with no values |
-| `{instance}_cartridge_preferences.txt` | Preference → Cartridge mapping |
-| `{instance}_preference_usage.txt` | Summary statistics |
-| `{realm}_preferences_matrix.csv` | Matrix of site × preference usage |
-| `{realm}_preferences_usage.csv` | Actual preference values per site |
-
-**Deletion logic (priority tiers):**
-
-Preferences are ranked into priority tiers in the deletion file:
+**Deletion priority tiers:**
 
 | Tier | Label | Criteria |
 |---|---|---|
@@ -269,87 +225,34 @@ Preferences are ranked into priority tiers in the deletion file:
 | **P4** | Review: Deprecated + Values | Only referenced in deprecated cartridges, has values |
 | **P5** | Realm-Specific Code | Active code in some realms only |
 
-Preferences matching the **blacklist** (e.g., payment integrations) are automatically excluded and listed in a separate "Blacklisted Preferences (Protected)" section at the bottom of the file.
-
-**Dynamic value detection:**
-
-Some preferences store the ID of another preference as their value, creating an indirect runtime reference:
-```javascript
-var attr = Site.current.getPreferenceValue('parentPref'); // value = "childPref"
-product.custom[attr] = ...;  // uses childPref without it appearing in code
-```
-
-The analyzer detects these dynamic references by scanning usage CSVs for exact matches between stored values and candidate IDs:
-- If the **parent** preference is in active code → the child is treated as used and **removed** from the deletion list
-- If the **parent** is also a deletion candidate → the child **inherits** the parent's tier and is annotated with `⚠ dynamic value of: <parent>`
-- If the **parent** is missing from the attribute definitions (not returned by OCAPI) but exists in the usage CSV → it is automatically added as a P1/P2 candidate itself
+The analyzer also detects **dynamic value references** — preferences whose IDs are stored as values of other preferences — and handles them automatically (see [COMMANDS.md — analyze-preferences](COMMANDS.md#2-analyze-preferences) for details).
 
 ---
 
 ### 2. **remove-preferences** - Delete Selected Preferences
 
-This command removes preferences that were marked for deletion from Step 1.
+Removes preferences marked for deletion. Creates backups before any deletion.
 
-**What it does:**
-1. Loads the deletion list from `analyze-preferences` output
-2. Creates backups per realm (rollback capability)
-3. Removes preference definitions from SFCC OCAPI
-4. Optionally restores from backups if needed
-
-**How to run:**
 ```bash
 node src/main.js remove-preferences
+node src/main.js remove-preferences --dry-run  # simulate without changes
 ```
 
-**Interactive prompts:**
-```
-STEP 1: Select Instance Type
-  → Choose: development, staging, production
+**Flow:** Load deletion list → Review in VS Code → Select realms → Create backups → Confirm → Delete
 
-STEP 2: Load Preferences for Deletion
-  → Loads {instance}_preferences_for_deletion.txt
-  → If missing, offers to run analyze-preferences
-  (If run, will take 15-30 min depending on realm size)
+---
 
-STEP 3: Review Preferences for Deletion
-  → Opens deletion list in VS Code
-  → Shows summary: total count, top prefixes
-  (Review and manually edit list if needed)
+### 3. **restore-preferences** - Roll Back Deletions
 
-STEP 4: Select Realms to Process
-  → Choose which realms to remove from (can select multiple)
-  → Default: all configured realms
+Restore previously deleted preferences from backup JSON files.
 
-STEP 5: Create Backups (Per Realm)
-  Status check:
-  - Shows which realms already have today's backup
-  - Offers to create new backups for all or skip existing
-  
-  For realms needing backup:
-  → Download metadata XML from SFCC? (Y/N, default: no)
-  → Creates JSON backup with all definitions
-  → Shows: total attributes, groups, site values
-
-STEP 6: Confirm Deletion
-  → Shows backup summary
-  → Final confirmation needed before deletion
-
-STEP 7: Remove Preferences
-  → Deletes each preference from SFCC OCAPI
-  → Shows success/failure per preference per realm
-  → Creates deletion summary report
-
-STEP 8: Restore from Backups (Optional)
-  → If deletion failed, can restore from backup
-  → Confirms restore before proceeding
+```bash
+node src/main.js restore-preferences
 ```
 
-**Output created:**
+---
 
-Backup files in `backup/{instanceType}/`:
-```
-{realm}_SitePreferences_backup_2026-02-18.json
-```
+For complete interactive prompts, output files, and config requirements for each command, see [COMMANDS.md](COMMANDS.md).
 
 ---
 
@@ -418,255 +321,27 @@ Each realm creates its own folder within `results/`, organized by instance type.
 
 ## Whitelist & Blacklist System
 
-The tool uses two complementary filter lists that control which preferences can be deleted during the `remove-preferences` command. Both are applied **at load time** when the deletion file is read — they do not affect what `analyze-preferences` generates.
+The tool uses two filter lists to control which preferences can be deleted. Both are applied when the deletion file is loaded by `remove-preferences`.
 
-### Blacklist — Preferences That Can Never Be Deleted
+- **Blacklist** (`src/config/preference_blacklist.json`) — Preferences that can **never** be deleted (e.g., payment integrations)
+- **Whitelist** (`src/config/preference_whitelist.json`) — When non-empty, **only** matching preferences are eligible for deletion
 
-**File:** `src/config/preference_blacklist.json`
+**Filter order:** `Deletion File → [Whitelist: keep matches] → [Blacklist: remove matches] → Eligible`
 
-Preferences matching blacklist patterns are **excluded from deletion**, even if they appear in the deletion candidates file. Use this to protect critical preferences (payment integrations, authentication, etc.).
-
-**Default entries:**
-```json
-{
-  "blacklist": [
-    { "pattern": "Adyen_*", "type": "wildcard", "reason": "Required for Adyen payment integration" },
-    { "pattern": "c_klarna*", "type": "wildcard", "reason": "Required for Klarna payment integration" },
-    { "pattern": "c_paypal*", "type": "wildcard", "reason": "Required for PayPal payment integration" },
-    { "pattern": "c_slas*", "type": "wildcard", "reason": "Required for SLAS authentication" }
-  ]
-}
-```
-
-**Additionally:** During `analyze-preferences`, blacklisted preferences are filtered out of the deletion file itself and listed in a separate "Blacklisted Preferences (Protected)" section at the bottom of the generated file.
-
-### Whitelist — Restrict Deletion to Specific Preferences Only
-
-**File:** `src/config/preference_whitelist.json`
-
-When a whitelist is active (non-empty), **only preferences matching the whitelist** are eligible for deletion. All other preferences are skipped. If the whitelist is empty, all preferences from the deletion file are allowed (subject to the blacklist).
-
-**Use case:** When you want to target a specific batch — for example, only delete `ThisTestAttribute` to verify the workflow works before doing a full run.
-
-```json
-{
-  "whitelist": [
-    { "type": "exact", "id": "ThisTestAttribute", "reason": "testing" }
-  ]
-}
-```
-
-### Filter Evaluation Order
-
-When `remove-preferences` loads the deletion file:
-
-1. **Parse** all preference IDs from `{instance}_preferences_for_deletion.txt`
-2. **Whitelist filter** — If whitelist is non-empty, keep only matching IDs (skip others)
-3. **Blacklist filter** — Remove any IDs matching blacklist patterns
-4. **Result** — Only remaining IDs are presented for deletion
-
-```
-Deletion File → [Whitelist: keep matches only] → [Blacklist: remove matches] → Eligible for deletion
-```
-
-> **Important:** If you have a whitelist active and it filters out all preferences, `remove-preferences` will report "No eligible preferences found" rather than "file not found". Clear the whitelist entries to allow all preferences through.
-
-### Pattern Types
-
-Both lists support three pattern matching modes:
-
-| Type | Syntax | Example | Matches |
-|---|---|---|---|
-| `exact` | `{ "type": "exact", "id": "c_myPref" }` | `c_myPref` | Only `c_myPref` |
-| `wildcard` | `{ "type": "wildcard", "pattern": "Adyen_*" }` | `Adyen_*` | `Adyen_Enabled`, `Adyen_Mode`, etc. |
-| `regex` | `{ "type": "regex", "pattern": "^c_test" }` | `^c_test` | `c_testMode`, `c_testFlag`, etc. |
-
-### CLI Commands
-
+**CLI Commands:**
 ```bash
-# Blacklist management
-node src/main.js add-to-blacklist       # Add a pattern interactively
-node src/main.js remove-from-blacklist   # Remove a pattern
-node src/main.js list-blacklist          # Show all blacklisted patterns
+node src/main.js list-blacklist           # View blacklisted patterns
+node src/main.js add-to-blacklist         # Add a pattern
+node src/main.js remove-from-blacklist    # Remove a pattern
 
-# Whitelist management
-node src/main.js add-to-whitelist        # Add a pattern interactively
-node src/main.js remove-from-whitelist   # Remove a pattern
-node src/main.js list-whitelist          # Show all whitelisted patterns
+node src/main.js list-whitelist           # View whitelisted patterns
+node src/main.js add-to-whitelist         # Add a pattern
+node src/main.js remove-from-whitelist    # Remove a pattern
 ```
 
-### Typical Workflow
-
-1. **First run:** Clear the whitelist (or leave empty), rely on the blacklist to protect payment/auth preferences
-2. **Test run:** Add a single test preference to the whitelist, run `remove-preferences` to verify the flow end-to-end
-3. **Production run:** Clear the whitelist again so all deletion candidates are eligible, confirm via the interactive prompts
+For pattern types (exact, wildcard, regex), evaluation details, and typical workflows, see [COMMANDS.md — Setup Commands](COMMANDS.md#1-setup-commands).
 
 ---
-
-## API Capabilities
-
-### 1. Retrieve Sites
-- **`getAllSites(sandbox)`** - Get all sites from the sandbox
-- **`getSiteById(siteId, sandbox)`** - Get a specific site by ID
-
-### 2. Retrieve Preference/Attribute Groups
-- **`getAttributeGroups(objectType, sandbox)`** - Get all preference/attribute groups for a given object type (e.g., SitePreferences)
-- **`getAttributeGroupById(objectType, groupId, sandbox)`** - Get details of a specific attribute group
-
-### 3. Retrieve Preferences in a Group
-- **`getPreferencesInGroup(groupId, instanceType, sandbox, query)`** - Get all preferences within a specific group using the preference_search endpoint
-  - Endpoint: `/s/-/dw/data/v25_6/site_preferences/preference_groups/{group_id}/{instance_type}/preference_search`
-
-### 4. Retrieve Site-Specific Preference Values
-- **`getSitePreferencesGroup(siteId, groupId, instanceType, sandbox)`** - Get the preference group data for a specific site
-  - Endpoint: `/s/-/dw/data/v25_6/sites/{site_id}/site_preferences/preference_groups/{group_id}/{instance_type}`
-- **`getSitePreferences(objectType, sandbox)`** - Get site preferences/attributes for an object type
-
-## Complete Workflow
-
-The available functions enable a complete workflow:
-
-1. **List all sites** using `getAllSites()`
-2. **List all preference groups** using `getAttributeGroups()`
-3. **Get preferences in each group** using `getPreferencesInGroup()`
-4. **Get actual values per site** using `getSitePreferencesGroup()`
-
-This gives you:
-- The preference structure (which groups exist, which preferences are in each group)
-- The values of those preferences for each specific site
-- Ability to identify and manage preference configurations across multiple sites
-
-## Instance Types
-
-When querying preferences, specify one of these instance types:
-- `sandbox` - Sandbox environment
-- `staging` - Staging environment
-- `development` - Development environment
-- `production` - Production environment
-
-## CLI Commands
-
-Once your realm is configured, you can use the following commands:
-
-### Realm Management
-```bash
-node src/main.js add-realm
-```
-Add a new realm to config.json.
-
-```bash
-node src/main.js remove-realm
-```
-Remove a realm from config.json.
-
-### Core Commands
-
-#### analyze-preferences
-```bash
-node src/main.js analyze-preferences
-```
-**Full preference analysis workflow** (fetch → summarize → analyze → check usage):
-
-**Step 1:** Configure scope and options
-- Select sibling repository (cartridge folder to scan)
-- Select realm(s): single, by instance type, or ALL
-- Configure: objectType, scope (ALL_SITES/specific site), includeDefaults
-- Option to reuse existing backups (<14 days old)
-
-**Step 2:** Fetch and summarize preferences
-- Fetches all sites and attribute groups via OCAPI
-- Gets site preferences for each site/group combination
-- Optionally fetches detailed definitions (with default values)
-- **Creates backup:** `backup/{instanceType}/{realm}_SitePreferences_backup_{date}.json`
-- Generates matrix CSV ("X" marks where preference has value)
-- Generates usage CSV (actual values per site)
-- Identifies unused preferences (no values + no defaults)
-
-**Step 3:** Check preference usage in cartridge code
-- Scans repository cartridges for ALL active preferences
-- Excludes: sites folder, .git, node_modules, deprecated cartridges
-- Records which cartridges reference each preference
-
-**Step 4:** Generate deletion candidates
-A preference is marked for deletion if:
-- No site has a value (no "X" in matrix)
-- No default value exists
-- Not referenced in any active cartridge code
-- OR only referenced in deprecated cartridges
-
-**Output Files:**
-- `{instance}_unused_preferences.txt` - Preferences with no cartridge usage
-- `{instance}_cartridge_preferences.txt` - Mapping of preferences → cartridges
-- `{instance}_preferences_for_deletion.txt` - **THE DELETION LIST**
-
-#### remove-preferences
-```bash
-node src/main.js remove-preferences
-```
-**Remove preferences marked for deletion** from site preferences:
-
-**Step 1:** Load deletion list
-- Select instance type (development/staging/production)
-- Load `{instance}_preferences_for_deletion.txt`
-- If missing, offers to run analyze-preferences first
-
-**Step 2:** Review preferences
-- Opens deletion file in VS Code for manual review
-- Shows summary (total count, top prefixes being removed)
-
-**Step 3:** Select realms to process
-- Choose which realms to create backups for
-- Can select multiple realms at once
-
-**Step 4:** Create backups (per realm)
-- Downloads metadata XML from SFCC (if not already fresh)
-- Extracts attribute definitions directly from metadata
-- Creates backup JSON file with all definitions
-- Adds attribute group assignments from metadata
-- **No OCAPI fetching** - uses offline metadata parsing
-- Backups created BEFORE deletion confirmation
-
-**Step 5:** Confirm deletion
-- Reviews backup summary
-- Final confirmation AFTER backups are ready
-- Can cancel without deleting (backups preserved)
-
-**Step 6:** Remove preferences (⚠️ NOT YET IMPLEMENTED)
-- Will call OCAPI to remove preferences
-- Logs success/failure for each preference
-- Keeps terminal open for monitoring
-
-#### restore-preferences
-```bash
-node src/main.js restore-preferences
-```
-Restore deleted preferences from backup files. Useful if deletion went wrong.
-
-#### backup-site-preferences
-```bash
-node src/main.js backup-site-preferences
-```
-Trigger site preferences backup job on SFCC and download the ZIP from WebDAV.
-
-#### list-sites
-```bash
-node src/main.js list-sites
-```
-List all sites and export cartridge paths to CSV.
-
-### Work-in-Progress Commands
-
-#### validate-cartridges-all
-```bash
-node src/main.js validate-cartridges-all
-```
-[WIP] Validate cartridges across ALL configured realms in parallel.
-
-#### validate-site-xml
-```bash
-node src/main.js validate-site-xml
-```
-[WIP] Validate that site.xml files match live SFCC cartridge paths.
 
 ---
 
