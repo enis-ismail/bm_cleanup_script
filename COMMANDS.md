@@ -248,8 +248,8 @@ STEP 1: Configure Scope & Options
 | **STEP 2** | Fetch all sites, attribute groups, and preference values from SFCC via OCAPI | 5–20 min |
 | **STEP 3** | Process matrix files, count preferences per realm | seconds |
 | **STEP 4** | Summarize active preferences across all realms | seconds |
-| **STEP 5** | Scan cartridge code for preference references (parallel I/O) | 1–10 min |
-| **STEP 6** | (Optional) Create backup JSON files, refresh metadata from SFCC | 1–5 min |
+| **STEP 5** | Run `list-sites` logic per realm to refresh active site cartridge CSVs | 1–3 min |
+| **STEP 6** | Scan cartridge code for preference references (parallel I/O) | 1–10 min |
 
 **Output files created:**
 
@@ -261,6 +261,7 @@ Organized in `results/{instanceType}/`:
 | `{instance}_unused_preferences.txt` | Preferences with no cartridge code references |
 | `{instance}_cartridge_preferences.txt` | Preference → cartridge mapping |
 | `{instance}_preference_usage.txt` | Summary statistics |
+| `{realm}_active_site_cartridges_list.csv` | Site → active cartridge path mapping (used for realm tagging) |
 | `{realm}_preferences_matrix.csv` | Per-realm matrix: site × preference ("X" marks) |
 | `{realm}_preferences_usage.csv` | Per-realm: actual preference values per site |
 
@@ -403,7 +404,8 @@ Trigger an SFCC backup job and download the metadata XML from WebDAV. This is a 
 
 **Output:**
 ```
-backup_downloads/{hostname}_meta_data_backup_{date}.xml
+backup_downloads/{realm}_meta_data_backup_{date}.xml
+backup_downloads/archive/{realm}_meta_data_backup_{date}[_{timestamp}].xml
 ```
 
 ---

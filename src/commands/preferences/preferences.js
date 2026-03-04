@@ -36,6 +36,7 @@ import {
     executePreferenceSummarization,
     executePreferenceSummarizationFromMetadata
 } from '../../helpers/analyzer.js';
+import { exportSitesCartridgesToCSV } from '../../io/csv.js';
 import {
     findAllActivePreferencesUsage,
     getActivePreferencesFromMatrices
@@ -171,13 +172,25 @@ async function analyzePreferences() {
                 let refreshResult;
                 try {
                     refreshResult = await refreshMetadataBackupForRealm(
-                        realm, instanceType
+                        realm,
+                        instanceType,
+                        { forceJobExecution: !useCachedBackup }
                     );
                 } catch (backupError) {
                     refreshResult = { ok: false, reason: backupError.message };
                 }
 
                 if (refreshResult.ok) {
+                    if (refreshResult.status === 'EXISTING') {
+                        console.log(
+                            `${LOG_PREFIX.INFO} ${realm}: using existing metadata backup (no new job execution).`
+                        );
+                    } else {
+                        console.log(
+                            `${LOG_PREFIX.INFO} ${realm}: using freshly generated metadata backup (job execution).`
+                        );
+                    }
+
                     display.completeStep(realmHostname, 'backup');
 
                     // Steps 2-5: metadata flow (fetch, groups, matrices, export)
@@ -191,7 +204,13 @@ async function analyzePreferences() {
                             { display, hostname: realmHostname, realmName: realm }
                         );
                         display.completeRealm(realmHostname);
-                        return { realm, success: true, result, mode: 'metadata' };
+                        return {
+                            realm,
+                            success: true,
+                            result,
+                            mode: 'metadata',
+                            backupStatus: refreshResult.status || 'OK'
+                        };
                     } catch (realmError) {
                         display.failStep(realmHostname, 'fetch');
                         display.failRealm(realmHostname, realmError.message);
@@ -203,6 +222,9 @@ async function analyzePreferences() {
 
                 // Backup failed — fall back to OCAPI
                 const backupReason = refreshResult.reason || 'unknown';
+                console.log(
+                    `${LOG_PREFIX.WARNING} ${realm}: switching to old data method (OCAPI) — ${backupReason}`
+                );
                 display.failStep(realmHostname, 'backup');
                 display.setTotalSteps(realmHostname, ANALYSIS_STEPS.OCAPI);
 
@@ -217,7 +239,7 @@ async function analyzePreferences() {
                     display.completeRealm(realmHostname);
                     return {
                         realm, success: true, result,
-                        mode: 'ocapi', backupReason
+                        mode: 'ocapi', backupReason, backupStatus: 'FALLBACK_OCAPI'
                     };
                 } catch (realmError) {
                     display.failStep(realmHostname, 'fetch');
@@ -236,6 +258,25 @@ async function analyzePreferences() {
         display.finish();
     }
 
+    console.log('');
+
+    console.log(`${LOG_PREFIX.INFO} Metadata strategy by realm:`);
+    for (const result of allResults) {
+        if (result.mode === 'metadata') {
+            if (result.backupStatus === 'EXISTING') {
+                console.log(`  - ${result.realm}: metadata existing file (no job run)`);
+            } else {
+                console.log(`  - ${result.realm}: metadata fresh job execution`);
+            }
+        } else if (result.mode === 'ocapi') {
+            console.log(
+                `  - ${result.realm}: switched to old OCAPI method`
+                + `${result.backupReason ? ` (${result.backupReason})` : ''}`
+            );
+        } else {
+            console.log(`  - ${result.realm}: ${result.mode || 'unknown mode'}`);
+        }
+    }
     console.log('');
 
     // Report backup fallbacks (why metadata was skipped per realm)
@@ -295,8 +336,45 @@ async function analyzePreferences() {
     const activePreferences = Array.from(getActivePreferencesFromMatrices(matrixFilePaths)).sort();
     console.log(`Active Preferences (${activePreferences.length}):\n`);
 
-    // --- STEP 5: Find Preference Usage in Cartridges ---
-    logSectionTitle('STEP 5: Finding Preference Usage in Cartridges');
+    // --- STEP 5: Refresh Active Site Cartridge Lists ---
+    logSectionTitle('STEP 5: Refresh Active Site Cartridge Lists');
+
+    if (realmsProcessed.length > 0) {
+        const exportResults = await Promise.all(
+            realmsProcessed.map(async (realm) => {
+                try {
+                    await exportSitesCartridgesToCSV(realm);
+                    return { realm, success: true };
+                } catch (error) {
+                    return { realm, success: false, error };
+                }
+            })
+        );
+
+        const exportFailures = exportResults.filter(r => !r.success);
+        const exportSuccesses = exportResults.length - exportFailures.length;
+
+        console.log(
+            `${LOG_PREFIX.INFO} Refreshed active site cartridge lists for ${exportSuccesses}`
+            + `/${exportResults.length} realm(s).`
+        );
+
+        if (exportFailures.length > 0) {
+            for (const { realm, error } of exportFailures) {
+                console.log(
+                    `${LOG_PREFIX.WARNING} ${realm}: failed to export site cartridge list — `
+                    + `${error.message}`
+                );
+            }
+            console.log(
+                `${LOG_PREFIX.WARNING} Realm-specific deletion tags may fall back to `
+                + `${IDENTIFIERS.ALL} for affected realm(s).`
+            );
+        }
+    }
+
+    // --- STEP 6: Find Preference Usage in Cartridges ---
+    logSectionTitle('STEP 6: Finding Preference Usage in Cartridges');
 
     if (repositoryPaths.length > 0 && realmsProcessed.length > 0) {
         const repoNames = repositoryPaths.map(p => path.basename(p));
@@ -581,7 +659,11 @@ async function backupSitePreferences() {
     const instanceType = getInstanceType(realm);
 
     console.log('Triggering backup job and downloading metadata...');
-    const refreshResult = await refreshMetadataBackupForRealm(realm, instanceType);
+    const refreshResult = await refreshMetadataBackupForRealm(
+        realm,
+        instanceType,
+        { forceJobExecution: true }
+    );
 
     if (!refreshResult.ok) {
         console.log(`Failed to refresh metadata: ${refreshResult.reason}`);

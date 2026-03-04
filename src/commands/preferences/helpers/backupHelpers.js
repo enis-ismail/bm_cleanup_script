@@ -150,11 +150,17 @@ export async function resolveMetadataPath(realm, instanceType, forceRefresh) {
 
     if (forceRefresh || !fs.existsSync(metadataPath)) {
         console.log('STEP 5.1: Download Metadata Backup\n');
-        if (!fs.existsSync(metadataPath)) {
+        if (forceRefresh) {
+            console.log(`${LOG_PREFIX.INFO} Cache disabled — forcing new metadata backup job run.\n`);
+        } else if (!fs.existsSync(metadataPath)) {
             console.log(`${LOG_PREFIX.WARNING} No existing metadata file found. Triggering backup job...\n`);
         }
         console.log('Triggering backup job and downloading metadata...');
-        const refreshResult = await refreshMetadataBackupForRealm(realm, instanceType);
+        const refreshResult = await refreshMetadataBackupForRealm(
+            realm,
+            instanceType,
+            { forceJobExecution: forceRefresh }
+        );
 
         if (refreshResult.ok) {
             console.log(`${LOG_PREFIX.INFO} Downloaded metadata: ${refreshResult.filePath}\n`);

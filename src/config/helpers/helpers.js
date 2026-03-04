@@ -154,6 +154,7 @@ export function getWebdavConfig(realmName) {
     const backup = config.backup || {};
 
     return {
+        name: realm.name,
         hostname: realm.hostname,
         username: backup.webdavUsername || '',
         password: backup.webdavPassword || '',

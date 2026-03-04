@@ -110,6 +110,7 @@ export class RealmProgressDisplay {
         this.renderedLineCount = 0;
         this.frameCount = 0;
         this._savedConsole = null;
+        this._logBuffer = [];
     }
 
     // ------------------------------------------------------------------
@@ -126,8 +127,23 @@ export class RealmProgressDisplay {
             error: console.error,
             warn: console.warn
         };
-        console.log = () => {};
-        console.error = () => {};
+        // Buffer console.log calls so they appear after the progress display
+        // finishes, instead of being silently dropped.
+        console.log = (...args) => {
+            this._logBuffer.push(args);
+        };
+        // Keep console.error writing to stderr so fatal errors are never silently
+        // swallowed.  We stop the progress-bar render loop first so the cursor
+        // doesn't collide, then forward to the REAL stderr writer.
+        const origError = console.error;
+        console.error = (...args) => {
+            // Stop the render interval to avoid cursor collisions
+            if (this.interval) {
+                clearInterval(this.interval);
+                this.interval = null;
+            }
+            origError.apply(console, args);
+        };
         console.warn = () => {};
     }
 
@@ -140,6 +156,15 @@ export class RealmProgressDisplay {
         console.error = this._savedConsole.error;
         console.warn = this._savedConsole.warn;
         this._savedConsole = null;
+
+        // Flush any buffered log calls now that the display is done
+        if (this._logBuffer.length > 0) {
+            console.log('');  // blank line separator after progress bars
+            for (const args of this._logBuffer) {
+                console.log(...args);
+            }
+            this._logBuffer = [];
+        }
     }
 
     // ------------------------------------------------------------------

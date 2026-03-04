@@ -39,7 +39,7 @@
     },
     {
       "resource_id": "/system_object_definitions/*/attribute_groups/*",
-      "methods": ["get"],
+      "methods": ["get", "put"],
       "read_attributes": "(**)",
       "write_attributes": "(**)"
     },

@@ -3,14 +3,80 @@ import fs from 'fs/promises';
 import { getBackupConfig, getWebdavConfig } from '../index.js';
 import { triggerJobExecution, getJobExecutionStatus, downloadWebdavFile } from '../api/api.js';
 
+function escapeRegExp(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+async function pathExists(filePath) {
+    try {
+        await fs.access(filePath);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function archiveLocalMetadataBackups({
+    outputDir,
+    realmIdentifier,
+    targetFileName,
+    includeTarget = false
+}) {
+    const safeRealm = String(realmIdentifier || 'unknown').replace(/[^A-Za-z0-9.-]/g, '-');
+    const metadataFilePattern = new RegExp(
+        `^${escapeRegExp(safeRealm)}_meta_data_backup_\\d{4}-\\d{2}-\\d{2}\\.xml$`
+    );
+
+    await fs.mkdir(outputDir, { recursive: true });
+
+    const archiveDir = path.join(outputDir, 'archive');
+    await fs.mkdir(archiveDir, { recursive: true });
+
+    const entries = await fs.readdir(outputDir, { withFileTypes: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    let archivedCount = 0;
+
+    for (const entry of entries) {
+        if (!entry.isFile() || !metadataFilePattern.test(entry.name)) {
+            continue;
+        }
+
+        if (!includeTarget && entry.name === targetFileName) {
+            continue;
+        }
+
+        const sourcePath = path.join(outputDir, entry.name);
+        const ext = path.extname(entry.name);
+        const base = path.basename(entry.name, ext);
+
+        let archiveName = entry.name;
+        if (entry.name === targetFileName) {
+            archiveName = `${base}_${timestamp}${ext}`;
+        }
+
+        let destinationPath = path.join(archiveDir, archiveName);
+        let suffix = 1;
+
+        while (await pathExists(destinationPath)) {
+            destinationPath = path.join(archiveDir, `${base}_${timestamp}_${suffix}${ext}`);
+            suffix += 1;
+        }
+
+        await fs.rename(sourcePath, destinationPath);
+        archivedCount += 1;
+    }
+
+    return archivedCount;
+}
+
 /**
  * Build a safe file name for metadata backups.
- * Includes the hostname and current date for traceability.
- * @param {string} realmHostname - Realm hostname
+ * Includes the realm identifier (preferably realm name) and current date for traceability.
+ * @param {string} realmIdentifier - Realm identifier for naming
  * @returns {string} File name
  */
-export function buildMetadataBackupFileName(realmHostname) {
-    const safeHost = String(realmHostname || 'unknown').replace(/[^A-Za-z0-9.-]/g, '-');
+export function buildMetadataBackupFileName(realmIdentifier) {
+    const safeHost = String(realmIdentifier || 'unknown').replace(/[^A-Za-z0-9.-]/g, '-');
     const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
     return `${safeHost}_meta_data_backup_${date}.xml`;
 }
@@ -67,6 +133,7 @@ async function pollJobStatus(params) {
         timeoutMs
     } = params;
     const pollStart = Date.now();
+    let lastLoggedStatus = '';
 
     while (true) {
         const statusResponse = await getJobExecutionStatus(
@@ -78,6 +145,22 @@ async function pollJobStatus(params) {
 
         if (!statusResponse) {
             return { status: 'ERROR', ok: false, statusResponse: null };
+        }
+
+        const rawExecStatus = (statusResponse.execution_status || statusResponse.status || 'unknown').toLowerCase();
+        if (rawExecStatus !== lastLoggedStatus) {
+            const elapsedMs = Date.now() - pollStart;
+            const elapsedSec = Math.round(elapsedMs / 1000);
+            const exitStatus = typeof statusResponse.exit_status === 'object'
+                ? (statusResponse.exit_status.status || '')
+                : (statusResponse.exit_status || '');
+            const exitSuffix = exitStatus ? `, exit_status=${exitStatus}` : '';
+
+            console.log(
+                `${realm}: job ${jobId} execution ${executionId} status=${rawExecStatus}`
+                + `${exitSuffix} (${elapsedSec}s elapsed)`
+            );
+            lastLoggedStatus = rawExecStatus;
         }
 
         const terminal = resolveJobTerminalState(statusResponse);
@@ -103,11 +186,14 @@ async function pollJobStatus(params) {
  *
  * @param {string} realm - Realm name
  * @param {string} _instanceType - Instance type (unused, reserved for future use)
+ * @param {Object} [options] - Refresh options
+ * @param {boolean} [options.forceJobExecution=false] - Force running backup job before download
  * @returns {Promise<{ok: boolean, filePath?: string, status?: string, reason?: string}>}
  */
-export async function refreshMetadataBackupForRealm(realm, _instanceType) {
+export async function refreshMetadataBackupForRealm(realm, _instanceType, options = {}) {
     let backupConfig;
     let webdavConfig;
+    const forceJobExecution = options.forceJobExecution === true;
 
     try {
         backupConfig = getBackupConfig();
@@ -120,28 +206,51 @@ export async function refreshMetadataBackupForRealm(realm, _instanceType) {
         return { ok: false, reason: 'Missing WebDAV credentials in config.json' };
     }
 
-    const targetFileName = buildMetadataBackupFileName(webdavConfig.hostname);
+    const realmIdentifier = webdavConfig.name || webdavConfig.hostname;
+    const targetFileName = buildMetadataBackupFileName(realmIdentifier);
+    const archiveDir = path.join(backupConfig.outputDir, 'archive');
 
     try {
-        // --- 1. Try downloading the existing file first ---
-        const existingPath = await downloadWebdavFile(
-            webdavConfig, backupConfig.outputDir, targetFileName
-        );
+        if (forceJobExecution) {
+            console.log(`${realm}: force refresh enabled — triggering backup job before download.`);
+        }
 
-        if (existingPath) {
-            try {
-                await fs.access(existingPath);
-                return { ok: true, filePath: existingPath, status: 'EXISTING' };
-            } catch {
-                // Download returned a path but file is missing — fall through
+        if (!forceJobExecution) {
+            const archivedBeforeCachedDownload = await archiveLocalMetadataBackups({
+                outputDir: backupConfig.outputDir,
+                realmIdentifier,
+                targetFileName,
+                includeTarget: false
+            });
+
+            if (archivedBeforeCachedDownload > 0) {
+                console.log(
+                    `${realm}: archived ${archivedBeforeCachedDownload} old metadata file(s) to ${archiveDir}`
+                );
+            }
+
+            // --- 1. Try downloading the existing file first ---
+            const existingPath = await downloadWebdavFile(
+                webdavConfig, backupConfig.outputDir, targetFileName
+            );
+
+            if (existingPath) {
+                try {
+                    await fs.access(existingPath);
+                    return { ok: true, filePath: existingPath, status: 'EXISTING' };
+                } catch {
+                    // Download returned a path but file is missing — fall through
+                }
             }
         }
 
-        // --- 2. File not on server — trigger backup job ---
+        // --- 2. Trigger backup job (always when forced, otherwise only after cache miss) ---
         if (!backupConfig.jobId) {
             return {
                 ok: false,
-                reason: 'No existing metadata file and no backup.jobId configured'
+                reason: forceJobExecution
+                    ? 'Cannot force fresh metadata: no backup.jobId configured'
+                    : 'No existing metadata file and no backup.jobId configured'
             };
         }
 
@@ -167,6 +276,10 @@ export async function refreshMetadataBackupForRealm(realm, _instanceType) {
             };
         }
 
+        console.log(
+            `${realm}: triggered backup job '${backupConfig.jobId}' with executionId=${executionId}`
+        );
+
         // --- 3. Poll until job reaches a terminal state ---
         const pollResult = await pollJobStatus({
             jobId: backupConfig.jobId,
@@ -183,6 +296,19 @@ export async function refreshMetadataBackupForRealm(realm, _instanceType) {
                 reason: `Backup job finished with status: ${pollResult.status}`,
                 status: pollResult.status
             };
+        }
+
+        const archivedBeforeFreshDownload = await archiveLocalMetadataBackups({
+            outputDir: backupConfig.outputDir,
+            realmIdentifier,
+            targetFileName,
+            includeTarget: true
+        });
+
+        if (archivedBeforeFreshDownload > 0) {
+            console.log(
+                `${realm}: archived ${archivedBeforeFreshDownload} old metadata file(s) to ${archiveDir}`
+            );
         }
 
         // --- 4. Download after job completed ---
@@ -225,6 +351,6 @@ export async function refreshMetadataBackupForRealm(realm, _instanceType) {
 export function getMetadataBackupPathForRealm(realm) {
     const backupConfig = getBackupConfig();
     const webdavConfig = getWebdavConfig(realm);
-    const fileName = buildMetadataBackupFileName(webdavConfig.hostname);
+    const fileName = buildMetadataBackupFileName(webdavConfig.name || webdavConfig.hostname);
     return path.join(backupConfig.outputDir, fileName);
 }

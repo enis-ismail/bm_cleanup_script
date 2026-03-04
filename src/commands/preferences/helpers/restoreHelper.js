@@ -3,6 +3,7 @@ import { buildCreateSafeBody } from '../../../io/backupUtils.js';
 import {
     updateAttributeDefinitionById,
     assignAttributeToGroup,
+    getAttributeGroupById,
     createOrUpdateAttributeGroup,
     patchSitePreferencesGroup
 } from '../../../api/api.js';
@@ -15,9 +16,17 @@ import {
  * @param {string} options.objectType - Object type (e.g. 'SitePreferences')
  * @param {string} options.instanceType - Instance type (e.g. 'development')
  * @param {string} options.realm - Realm name
+ * @param {Set<string>} [options.ensuredGroups] - Cache of group IDs already ensured for this realm run
  * @returns {Promise<boolean>} True if the preference was restored successfully
  */
-export async function restorePreference({ preferenceId, backup, objectType, instanceType, realm }) {
+export async function restorePreference({
+    preferenceId,
+    backup,
+    objectType,
+    instanceType,
+    realm,
+    ensuredGroups = null
+}) {
     const attributeToRestore = backup.attributes.find(attr => attr.id === preferenceId);
 
     if (!attributeToRestore) {
@@ -44,20 +53,31 @@ export async function restorePreference({ preferenceId, backup, objectType, inst
     );
 
     for (const group of groupsToRestore) {
-        // Ensure the group exists before assigning the attribute
-        const groupPayload = {
-            display_name: { default: group.group_display_name || group.group_id }
-        };
-        const groupCreated = await createOrUpdateAttributeGroup(
-            objectType, group.group_id, groupPayload, realm, instanceType
-        );
+        const alreadyEnsured = ensuredGroups?.has(group.group_id) === true;
 
-        if (!groupCreated) {
-            console.log(
-                `    ${LOG_PREFIX.ERROR} Failed to ensure group exists: `
-                + `${group.group_id} — skipping assignment`
-            );
-            continue;
+        if (!alreadyEnsured) {
+            const existingGroup = await getAttributeGroupById(objectType, group.group_id, realm);
+
+            if (!existingGroup) {
+                const groupPayload = {
+                    display_name: { default: group.group_display_name || group.group_id }
+                };
+                const groupCreated = await createOrUpdateAttributeGroup(
+                    objectType, group.group_id, groupPayload, realm, instanceType
+                );
+
+                if (!groupCreated) {
+                    console.log(
+                        `    ${LOG_PREFIX.ERROR} Failed to ensure group exists: `
+                        + `${group.group_id} — skipping assignment`
+                    );
+                    continue;
+                }
+            }
+
+            if (ensuredGroups) {
+                ensuredGroups.add(group.group_id);
+            }
         }
 
         const assigned = await assignAttributeToGroup(
@@ -107,9 +127,17 @@ export async function restorePreference({ preferenceId, backup, objectType, inst
 export async function restorePreferencesForRealm({ preferenceIds, backup, objectType, instanceType, realm }) {
     let restored = 0;
     let failed = 0;
+    const ensuredGroups = new Set();
 
     for (const preferenceId of preferenceIds) {
-        const success = await restorePreference({ preferenceId, backup, objectType, instanceType, realm });
+        const success = await restorePreference({
+            preferenceId,
+            backup,
+            objectType,
+            instanceType,
+            realm,
+            ensuredGroups
+        });
 
         if (success) {
             restored++;

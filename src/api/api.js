@@ -263,7 +263,7 @@ export async function triggerJobExecution(jobId, realm, ocapiVersion = 'v25_6') 
         const response = await axios.post(url, {}, { headers });
         return response.data;
     } catch (error) {
-        logError(`Failed to trigger job ${jobId}: ${error.response?.data?.message || error.message}`);
+        logError(`Failed to trigger job ${jobId} on ${realm}: ${error.response?.status || ''} ${error.response?.data?.message || error.message}`);
         return null;
     }
 }

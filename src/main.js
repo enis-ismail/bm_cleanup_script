@@ -3,6 +3,21 @@
 // the disk instead of queuing behind 4 threads.
 process.env.UV_THREADPOOL_SIZE = '64';
 
+// ---------------------------------------------------------------------------
+// Global crash handlers — write directly to process.stderr so errors are NEVER
+// swallowed by RealmProgressDisplay's console suppression.
+// ---------------------------------------------------------------------------
+process.on('uncaughtException', (err) => {
+    process.stderr.write(`\n\n[FATAL] Uncaught exception:\n${err.stack || err}\n`);
+    process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+    const msg = reason instanceof Error ? reason.stack : String(reason);
+    process.stderr.write(`\n\n[FATAL] Unhandled promise rejection:\n${msg}\n`);
+    process.exit(1);
+});
+
 import { Command } from 'commander';
 import { registerDebugCommands } from './commands/debug/debug.js';
 import { registerPreferenceCommands } from './commands/preferences/preferences.js';
