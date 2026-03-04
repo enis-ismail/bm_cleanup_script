@@ -65,16 +65,15 @@ export const REALM_TAGS = {
 
 /**
  * Deletion level options for remove-preferences command.
- * P1-P5 are cascading (selecting P3 includes P1+P2+P3).
- * REALM_TARGETED is the legacy mode using per-realm tags for all tiers.
+ * P1-P5 are cascading: selecting P3 includes P1+P2+P3.
+ * Per-realm deletion files handle realm targeting automatically.
  */
 export const DELETION_LEVELS = {
     P1: 'P1',
     P2: 'P2',
     P3: 'P3',
     P4: 'P4',
-    P5: 'P5',
-    REALM_TARGETED: 'REALM_TARGETED'
+    P5: 'P5'
 };
 
 /**

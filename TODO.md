@@ -54,7 +54,7 @@
   - [ ] create logic to create new git branches (determine a base branch, naming convention, etc.)
   - [ ] add logic to automatically commit changes to the new branch with a standardized commit message
   - [ ] add logic to create pull requests from the new branch to a target branch
-- [ ] we need to be able to create a deletionlist for each realm that is based on the preferences that are only used in that realm, this way we can delete more preferences and also have a better overview of which preferences are used where
+- [x] we need to be able to create a deletionlist for each realm that is based on the preferences that are only used in that realm, this way we can delete more preferences and also have a better overview of which preferences are used where
 - [ ] when we failt to retrieve a preference through OCAPI we should remember the ID to try fetching it later.
 
 ---
@@ -122,9 +122,9 @@ Supports exact match, wildcard, and regex pattern types.
 
 **Integration Points:**
 - [x] `preference_blacklist.json` configuration file in project root
-- [x] `src/helpers/blacklistHelper.js` — load, save, match, filter logic
+- [x] `src/commands/setup/helpers/blacklistHelper.js` — load, save, match, filter logic
 - [x] `src/io/codeScanner.js` — `generatePreferenceDeletionCandidates()` filters candidates (primary)
-- [x] `src/commands/preferences/helpers/preferenceRemoval.js` — `loadPreferencesForDeletion()` safety net
+- [x] `src/commands/preferences/helpers/preferenceRemoval.js` — `loadRealmPreferencesForDeletion()` safety net
 - [x] `src/commands/setup/blacklist.js` — CLI commands registered in main.js
 - [x] Deletion output file includes a "Blacklisted Preferences (Protected)" section
 
@@ -358,5 +358,5 @@ Priority 3 (Analysis)  ←→  Priority 4 (Meta.xml)
 
 ---
 
-*Last Updated: February 26, 2026*
+*Last Updated: March 4, 2026*
 *Maintained by development team*

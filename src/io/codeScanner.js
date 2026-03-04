@@ -7,6 +7,7 @@ import { findAllMatrixFiles, findAllUsageFiles, getResultsPath } from './util.js
 import { ensureResultsDir } from './util.js';
 import { parseCSVToNestedArray } from './csv.js';
 import { getRealmsByInstanceType } from '../config/helpers/helpers.js';
+import { getMetadataBackupPathForRealm } from '../helpers/backupJob.js';
 import { logStatusUpdate, logStatusClear, logProgress } from '../scripts/loggingScript/log.js';
 import {
     DIRECTORIES,
@@ -795,6 +796,116 @@ function findDynamicPreferenceReferences(candidateIds, instanceTypeOverride = nu
 }
 
 /**
+ * Find the latest metadata backup XML file for a given realm.
+ * Checks the expected path first (today's date), then scans backup_downloads
+ * for the most recent file matching the realm pattern.
+ *
+ * @param {string} realm - Realm name (e.g. 'EU05', 'GB')
+ * @returns {string|null} Absolute path to the latest metadata file, or null if none found
+ */
+function findLatestMetadataFile(realm) {
+    // Try the expected path first (today's file via backupJob helper)
+    try {
+        const expectedPath = getMetadataBackupPathForRealm(realm);
+        if (fs.existsSync(expectedPath)) {
+            return expectedPath;
+        }
+    } catch {
+        // Config error — fall through to directory scan
+    }
+
+    // Scan backup_downloads for the latest file matching this realm
+    const backupDir = path.join(process.cwd(), DIRECTORIES.BACKUP_DOWNLOADS);
+    if (!fs.existsSync(backupDir)) {
+        return null;
+    }
+
+    const pattern = new RegExp(`^${realm}_meta_data_backup_(\\d{4}-\\d{2}-\\d{2})\\.xml$`, 'i');
+    const files = fs.readdirSync(backupDir);
+    let latestFile = null;
+    let latestDate = '';
+
+    for (const file of files) {
+        const match = file.match(pattern);
+        if (match && match[1] > latestDate) {
+            latestDate = match[1];
+            latestFile = path.join(backupDir, file);
+        }
+    }
+
+    return latestFile;
+}
+
+/**
+ * Parse a metadata backup XML file to extract SitePreferences attribute definition IDs.
+ * Uses simple regex matching (no XML parser dependency) to extract attribute-id values
+ * from the SitePreferences type-extension section.
+ *
+ * @param {string} xmlFilePath - Absolute path to the metadata backup XML file
+ * @returns {Set<string>} Set of attribute definition IDs found under SitePreferences
+ */
+function parseSitePreferencesFromMetadata(xmlFilePath) {
+    const attributeIds = new Set();
+    const content = fs.readFileSync(xmlFilePath, 'utf-8');
+    const lines = content.split(/\r?\n/);
+
+    let inSitePreferences = false;
+
+    for (const line of lines) {
+        if (line.includes('type-id="SitePreferences"')) {
+            inSitePreferences = true;
+            continue;
+        }
+
+        if (inSitePreferences && line.includes('</type-extension>')) {
+            break;
+        }
+
+        if (inSitePreferences) {
+            const match = line.match(/attribute-definition\s+attribute-id="([^"]+)"/);
+            if (match) {
+                attributeIds.add(match[1]);
+            }
+        }
+    }
+
+    return attributeIds;
+}
+
+/**
+ * Build a map of realm → Set of attribute IDs that exist in each realm's metadata.
+ * Used to cross-check deletion candidates against actual realm content.
+ *
+ * @param {string[]} allRealms - List of realm names
+ * @returns {Map<string, Set<string>>} Map of realm → attribute IDs present in metadata
+ */
+function buildPerRealmMetadataAttributeMap(allRealms) {
+    const metadataMap = new Map();
+
+    for (const realm of allRealms) {
+        const metadataFile = findLatestMetadataFile(realm);
+
+        if (!metadataFile) {
+            console.log(
+                `  ⚠ No metadata backup found for ${realm}`
+                + ' — skipping metadata cross-check for this realm'
+            );
+            continue;
+        }
+
+        const attributeIds = parseSitePreferencesFromMetadata(metadataFile);
+        metadataMap.set(realm, attributeIds);
+
+        console.log(
+            `  ${realm}: ${attributeIds.size} attribute definition(s)`
+            + ` in metadata (${path.basename(metadataFile)})`
+        );
+    }
+
+    return metadataMap;
+}
+
+/**
  * Compare unused and cartridge preferences files, classify using code scan results,
  * and generate priority-ranked deletion candidates with per-realm targeting.
  *
@@ -1360,6 +1471,455 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
                 details.push(
                     `\u26a0 dynamic value of: ${c.dynamicValueOf.join(', ')}`
                 );
+            }
+            lines.push(`${c.id}  |  ${details.join('  |  ')}`);
+        }
+    }
+
+    // --- Blacklisted Section ---
+    if (blacklistedPreferences.length > 0) {
+        lines.push(
+            '',
+            '================================================================================',
+            '',
+            '--- Blacklisted Preferences (Protected) ---',
+            ...blacklistedPreferences.sort()
+        );
+    }
+
+    fs.writeFileSync(outputFilePath, lines.join('\n'), 'utf-8');
+
+    // --- Generate per-realm deletion files ---
+    // Each realm gets its own file with tiers re-classified using realm-specific
+    // value data. This avoids the 404 problem (only prefs that exist on a realm
+    // are included) and allows per-realm tier selection during removal.
+    // Cross-check against metadata backup XMLs to ensure only attributes
+    // that actually exist on each realm are included in its deletion file.
+    if (hasRealmData) {
+        console.log('\nBuilding metadata cross-check map...');
+        const perRealmMetadata = buildPerRealmMetadataAttributeMap(allRealms);
+
+        const allCandidates = [...fp1, ...fp2, ...fp3, ...fp4, ...fp5];
+        const perRealmFiles = generatePerRealmDeletionFiles({
+            allCandidates,
+            tierLookup,
+            perRealmValues,
+            perRealmCartridges,
+            perRealmMetadata,
+            allRealms,
+            instanceTypeOverride,
+            codeUsageMap,
+            blacklistedPreferences,
+            totalAnalyzed: codeResults.length || unusedPreferences.size + usedPreferences.size,
+            dynamicRefCount,
+            dynamicProtected,
+            untrackedParentCount
+        });
+
+        console.log(
+            `✓ Generated ${perRealmFiles.length} per-realm deletion file(s)`
+        );
+    }
+
+    return outputFilePath;
+}
+
+/**
+ * Generate per-realm deletion files.
+ * Re-classifies globally classified candidates using realm-specific value data.
+ * A pref that is P2 globally (has values somewhere) might be P1 on a realm
+ * where it has no values, and P2 on another realm where it does.
+ * P5 candidates only appear in realms where their active code is NOT present.
+ *
+ * @param {Object} params
+ * @param {Array} params.allCandidates - All globally classified deletion candidates
+ * @param {Map<string, number>} params.tierLookup - Global tier lookup (prefId → tier number)
+ * @param {Map} params.perRealmValues - Per-realm value data
+ * @param {Map<string, Set<string>>} params.perRealmCartridges - Per-realm cartridge sets
+ * @param {Map<string, Set<string>>} params.perRealmMetadata - Per-realm metadata attribute IDs
+ * @param {string[]} params.allRealms - All available realms
+ * @param {string|null} params.instanceTypeOverride - Instance type
+ * @param {Map} params.codeUsageMap - Code usage data (prefId → {activeCartridges, deprecatedCartridges})
+ * @param {string[]} params.blacklistedPreferences - Blacklisted preference IDs
+ * @param {number} params.totalAnalyzed - Total preferences analyzed
+ * @param {number} params.dynamicRefCount - Dynamic reference count
+ * @param {Array} params.dynamicProtected - Dynamic-protected preferences
+ * @param {number} params.untrackedParentCount - Untracked parent count
+ * @returns {string[]} Array of generated file paths
+ */
+function generatePerRealmDeletionFiles({
+    allCandidates,
+    tierLookup,
+    perRealmValues,
+    perRealmCartridges,
+    perRealmMetadata,
+    allRealms,
+    instanceTypeOverride,
+    codeUsageMap,
+    blacklistedPreferences,
+    totalAnalyzed,
+    dynamicRefCount,
+    dynamicProtected,
+    untrackedParentCount
+}) {
+    const generatedFiles = [];
+
+    for (const realm of allRealms) {
+        const realmResultsDir = ensureResultsDir(realm, instanceTypeOverride);
+        const realmCarts = perRealmCartridges.get(realm) || new Set();
+        const realmAttributes = perRealmMetadata.get(realm) || null;
+
+        // Re-classify each candidate for this specific realm
+        const rp1 = [];
+        const rp2 = [];
+        const rp3 = [];
+        const rp4 = [];
+        const rp5 = [];
+        let metadataSkipped = 0;
+
+        for (const candidate of allCandidates) {
+            const globalTier = tierLookup.get(candidate.id);
+            if (!globalTier) {
+                continue;
+            }
+
+            // Cross-check: skip if metadata is available and this attribute
+            // does not exist on the realm (cannot delete what isn't there)
+            if (realmAttributes && !realmAttributes.has(candidate.id)) {
+                metadataSkipped++;
+                continue;
+            }
+
+            // Get realm-specific value data
+            const realmData = perRealmValues.get(candidate.id)?.get(realm);
+            const hasValuesOnRealm = realmData?.hasValues || realmData?.hasDefault || false;
+            const siteCountOnRealm = realmData?.siteCount || 0;
+
+            // For P5: skip if active code runs on this realm.
+            // Otherwise, re-classify from this realm's perspective:
+            //   - active cartridges NOT on this realm → no active code ref
+            //   - check if deprecated cartridges are on this realm → P3/P4
+            //   - otherwise → P1/P2 (no code reference at all)
+            if (globalTier === 5) {
+                const usage = codeUsageMap.get(candidate.id);
+                const hasActiveCodeOnRealm = usage?.activeCartridges?.some(
+                    c => realmCarts.has(c)
+                ) || false;
+
+                if (hasActiveCodeOnRealm) {
+                    continue;
+                }
+
+                const realmCandidate = {
+                    ...candidate,
+                    hasValues: hasValuesOnRealm,
+                    hasDefault: realmData?.hasDefault || false,
+                    siteCount: siteCountOnRealm
+                };
+
+                // Check if deprecated cartridges are present on this realm
+                const hasDeprecatedCodeOnRealm = usage?.deprecatedCartridges?.some(
+                    c => realmCarts.has(c)
+                ) || false;
+
+                if (hasDeprecatedCodeOnRealm) {
+                    // Deprecated code on this realm → P3 (no values) or P4 (has values)
+                    if (hasValuesOnRealm) {
+                        rp4.push(realmCandidate);
+                    } else {
+                        rp3.push(realmCandidate);
+                    }
+                } else if (hasValuesOnRealm) {
+                    // No code on this realm, has values → P2
+                    rp2.push(realmCandidate);
+                } else {
+                    // No code on this realm, no values → P1
+                    rp1.push(realmCandidate);
+                }
+                continue;
+            }
+
+            // For P1/P2: re-classify based on realm-specific values
+            if (globalTier === 1 || globalTier === 2) {
+                const realmCandidate = {
+                    ...candidate,
+                    hasValues: hasValuesOnRealm,
+                    hasDefault: realmData?.hasDefault || false,
+                    siteCount: siteCountOnRealm
+                };
+
+                if (hasValuesOnRealm) {
+                    rp2.push(realmCandidate);
+                } else {
+                    rp1.push(realmCandidate);
+                }
+                continue;
+            }
+
+            // For P3/P4: re-classify based on realm-specific cartridge presence
+            // and value data. If the deprecated cartridge is not on this realm,
+            // downgrade to P1/P2 (no code reference from this realm's perspective).
+            if (globalTier === 3 || globalTier === 4) {
+                const usage = codeUsageMap.get(candidate.id);
+                const realmCandidate = {
+                    ...candidate,
+                    hasValues: hasValuesOnRealm,
+                    hasDefault: realmData?.hasDefault || false,
+                    siteCount: siteCountOnRealm
+                };
+
+                const hasDeprecatedCodeOnRealm = usage?.deprecatedCartridges?.some(
+                    c => realmCarts.has(c)
+                ) || false;
+
+                if (hasDeprecatedCodeOnRealm) {
+                    // Deprecated code IS on this realm → keep as P3/P4
+                    if (hasValuesOnRealm) {
+                        rp4.push(realmCandidate);
+                    } else {
+                        rp3.push(realmCandidate);
+                    }
+                } else if (hasValuesOnRealm) {
+                    // Deprecated code NOT on this realm, has values → P2
+                    rp2.push(realmCandidate);
+                } else {
+                    // Deprecated code NOT on this realm, no values → P1
+                    rp1.push(realmCandidate);
+                }
+                continue;
+            }
+        }
+
+        const totalCandidates = rp1.length + rp2.length + rp3.length + rp4.length + rp5.length;
+
+        if (totalCandidates === 0) {
+            continue;
+        }
+
+        const filePath = writePerRealmDeletionFile({
+            realm,
+            resultsDir: realmResultsDir,
+            instanceTypeOverride,
+            rp1, rp2, rp3, rp4, rp5,
+            blacklistedPreferences,
+            totalAnalyzed,
+            dynamicRefCount,
+            dynamicProtected,
+            untrackedParentCount
+        });
+
+        generatedFiles.push(filePath);
+
+        const metadataNote = metadataSkipped > 0
+            ? ` (${metadataSkipped} excluded by metadata cross-check)`
+            : '';
+        console.log(
+            `  ${realm}: ${totalCandidates} candidate(s)`
+            + ` [P1:${rp1.length} P2:${rp2.length} P3:${rp3.length}`
+            + ` P4:${rp4.length} P5:${rp5.length}]${metadataNote}`
+        );
+    }
+
+    return generatedFiles;
+}
+
+/**
+ * Write a per-realm deletion candidates file.
+ * Format matches the unified file but omits realm tags (the file IS for one realm).
+ *
+ * @param {Object} params
+ * @param {string} params.realm - Realm name
+ * @param {string} params.resultsDir - Results directory for this realm
+ * @param {string|null} params.instanceTypeOverride - Instance type
+ * @param {Array} params.rp1-rp5 - Tier-classified candidates for this realm
+ * @param {string[]} params.blacklistedPreferences - Blacklisted preference IDs
+ * @param {number} params.totalAnalyzed - Total preferences analyzed
+ * @param {number} params.dynamicRefCount - Dynamic reference count
+ * @param {Array} params.dynamicProtected - Dynamic-protected preferences
+ * @param {number} params.untrackedParentCount - Untracked parent count
+ * @returns {string} Path to the generated file
+ */
+function writePerRealmDeletionFile({
+    realm,
+    resultsDir,
+    instanceTypeOverride,
+    rp1, rp2, rp3, rp4, rp5,
+    blacklistedPreferences,
+    totalAnalyzed,
+    dynamicRefCount,
+    dynamicProtected,
+    untrackedParentCount
+}) {
+    const totalCandidates = rp1.length + rp2.length + rp3.length + rp4.length + rp5.length;
+    const outputFilename = `${realm}${FILE_PATTERNS.PREFERENCES_FOR_DELETION}`;
+    const outputFilePath = path.join(resultsDir, outputFilename);
+
+    const lines = [
+        `Site Preferences \u2014 Deletion Candidates for ${realm}`,
+        `Generated: ${new Date().toISOString()}`,
+        `Instance Type: ${instanceTypeOverride || 'ALL'}`,
+        `Realm: ${realm}`,
+        '',
+        'Analysis Summary:',
+        `  \u2022 Total preferences analyzed: ${totalAnalyzed}`,
+        `  \u2022 [P1] Safe to delete (no code, no values on ${realm}): ${rp1.length}`,
+        `  \u2022 [P2] Likely safe (no code, has values on ${realm}): ${rp2.length}`,
+        `  \u2022 [P3] Review: deprecated code on ${realm}, no values: ${rp3.length}`,
+        `  \u2022 [P4] Review: deprecated code on ${realm}, has values: ${rp4.length}`,
+        `  \u2022 Total deletion candidates for ${realm}: ${totalCandidates}`
+    ];
+
+    if (dynamicRefCount > 0) {
+        lines.push(
+            `  \u2022 Dynamic value references: ${dynamicRefCount} (annotated with \u26a0)`
+        );
+    }
+
+    if (dynamicProtected.length > 0) {
+        lines.push(
+            `  \u2022 Dynamic value protected: ${dynamicProtected.length}`
+            + ' (referenced by active code)'
+        );
+    }
+
+    if (untrackedParentCount > 0) {
+        lines.push(
+            `  \u2022 Untracked parents added: ${untrackedParentCount}`
+            + ' (not in attribute definitions, reference candidates)'
+        );
+    }
+
+    if (blacklistedPreferences.length > 0) {
+        lines.push(`  \u2022 Blacklisted (protected): ${blacklistedPreferences.length}`);
+    }
+
+    lines.push(
+        '',
+        'Priority Legend:',
+        `  [P1] No code references, no values on ${realm} \u2014 safest to remove`,
+        `  [P2] No code references, but has values/defaults on ${realm} \u2014 verify before removing`,
+        `  [P3] Only in deprecated cartridges on ${realm}, no values \u2014 probably safe`,
+        `  [P4] Only in deprecated cartridges on ${realm}, has values \u2014 needs careful review`,
+        '',
+        'Note: Preferences with active code only on other realms (globally P5) are',
+        `reclassified per-realm. Since ${realm} does not use those cartridges, they`,
+        'appear as P1/P2 (no code reference) or P3/P4 (deprecated code only) above.',
+        '',
+        'NOTE: Preferences matching patterns in src/config/preference_blacklist.json are excluded',
+        'from this list and will never be deleted.'
+    );
+
+    // --- P1 Section ---
+    if (rp1.length > 0) {
+        lines.push(
+            '',
+            '================================================================================',
+            '',
+            `--- [P1] Safe to Delete (No Code, No Values on ${realm}) --- [${rp1.length} preferences]`
+        );
+
+        for (const c of rp1) {
+            const parts = [];
+            if (c.dynamicValueOf) {
+                parts.push(`\u26a0 dynamic value of: ${c.dynamicValueOf.join(', ')}`);
+            }
+            lines.push(parts.length > 0 ? `${c.id}  |  ${parts.join('  |  ')}` : c.id);
+        }
+    }
+
+    // --- P2 Section ---
+    if (rp2.length > 0) {
+        lines.push(
+            '',
+            '================================================================================',
+            '',
+            `--- [P2] Likely Safe (No Code, Has Values on ${realm}) --- [${rp2.length} preferences]`
+        );
+
+        for (const c of rp2) {
+            const details = [];
+            if (c.hasDefault) {
+                details.push('has default value');
+            }
+            if (c.hasValues) {
+                details.push(`sites with values: ${c.siteCount}`);
+            }
+            if (c.dynamicValueOf) {
+                details.push(`\u26a0 dynamic value of: ${c.dynamicValueOf.join(', ')}`);
+            }
+            lines.push(
+                details.length > 0 ? `${c.id}  |  ${details.join('  |  ')}` : c.id
+            );
+        }
+    }
+
+    // --- P3 Section ---
+    if (rp3.length > 0) {
+        lines.push(
+            '',
+            '================================================================================',
+            '',
+            `--- [P3] Review: Deprecated Code Only (No Values on ${realm}) ---`
+            + ` [${rp3.length} preferences]`
+        );
+
+        for (const c of rp3) {
+            const parts = [`deprecated: ${c.deprecatedCartridges.join(', ')}`];
+            if (c.dynamicValueOf) {
+                parts.push(`\u26a0 dynamic value of: ${c.dynamicValueOf.join(', ')}`);
+            }
+            lines.push(`${c.id}  |  ${parts.join('  |  ')}`);
+        }
+    }
+
+    // --- P4 Section ---
+    if (rp4.length > 0) {
+        lines.push(
+            '',
+            '================================================================================',
+            '',
+            `--- [P4] Review: Deprecated Code + Values on ${realm} ---`
+            + ` [${rp4.length} preferences]`
+        );
+
+        for (const c of rp4) {
+            const details = [`deprecated: ${c.deprecatedCartridges.join(', ')}`];
+            if (c.hasDefault) {
+                details.push('has default value');
+            }
+            if (c.hasValues) {
+                details.push(`sites with values: ${c.siteCount}`);
+            }
+            if (c.dynamicValueOf) {
+                details.push(`\u26a0 dynamic value of: ${c.dynamicValueOf.join(', ')}`);
+            }
+            lines.push(`${c.id}  |  ${details.join('  |  ')}`);
+        }
+    }
+
+    // --- P5 Section ---
+    if (rp5.length > 0) {
+        lines.push(
+            '',
+            '================================================================================',
+            '',
+            '--- [P5] Realm-Specific: Active Code on Other Realms ---'
+            + ` [${rp5.length} preferences]`
+        );
+
+        for (const c of rp5) {
+            const details = [];
+            if (c.codeRealms) {
+                details.push(`active in: ${c.codeRealms.join(', ')}`);
+            }
+            if (c.activeCartridges) {
+                details.push(`code: ${c.activeCartridges.join(', ')}`);
+            }
+            if (c.hasValues) {
+                details.push(`sites with values: ${c.siteCount}`);
+            }
+            if (c.dynamicValueOf) {
+                details.push(`\u26a0 dynamic value of: ${c.dynamicValueOf.join(', ')}`);
             }
             lines.push(`${c.id}  |  ${details.join('  |  ')}`);
         }

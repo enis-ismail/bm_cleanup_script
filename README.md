@@ -231,14 +231,27 @@ The analyzer also detects **dynamic value references** — preferences whose IDs
 
 ### 2. **remove-preferences** - Delete Selected Preferences
 
-Removes preferences marked for deletion. Creates backups before any deletion.
+Removes preferences marked for deletion. Uses **per-realm deletion files** so each realm only deletes preferences that actually exist on it — no more 404 errors from trying to delete preferences that don't exist on a realm.
 
 ```bash
 node src/main.js remove-preferences
 node src/main.js remove-preferences --dry-run  # simulate without changes
 ```
 
-**Flow:** Load deletion list → Review in VS Code → Select realms → Create backups → Confirm → Delete
+**Deletion Level Selection:**
+
+Before loading files, you choose a **deletion level** (cascading tiers):
+
+| Level | Includes | Description |
+|---|---|---|
+| **P1** | P1 only | Safest — no code, no values |
+| **P2** | P1 + P2 | No code references anywhere |
+| **P3** | P1–P3 | Adds deprecated-code-only prefs |
+| **P4** | P1–P4 | Adds deprecated code + values |
+| **P5** | P1–P5 | Everything including realm-specific |
+| **Realm-targeted** | All tiers | Legacy behavior, respects realm tags |
+
+**Flow:** Select instance → Select realms → Select deletion level → Load per-realm files → Review in VS Code → Create backups → Confirm → Delete
 
 ---
 
@@ -288,20 +301,22 @@ results/
 │   │   ├── ALL_REALMS_unused_preferences.txt
 │   │   ├── development_cartridge_preferences.txt
 │   │   ├── development_preference_usage.txt
-│   │   ├── development_preferences_for_deletion.txt  ← DELETION LIST
+│   │   ├── development_preferences_for_deletion.txt  ← UNIFIED DELETION LIST
 │   │   └── development_unused_preferences.txt
 │   ├── APAC/
 │   │   ├── APAC_active_site_cartridges_list.csv
 │   │   ├── APAC_development_preferences_matrix.csv
 │   │   ├── APAC_development_preferences_usage.csv
+│   │   ├── APAC_preferences_for_deletion.txt         ← PER-REALM DELETION LIST
 │   │   ├── APAC_unused_preferences.txt
 │   │   └── APAC_used_preferences.txt
 │   ├── EU05/
+│   │   ├── EU05_preferences_for_deletion.txt         ← PER-REALM DELETION LIST
 │   │   └── ...
 │   └── ...
 ├── sandbox/
 │   ├── ALL_REALMS/
-│   │   └── sandbox_preferences_for_deletion.txt  ← DELETION LIST
+│   │   └── sandbox_preferences_for_deletion.txt
 │   └── bcwr-080/
 │       └── ...
 └── staging/
@@ -313,7 +328,12 @@ results/
 - `*_preferences_usage.csv` - Actual preference values per site
 - `*_unused_preferences.txt` - Preferences with no values anywhere
 - `*_cartridge_preferences.txt` - Which cartridges reference which preferences
-- `*_preferences_for_deletion.txt` - **Safe to delete** (unused + not in code)
+- `{instance}_preferences_for_deletion.txt` - Unified deletion list (all realms, with realm tags)
+- `{realm}_preferences_for_deletion.txt` - **Per-realm deletion list** (used by `remove-preferences`)
+
+**Per-realm vs. unified deletion files:**
+
+The unified file in `ALL_REALMS/` shows all candidates with realm tags (e.g., `[EU05, APAC]`). The per-realm files in each realm folder contain only the preferences that exist on that specific realm, with tiers re-classified using realm-specific value data. For example, a P2 preference globally (has values somewhere) may be P1 on a realm where it has no values.
 
 Each realm creates its own folder within `results/`, organized by instance type.
 
@@ -326,7 +346,7 @@ The tool uses two filter lists to control which preferences can be deleted. Both
 - **Blacklist** (`src/config/preference_blacklist.json`) — Preferences that can **never** be deleted (e.g., payment integrations)
 - **Whitelist** (`src/config/preference_whitelist.json`) — When non-empty, **only** matching preferences are eligible for deletion
 
-**Filter order:** `Deletion File → [Whitelist: keep matches] → [Blacklist: remove matches] → Eligible`
+**Filter order:** `Per-Realm File → [Tier Filter] → [Whitelist: keep matches] → [Blacklist: remove matches] → Eligible`
 
 **CLI Commands:**
 ```bash

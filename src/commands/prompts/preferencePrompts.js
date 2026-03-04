@@ -7,15 +7,14 @@ export const deletionLevelPrompt = () => ([
     {
         type: 'rawlist',
         name: 'deletionLevel',
-        message: 'Select deletion level:',
+        message: 'Select deletion level (cascading — includes all lower tiers):',
         choices: [
             {
                 name: 'P1 — Safe to Delete: No code references, no values',
                 value: 'P1'
             },
             {
-                name: 'P2 — Likely Safe: No code references, has values'
-                    + ' [includes P1] (deletes from ALL realms)',
+                name: 'P2 — Likely Safe: No code references, has values [includes P1]',
                 value: 'P2'
             },
             {
@@ -27,15 +26,8 @@ export const deletionLevelPrompt = () => ([
                 value: 'P4'
             },
             {
-                name: 'P5 — Realm-Specific: Active code not on all realms'
-                    + ' [includes P1-P4]',
+                name: 'P5 — Realm-Specific: Active code not on all realms [includes P1-P4]',
                 value: 'P5'
-            },
-            new inquirer.Separator('────────────────────'),
-            {
-                name: 'Realm-targeted — Remove from non-utilizing realms only'
-                    + ' (all tiers, respects realm tags)',
-                value: 'REALM_TARGETED'
             }
         ]
     }

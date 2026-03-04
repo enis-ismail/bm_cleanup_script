@@ -23,7 +23,7 @@ This document defines the AI agents and their capabilities for the Cleanup-Scrip
   - Batch processing with rate limiting
 
 - **Files:** 
-  - [src/api.js](src/api.js)
+  - [src/api/api.js](src/api/api.js)
   - [src/helpers/backupJob.js](src/helpers/backupJob.js)
   - [src/helpers/batch.js](src/helpers/batch.js)
   - [src/config/ocapi_config.json](src/config/ocapi_config.json)
@@ -32,6 +32,7 @@ This document defines the AI agents and their capabilities for the Cleanup-Scrip
   - `getAllSites()`, `getSiteById()` - Site retrieval
   - `getAttributeGroups()`, `getSitePreferences()` - Preference data
   - `getAttributeDefinitionById()` - Detailed definitions with defaults
+  - `deleteAttributeDefinitionById()` - Delete preference definitions via OCAPI
   - `processBatch()` - Parallel batch processing with delays
   - `withLoadShedding()` - Rate limit handling
   - `refreshMetadataBackupForRealm()` - Backup job trigger + download
@@ -44,16 +45,18 @@ This document defines the AI agents and their capabilities for the Cleanup-Scrip
 - **Scope:**
   - CSV matrix generation (preference × site usage)
   - Preference usage analysis across cartridges
-  - Deprecation logic (unused + not in code)
-  - Backup file generation and metadata merging
+  - Priority-tiered deprecation logic (P1–P5)
+  - Per-realm deletion file generation
+  - Backup file generation and validation
 
 - **Files:**
-  - [src/helpers/preferenceHelper.js](src/helpers/preferenceHelper.js)
-  - [src/helpers/preferenceUsage.js](src/helpers/preferenceUsage.js)
-  - [src/helpers/preferenceRemoval.js](src/helpers/preferenceRemoval.js)
-  - [src/helpers/preferenceBackup.js](src/helpers/preferenceBackup.js)
-  - [src/helpers/summarize.js](src/helpers/summarize.js)
-  - [src/helpers/csv.js](src/helpers/csv.js)
+  - [src/helpers/summarize.js](src/helpers/summarize.js) - Matrix building & preference normalization
+  - [src/helpers/analyzer.js](src/helpers/analyzer.js) - Matrix processing orchestration
+  - [src/io/csv.js](src/io/csv.js) - CSV read/write and unused preference detection
+  - [src/io/codeScanner.js](src/io/codeScanner.js) - Code scanning & deletion candidate generation
+  - [src/commands/preferences/helpers/preferenceRemoval.js](src/commands/preferences/helpers/preferenceRemoval.js) - Per-realm deletion file loading
+  - [src/commands/preferences/helpers/backupHelpers.js](src/commands/preferences/helpers/backupHelpers.js) - Backup creation & validation
+  - [src/commands/preferences/helpers/generateSitePreferences.js](src/commands/preferences/helpers/generateSitePreferences.js) - Site preference JSON generation
 
 - **Key Functions:**
   - `buildPreferenceMeta()` - Normalize OCAPI definitions
@@ -61,9 +64,10 @@ This document defines the AI agents and their capabilities for the Cleanup-Scrip
   - `buildPreferenceMatrix()` - Generate usage matrix
   - `findUnusedPreferences()` - Identify preferences with no values
   - `findAllActivePreferencesUsage()` - Scan cartridge code for references
-  - `generatePreferenceDeletionCandidates()` - Build safe deletion list
-  - `generateBackupFromDefinitions()` - Create backup JSON files
-  - `updateBackupFileAttributeGroups()` - Merge XML metadata into backup
+  - `generatePreferenceDeletionCandidates()` - Build per-realm deletion files with priority tiers
+  - `loadRealmPreferencesForDeletion()` - Load per-realm deletion files
+  - `buildRealmPreferenceMapFromFiles()` - Build realm → preferences map from per-realm files
+  - `createBackupsForRealms()` - Create backup JSON files per realm
 
 ---
 
@@ -72,22 +76,27 @@ This document defines the AI agents and their capabilities for the Cleanup-Scrip
 
 - **Scope:**
   - Multi-realm configuration management
-  - Interactive CLI prompts
+  - Interactive CLI prompts (Inquirer.js)
   - Progress tracking and status logging
   - File system utilities
 
 - **Files:**
-  - [src/helpers.js](src/helpers.js)
-  - [src/helpers/log.js](src/helpers/log.js)
-  - [src/helpers/util.js](src/helpers/util.js)
-  - [src/helpers/constants.js](src/helpers/constants.js)
-  - [src/prompts.js](src/prompts.js)
-  - [src/main.js](src/main.js)
+  - [src/config/helpers/helpers.js](src/config/helpers/helpers.js) - Config read/write, realm management
+  - [src/config/constants.js](src/config/constants.js) - Constants, deletion levels, tier order
+  - [src/helpers/log.js](src/helpers/log.js) - Logging utilities
+  - [src/helpers/timer.js](src/helpers/timer.js) - Runtime tracking
+  - [src/io/util.js](src/io/util.js) - File system utilities
+  - [src/commands/prompts/index.js](src/commands/prompts/index.js) - Prompt aggregation
+  - [src/commands/prompts/preferencePrompts.js](src/commands/prompts/preferencePrompts.js) - Preference prompts
+  - [src/commands/prompts/realmPrompts.js](src/commands/prompts/realmPrompts.js) - Realm selection prompts
+  - [src/commands/prompts/commonPrompts.js](src/commands/prompts/commonPrompts.js) - Shared prompts
+  - [src/main.js](src/main.js) - Command registration & orchestration
 
 - **Key Functions:**
   - `getSandboxConfig()`, `getRealmsByInstanceType()` - Config retrieval
   - `addRealmToConfig()`, `removeRealmFromConfig()` - Realm management
   - `resolveRealmScopeSelection()` - Multi-realm prompts
+  - `deletionLevelPrompt()` - P1–P5 cascading deletion level selection
   - `logStatusUpdate()`, `logProgress()` - User feedback
   - `ensureResultsDir()`, `getSiblingRepositories()` - File utilities
   - Command orchestration in [src/main.js](src/main.js)
@@ -101,19 +110,50 @@ This document defines the AI agents and their capabilities for the Cleanup-Scrip
   - Multi-file batch scanning (optimized)
   - Deprecated cartridge filtering
   - Preference usage mapping
-  - File type filtering (.js, .isml, .ds, .json, .xml)
+  - Per-realm deletion file generation with priority tiers (P1–P5)
+  - File type filtering (.js, .isml, .ds, .json, .xml, .properties)
 
 - **Files:**
-  - [src/helpers/preferenceUsage.js](src/helpers/preferenceUsage.js)
-  - [src/helpers/cartridgeCommands.js](src/helpers/cartridgeCommands.js)
-  - [src/helpers/cartridgeComparison.js](src/helpers/cartridgeComparison.js)
+  - [src/io/codeScanner.js](src/io/codeScanner.js) - Core scanning & deletion candidate logic
+  - [src/commands/cartridges/helpers/cartridgeComparison.js](src/commands/cartridges/helpers/cartridgeComparison.js) - Cartridge comparison
+  - [src/commands/cartridges/helpers/siteHelper.js](src/commands/cartridges/helpers/siteHelper.js) - Site data fetching
 
 - **Key Functions:**
-  - `findAllActivePreferencesUsage()` - Batch scan all preferences
-  - `getActivePreferencesFromMatrices()` - Extract preference list from CSVs
-  - `getDeprecatedCartridges()` - Parse comparison files
-  - `getCartridgeNameFromPath()` - Extract cartridge from file path
-  - `exportCartridgePreferenceMapping()` - Generate usage reports
+  - `findAllActivePreferencesUsage()` - Batch scan all preferences across cartridges
+  - `getActivePreferencesFromMatrices()` - Extract preference list from CSV matrices
+  - `generatePreferenceDeletionCandidates()` - Generate per-realm deletion files with P1–P5 tiers
+  - `findPreferenceUsage()` - Scan for a single preference
+  - `compareCartridges()` - Compare cartridge lists across realms
+  - `fetchAndTransformSites()` - Fetch site data from OCAPI
+
+---
+
+### 5. Deletion & Restore Agent
+**Capability:** Delete preferences via OCAPI and restore from backups
+
+- **Scope:**
+  - Per-realm preference deletion with priority-based filtering
+  - Backup creation before deletion
+  - Preference restoration from backup files
+  - Blacklist/whitelist filtering
+
+- **Files:**
+  - [src/commands/preferences/preferences.js](src/commands/preferences/preferences.js) - Main remove/restore command flow
+  - [src/commands/preferences/helpers/deleteHelpers.js](src/commands/preferences/helpers/deleteHelpers.js) - OCAPI DELETE operations
+  - [src/commands/preferences/helpers/restoreHelper.js](src/commands/preferences/helpers/restoreHelper.js) - Preference restoration
+  - [src/commands/preferences/helpers/preferenceRemoval.js](src/commands/preferences/helpers/preferenceRemoval.js) - Deletion file loading & summary
+  - [src/commands/preferences/helpers/backupHelpers.js](src/commands/preferences/helpers/backupHelpers.js) - Backup creation
+  - [src/commands/setup/helpers/blacklistHelper.js](src/commands/setup/helpers/blacklistHelper.js) - Blacklist management
+  - [src/commands/setup/helpers/whitelistHelper.js](src/commands/setup/helpers/whitelistHelper.js) - Whitelist management
+
+- **Key Functions:**
+  - `deletePreferencesForRealms()` - Execute OCAPI DELETE across realms
+  - `restorePreferencesFromBackups()` - Restore preferences from backup JSON
+  - `restorePreferencesForRealm()` - Per-realm restore logic
+  - `openRealmDeletionFilesInEditor()` - Open per-realm files for review in VS Code
+  - `generateDeletionSummary()` - Summary of deletion candidates
+  - `loadBlacklist()`, `isBlacklisted()` - Blacklist filtering
+  - `loadWhitelist()`, `isWhitelisted()` - Whitelist filtering
 
 ---
 
@@ -126,8 +166,8 @@ This document defines the AI agents and their capabilities for the Cleanup-Scrip
 
 ### Output
 - CSV matrices (usage, summary)
-- TXT reports (unused preferences)
-- JSON summaries
+- TXT reports (unused preferences, per-realm deletion files)
+- JSON summaries and backups
 
 ### Sample Files
 Located in [test-runs/](test-runs/):
@@ -143,6 +183,8 @@ Located in [test-runs/](test-runs/):
 - [config.json](config.json) - Active project configuration
 - [config.example.json](config.example.json) - Configuration template
 - [src/config/ocapi_config.json](src/config/ocapi_config.json) - OCAPI endpoint settings
+- [src/config/preference_blacklist.json](src/config/preference_blacklist.json) - Preferences excluded from deletion
+- [src/config/preference_whitelist.json](src/config/preference_whitelist.json) - Preferences approved for deletion
 
 ### Environment Requirements
 - **Node Engine:** >=16.0.0 (from package.json)
@@ -151,6 +193,20 @@ Located in [test-runs/](test-runs/):
 ---
 
 ## Deprecation Logic & Workflow
+
+### Priority Tiers (P1–P5)
+
+Each preference is classified into a priority tier based on code usage and value presence:
+
+| Tier | Code Usage | Has Values | Description |
+|------|-----------|------------|-------------|
+| P1 | No code refs | No values | Safest to delete — completely unused |
+| P2 | No code refs | Has values | No code uses it, but values exist on some sites |
+| P3 | Deprecated code only | No values | Only referenced in deprecated cartridges, no values |
+| P4 | Deprecated code only | Has values | Deprecated code refs + values exist |
+| P5 | Active code (some realms) | Varies | Active in some realms but not the target realm |
+
+Tier selection is **cascading**: selecting P3 includes P1 + P2 + P3.
 
 ### Three-Level Analysis
 
@@ -174,30 +230,39 @@ Scans repository cartridges for ALL active preferences:
 - `{instance}_unused_preferences.txt` - No cartridge usage found
 - `{instance}_cartridge_preferences.txt` - Cartridge → preference mapping
 
-**Level 3: Final Deletion Candidates**
+**Level 3: Per-Realm Deletion Candidates**
 
-A preference is SAFE TO DELETE IF:
-- It's in unused_preferences.txt (no values anywhere)
-- AND NOT in cartridge_preferences.txt (never mentioned in active code)
+Generates a separate deletion file per realm. Each preference is re-evaluated
+per realm (a global P2 may become P1 on a realm with no values, or P2 on a
+realm where values exist). P5 candidates only appear in realm files where active
+code does NOT run.
 
-→ Output: `{instance}_preferences_for_deletion.txt`
+→ Output: `{realm}_preferences_for_deletion.txt` (one per realm)
 
 ### Workflow: analyze-preferences → remove-preferences
 
 ```
-1. analyze-preferences
+1. analyze-preferences (7 steps)
    ↓
-   Fetch prefs from SFCC → Generate matrices → Scan code
+   Select instance type & realms → Fetch prefs from SFCC
    ↓
-   Create: preferences_for_deletion.txt
+   Generate matrices → Scan cartridge code → Generate per-realm deletion files
+   ↓
+   Export site cartridge lists
+   ↓
+   Output: {realm}_preferences_for_deletion.txt (per realm)
 
-2. remove-preferences
+2. remove-preferences (9 steps)
    ↓
-   Load deletion list → Review in VS Code
-   ↓
-   Select realms → Create backups (per realm)
-   ↓
-   Confirm deletion → Remove preferences via OCAPI (TODO)
+   Step 1: Select instance type
+   Step 2: Select realms
+   Step 3: Select deletion level (P1–P5 cascading + realm-targeted)
+   Step 4: Load per-realm deletion files (filtered by selected tier)
+   Step 5: Open per-realm files in VS Code for review
+   Step 6: Create backups (per realm)
+   Step 7: Confirm deletion
+   Step 8: Delete preferences via OCAPI
+   Step 9: Optional restore from backups
 ```
 
 ---
@@ -224,13 +289,13 @@ results/
 │   │   ├── ALL_REALMS_unused_preferences.txt
 │   │   ├── development_cartridge_preferences.txt
 │   │   ├── development_preference_usage.txt
-│   │   ├── development_preferences_for_deletion.txt  ← MAIN DELETION LIST
 │   │   └── development_unused_preferences.txt
 │   ├── {realm}/
 │   │   ├── {realm}_active_site_cartridges_list.csv
 │   │   ├── {realm}_development_preferences_matrix.csv
 │   │   ├── {realm}_development_preferences_usage.csv
-│   │   └── {realm}_unused_preferences.txt
+│   │   ├── {realm}_unused_preferences.txt
+│   │   └── {realm}_preferences_for_deletion.txt  ← PER-REALM DELETION LIST
 │   └── ...
 ├── sandbox/
 │   └── ...
@@ -265,7 +330,7 @@ results/
 **Related Files:**
 - ESLint configuration: [eslint.config.js](eslint.config.js)
 - Main entry point: [src/main.js](src/main.js)
-- All helper files in [src/helpers/](src/helpers/) follow this pattern
+- All helper files follow this pattern
 
 ### Process Documentation
 - User guide: [site preference cleanup script.txt](site%20preference%20cleanup%20script.txt)
@@ -279,13 +344,16 @@ Test responses are stored in [test-runs/](test-runs/) directory for reference an
 ## Commands Reference
 
 ### Production Commands
-- `analyze-preferences` - Full analysis workflow (fetch → scan → generate deletion list)
-- `remove-preferences` - Remove preferences marked for deletion (WIP: deletion not implemented)
+- `analyze-preferences` - Full analysis workflow (fetch → scan → generate per-realm deletion lists)
+- `remove-preferences` - Remove preferences from per-realm deletion files via OCAPI DELETE
+- `restore-preferences` - Restore deleted preferences from backup files
 - `backup-site-preferences` - Trigger backup job and download metadata
 - `list-sites` - Export site cartridge paths to CSV
 - `add-realm` / `remove-realm` - Realm configuration management
+- `add-to-blacklist` / `remove-from-blacklist` / `list-blacklist` - Blacklist management
+- `add-to-whitelist` / `remove-from-whitelist` / `list-whitelist` - Whitelist management
 
-### Work-in-Progress Commands
+### Validation Commands
 - `validate-cartridges-all` - Multi-realm cartridge validation
 - `validate-site-xml` - Site.xml vs. live cartridge comparison
 
@@ -297,15 +365,11 @@ When working on this project:
 
 1. **Preference Analysis:** Use Data Processing + Code Analysis Agents
 2. **SFCC Integration:** Use API Integration Agent
-3. **Deletion Implementation:** Implement OCAPI DELETE in remove-preferences Step 4
-4. **Backup/Restore:** Use API Integration + preferenceBackup helper
+3. **Preference Deletion:** Use Deletion & Restore Agent (OCAPI DELETE implemented)
+4. **Backup/Restore:** Use Deletion & Restore Agent + backupHelpers
 5. **Configuration:** Use Utility & Configuration Agent
-
-### Outstanding Implementation
-- ⚠️ `remove-preferences` Step 4: Actual OCAPI preference deletion
-- Consider: Should deprecated cartridge usage block deletion?
 
 ---
 
-*Last Updated: February 17, 2026*
+*Last Updated: March 4, 2026*
 *Project Structure: Maintained by AI agents*

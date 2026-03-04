@@ -238,15 +238,19 @@ export async function createRealmBackup({
 /**
  * Orchestrate backup creation for multiple realms (Step 5 of remove-preferences)
  * Handles metadata resolution and backup generation for each realm.
+ * Supports per-realm deletion file paths via realmFilePaths map.
  * @param {Object} options - Options
  * @param {string[]} options.realmsToBackup - Realms that need new backups
  * @param {string} options.instanceType - Instance type
  * @param {string} options.objectType - Object type
- * @param {string} options.preferencesFilePath - Path to deletion list file
+ * @param {Map<string, string>} [options.realmFilePaths] - Map of realm → deletion file path.
+ *   When provided, each realm uses its own file. Falls back to preferencesFilePath.
+ * @param {string} [options.preferencesFilePath] - Legacy single deletion file path (fallback)
  * @param {boolean} options.refreshMetadata - Whether to force fresh metadata download
  */
 export async function createBackupsForRealms({
-    realmsToBackup, instanceType, objectType, preferencesFilePath, refreshMetadata
+    realmsToBackup, instanceType, objectType,
+    realmFilePaths, preferencesFilePath, refreshMetadata
 }) {
     const backupDate = new Date().toISOString().split('T')[0];
     let successCount = 0;
@@ -254,13 +258,22 @@ export async function createBackupsForRealms({
     for (const realm of realmsToBackup) {
         logSectionTitle(`Backup: ${realm} (${instanceType})`);
 
+        // Resolve per-realm file path, falling back to unified path
+        const filePath = realmFilePaths?.get(realm) || preferencesFilePath;
+        if (!filePath) {
+            console.log(
+                `${LOG_PREFIX.WARNING} No deletion file path for ${realm}. Skipping backup.`
+            );
+            continue;
+        }
+
         const metadata = await resolveMetadataPath(realm, instanceType, refreshMetadata);
         if (!metadata.ok) {
             continue;
         }
 
         const result = await createRealmBackup({
-            realm, instanceType, objectType, preferencesFilePath,
+            realm, instanceType, objectType, preferencesFilePath: filePath,
             metadataPath: metadata.path, backupDate
         });
 

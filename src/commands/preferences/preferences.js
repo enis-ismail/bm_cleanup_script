@@ -17,8 +17,7 @@ import {
     prompts
 } from '../../commands/prompts/index.js';
 import {
-    LOG_PREFIX, DIRECTORIES, IDENTIFIERS, FILE_PATTERNS, ANALYSIS_STEPS,
-    DELETION_LEVELS
+    LOG_PREFIX, DIRECTORIES, IDENTIFIERS, FILE_PATTERNS, ANALYSIS_STEPS
 } from '../../config/constants.js';
 import {
     logNoMatrixFiles,
@@ -43,10 +42,9 @@ import {
     getActivePreferencesFromMatrices
 } from '../../io/codeScanner.js';
 import {
-    loadPreferencesForDeletion,
-    openPreferencesForDeletionInEditor,
     generateDeletionSummary,
-    buildRealmPreferenceMap
+    buildRealmPreferenceMapFromFiles,
+    openRealmDeletionFilesInEditor
 } from './helpers/preferenceRemoval.js';
 import { loadBackupFile } from '../../io/backupUtils.js';
 import { refreshMetadataBackupForRealm } from '../../helpers/backupJob.js';
@@ -59,7 +57,6 @@ import {
 import {
     runAnalyzePreferencesSubprocess,
     deletePreferencesForRealms,
-    restorePreferencesFromBackups,
     classifyRealmBackupStatus
 } from './helpers/deleteHelpers.js';
 import { restorePreferencesForRealm } from './helpers/restoreHelper.js';
@@ -476,41 +473,88 @@ async function removePreferences(options = {}) {
     logSectionTitle('STEP 1: Select Instance Type');
     const { instanceType } = await inquirer.prompt(prompts.instanceTypePrompt('development'));
 
-    // --- STEP 2: Select Deletion Level ---
-    logSectionTitle('STEP 2: Select Deletion Level');
-    const { deletionLevel } = await inquirer.prompt(prompts.deletionLevelPrompt());
-    const isRealmTargeted = deletionLevel === DELETION_LEVELS.REALM_TARGETED;
-    const maxTier = isRealmTargeted ? null : deletionLevel;
-
-    logDeletionLevelSummary(deletionLevel);
-
-    // --- STEP 3: Load Preferences for Deletion ---
-    logSectionTitle('STEP 3: Load Preferences for Deletion');
-    const loaded = await loadOrGenerateDeletionList(instanceType, timer, { maxTier });
-    if (!loaded) {
-        return;
-    }
-    const { preferenceData, preferenceIds } = loaded;
-
-    // --- STEP 4: Review Preferences for Deletion ---
-    logSectionTitle('STEP 4: Review Preferences for Deletion');
-    if (!await reviewPreferencesInEditor(instanceType, timer)) {
-        return;
-    }
-    logDeletionPrefixSummary(preferenceIds);
-
-    // --- STEP 5: Select Realms to Process ---
-    logSectionTitle('STEP 5: Select Realms to Process');
+    // --- STEP 2: Select Realms to Process ---
+    logSectionTitle('STEP 2: Select Realms to Process');
     const realmsToProcess = await selectRealmsForInstance(instanceType);
     if (!realmsToProcess) {
         logRuntime(timer);
         return;
     }
 
-    // --- STEP 5b: Build Per-Realm Preference Lists ---
-    const realmPreferenceMap = buildRealmPreferenceMap(
-        preferenceData, realmsToProcess, { deletionLevel }
+    // --- STEP 3: Select Deletion Level ---
+    logSectionTitle('STEP 3: Select Deletion Level');
+    const { deletionLevel } = await inquirer.prompt(prompts.deletionLevelPrompt());
+
+    logDeletionLevelSummary(deletionLevel);
+
+    // --- STEP 4: Load Per-Realm Deletion Lists ---
+    logSectionTitle('STEP 4: Load Per-Realm Deletion Lists');
+
+    // Check if per-realm files exist; if not, offer to run analyze-preferences
+    const perRealmResult = buildRealmPreferenceMapFromFiles(
+        realmsToProcess, instanceType, { maxTier: deletionLevel }
     );
+
+    if (perRealmResult.missingRealms.length > 0) {
+        console.log(
+            `\n${LOG_PREFIX.WARNING} Per-realm deletion files not found for:`
+            + ` ${perRealmResult.missingRealms.join(', ')}`
+        );
+        console.log(
+            `${LOG_PREFIX.INFO} Run analyze-preferences to generate per-realm deletion files.\n`
+        );
+
+        const analyzeAnswers = await inquirer.prompt(
+            prompts.runAnalyzePreferencesPrompt(instanceType)
+        );
+
+        if (!analyzeAnswers.runAnalyze) {
+            console.log(`\n${LOG_PREFIX.INFO} Preference removal cancelled.\n`);
+            logRuntime(timer);
+            return;
+        }
+
+        try {
+            await runAnalyzePreferencesSubprocess();
+        } catch (error) {
+            console.log(`\nERROR: ${error.message}`);
+            logRuntime(timer);
+            return;
+        }
+
+        // Retry loading per-realm files after analyze
+        const retryResult = buildRealmPreferenceMapFromFiles(
+            realmsToProcess, instanceType, { maxTier: deletionLevel }
+        );
+
+        if (retryResult.missingRealms.length === realmsToProcess.length) {
+            console.log(
+                `\n${LOG_PREFIX.WARNING} Per-realm deletion files still not found.`
+                + ' Please check the analyze-preferences output.\n'
+            );
+            logRuntime(timer);
+            return;
+        }
+
+        Object.assign(perRealmResult, retryResult);
+    }
+
+    const { realmPreferenceMap } = perRealmResult;
+
+    if (perRealmResult.skippedByWhitelist.length > 0) {
+        console.log(
+            `${LOG_PREFIX.INFO} Whitelist skipped`
+            + ` ${perRealmResult.skippedByWhitelist.length} preference(s).`
+        );
+    }
+
+    if (perRealmResult.blockedByBlacklist.length > 0) {
+        console.log(
+            `${LOG_PREFIX.INFO} Blacklist protected`
+            + ` ${perRealmResult.blockedByBlacklist.length} preference(s).`
+        );
+    }
+
     logPerRealmDeletionSummary(realmPreferenceMap, dryRun);
 
     // Check if any realm has preferences to delete
@@ -519,12 +563,74 @@ async function removePreferences(options = {}) {
     ).size;
     if (totalUniquePrefs === 0) {
         console.log(
-            `\n${LOG_PREFIX.INFO} No preferences to delete for selected realms`
-            + ' (realm tags don\'t match selection).\n'
+            `\n${LOG_PREFIX.INFO} No preferences to delete for selected realms.\n`
         );
         logRuntime(timer);
         return;
     }
+
+    const preferenceIds = [...new Set(Array.from(realmPreferenceMap.values()).flat())];
+
+    // --- STEP 5: Review Per-Realm Deletion Files ---
+    logSectionTitle('STEP 5: Review Per-Realm Deletion Files');
+    try {
+        const openedFiles = await openRealmDeletionFilesInEditor(realmsToProcess, instanceType);
+        if (openedFiles.length > 0) {
+            console.log(
+                `${LOG_PREFIX.INFO} Opened ${openedFiles.length} per-realm`
+                + ' deletion file(s) in VS Code.\n'
+            );
+        } else {
+            console.log(`${LOG_PREFIX.WARNING} No per-realm deletion files found to open.\n`);
+        }
+
+        // Show blacklist/whitelist reminders
+        const { listBlacklist } = await import('../setup/helpers/blacklistHelper.js');
+        const { listWhitelist } = await import('../setup/helpers/whitelistHelper.js');
+        const entries = listBlacklist();
+        if (entries.length > 0) {
+            const yellow = '\x1b[33m';
+            const reset = '\x1b[0m';
+            console.log(
+                `${yellow}  ℹ  Blacklisted patterns`
+                + ` (these preferences will never be deleted):${reset}`
+            );
+            for (const entry of entries) {
+                const key = entry.type === 'exact'
+                    ? (entry.id || entry.pattern) : entry.pattern;
+                console.log(`${yellow}     • [${entry.type}] ${key}${reset}`);
+            }
+            console.log(
+                `${yellow}     Manage with: list-blacklist, add-to-blacklist,`
+                + ` remove-from-blacklist${reset}\n`
+            );
+        }
+
+        const whitelistEntries = listWhitelist();
+        if (whitelistEntries.length > 0) {
+            const cyan = '\x1b[36m';
+            const reset = '\x1b[0m';
+            console.log(
+                `${cyan}  ℹ  Whitelist active`
+                + ` (only matching preferences are eligible):${reset}`
+            );
+            for (const entry of whitelistEntries) {
+                const key = entry.type === 'exact'
+                    ? (entry.id || entry.pattern) : entry.pattern;
+                console.log(`${cyan}     • [${entry.type}] ${key}${reset}`);
+            }
+            console.log(
+                `${cyan}     Manage with: list-whitelist, add-to-whitelist,`
+                + ` remove-from-whitelist${reset}\n`
+            );
+        }
+    } catch (error) {
+        console.log(
+            `${LOG_PREFIX.WARNING} Could not open file(s) in VS Code: ${error.message}`
+        );
+    }
+
+    logDeletionPrefixSummary(preferenceIds);
 
     // --- STEP 6: Create Backups ---
     const objectType = IDENTIFIERS.SITE_PREFERENCES;
@@ -533,9 +639,8 @@ async function removePreferences(options = {}) {
         console.log(`${LOG_PREFIX.INFO} Skipping backup creation in dry-run mode.\n`);
     } else {
         logSectionTitle('STEP 6: Create Backups (Per Realm)');
-        const preferencesFilePath = getDeletionFilePath(instanceType);
         const backupsReady = await handleBackupCreation(
-            realmsToProcess, objectType, instanceType, preferencesFilePath
+            realmsToProcess, objectType, instanceType
         );
 
         if (!backupsReady) {
@@ -594,10 +699,52 @@ async function removePreferences(options = {}) {
         return;
     }
 
-    const { totalRestored, totalFailed: restoreFailed } = await restorePreferencesFromBackups({
-        realmsToProcess, preferences: preferenceIds, objectType, instanceType
+    console.log('\nRestoring preferences from backups...\n');
+    let totalRestored = 0;
+    let restoreFailed = 0;
+
+    for (const realm of realmsToProcess) {
+        const realmPrefs = realmPreferenceMap.get(realm) || [];
+        if (realmPrefs.length === 0) {
+            console.log(`Realm ${realm}: No preferences were deleted (skipping restore)\n`);
+            continue;
+        }
+
+        console.log(`Restoring realm: ${realm} (${realmPrefs.length} preferences)\n`);
+
+        const backupFilePath = findLatestBackupFile(realm, objectType);
+        if (!backupFilePath || !fs.existsSync(backupFilePath)) {
+            console.log(
+                `${LOG_PREFIX.WARNING} No backup file found for realm: ${realm}`
+            );
+            console.log(
+                `   Expected location: backup/${instanceType}/`
+                + `${realm}_${objectType}_backup_*.json\n`
+            );
+            continue;
+        }
+
+        console.log(`${LOG_PREFIX.INFO} Found backup: ${path.basename(backupFilePath)}`);
+
+        const backup = await loadAndValidateBackup(backupFilePath);
+        if (!backup) {
+            console.log(
+                `${LOG_PREFIX.WARNING} Failed to load backup for ${realm}. Skipping...\n`
+            );
+            continue;
+        }
+
+        const result = await restorePreferencesForRealm({
+            preferenceIds: realmPrefs, backup, objectType, instanceType, realm
+        });
+
+        totalRestored += result.restored;
+        restoreFailed += result.failed;
+    }
+
+    logRestoreSummary({
+        restored: totalRestored, failed: restoreFailed, realm: realmsToProcess.length
     });
-    logRestoreSummary({ restored: totalRestored, failed: restoreFailed, realm: realmsToProcess.length });
 }
 
 // ============================================================================
@@ -691,175 +838,6 @@ async function backupSitePreferences() {
 // ============================================================================
 
 /**
- * Load deletion list, or run analyze-preferences if not found
- * @param {string} instanceType - Instance type
- * @param {Object} timer - Timer instance for runtime logging
- * @param {Object} [options] - Optional filtering options
- * @param {string} [options.maxTier] - Maximum tier to include (cascading)
- * @returns {Promise<{preferenceData: Array, preferenceIds: string[]}|null>}
- *   Realm-tagged preference data and flat ID list, or null if unavailable
- */
-async function loadOrGenerateDeletionList(instanceType, timer, { maxTier } = {}) {
-    const deletionFilePath = getDeletionFilePath(instanceType);
-    let result = loadPreferencesForDeletion(instanceType, { maxTier });
-    let preferenceData = result?.allowed || null;
-    let blockedByBlacklist = result?.blocked || [];
-    let skippedByWhitelist = result?.skippedByWhitelist || [];
-    let deletionFileExists = fs.existsSync(deletionFilePath);
-
-    if (skippedByWhitelist.length > 0) {
-        console.log(`${LOG_PREFIX.INFO} Whitelist skipped ${skippedByWhitelist.length} preference(s).`);
-    }
-
-    if (blockedByBlacklist.length > 0) {
-        console.log(`${LOG_PREFIX.INFO} Blacklist protected ${blockedByBlacklist.length} preference(s).`);
-    }
-
-    if (preferenceData) {
-        const preferenceIds = preferenceData.map(p => p.id);
-        return { preferenceData, preferenceIds };
-    }
-
-    if (result && !preferenceData) {
-        console.log(
-            `\n${LOG_PREFIX.WARNING} Deletion list found for '${instanceType}',`
-            + ' but no preferences are currently eligible after whitelist/blacklist filters.\n'
-        );
-        if (skippedByWhitelist.length > 0) {
-            console.log(
-                `${LOG_PREFIX.INFO} Review whitelist entries with "list-whitelist"`
-                + ' or remove restrictions before running remove-preferences.\n'
-            );
-        }
-        logRuntime(timer);
-        return null;
-    }
-
-    if (deletionFileExists && !result) {
-        console.log(
-            `\n${LOG_PREFIX.WARNING} Deletion file exists but contains no parsable preference entries:`
-            + ` ${deletionFilePath}\n`
-        );
-        logRuntime(timer);
-        return null;
-    }
-
-    console.log(`\n${LOG_PREFIX.WARNING} Preferences for deletion file not found`
-        + ` for instance type: ${instanceType}\n`);
-
-    const analyzeAnswers = await inquirer.prompt(prompts.runAnalyzePreferencesPrompt(instanceType));
-
-    if (!analyzeAnswers.runAnalyze) {
-        console.log(`\n${LOG_PREFIX.INFO} Preference removal cancelled.\n`);
-        logRuntime(timer);
-        return null;
-    }
-
-    try {
-        await runAnalyzePreferencesSubprocess();
-    } catch (error) {
-        console.log(`\nERROR: ${error.message}`);
-        logRuntime(timer);
-        return null;
-    }
-
-    result = loadPreferencesForDeletion(instanceType, { maxTier });
-    preferenceData = result?.allowed || null;
-    blockedByBlacklist = result?.blocked || [];
-    skippedByWhitelist = result?.skippedByWhitelist || [];
-    deletionFileExists = fs.existsSync(deletionFilePath);
-
-    if (skippedByWhitelist.length > 0) {
-        console.log(`${LOG_PREFIX.INFO} Whitelist skipped ${skippedByWhitelist.length} preference(s).`);
-    }
-
-    if (blockedByBlacklist.length > 0) {
-        console.log(`${LOG_PREFIX.INFO} Blacklist protected ${blockedByBlacklist.length} preference(s).`);
-    }
-
-    if (result && !preferenceData) {
-        console.log(
-            `\n${LOG_PREFIX.WARNING} Deletion list found for '${instanceType}',`
-            + ' but no preferences are currently eligible after whitelist/blacklist filters.\n'
-        );
-        if (skippedByWhitelist.length > 0) {
-            console.log(
-                `${LOG_PREFIX.INFO} Review whitelist entries with "list-whitelist"`
-                + ' or remove restrictions before running remove-preferences.\n'
-            );
-        }
-        logRuntime(timer);
-        return null;
-    }
-
-    if (deletionFileExists && !result) {
-        console.log(
-            `\n${LOG_PREFIX.WARNING} Deletion file exists but contains no parsable preference entries:`
-            + ` ${deletionFilePath}\n`
-        );
-        logRuntime(timer);
-        return null;
-    }
-
-    if (!preferenceData) {
-        console.log(`\n${LOG_PREFIX.WARNING} Preferences file still not found.`
-            + ' Please check the analyze-preferences output.\n');
-        logRuntime(timer);
-        return null;
-    }
-
-    const preferenceIds = preferenceData.map(p => p.id);
-    return { preferenceData, preferenceIds };
-}
-
-/**
- * Open preferences file in editor and handle errors
- * @param {string} instanceType - Instance type
- * @param {Object} timer - Timer instance for runtime logging
- * @returns {Promise<boolean>} True if successful
- */
-async function reviewPreferencesInEditor(instanceType, timer) {
-    try {
-        const filePath = await openPreferencesForDeletionInEditor(instanceType);
-        console.log(`${LOG_PREFIX.INFO} Opened preferences file in VS Code: ${filePath}\n`);
-
-        // Show blacklist/whitelist reminders right after opening the file
-        const { listBlacklist } = await import('../setup/helpers/blacklistHelper.js');
-        const { listWhitelist } = await import('../setup/helpers/whitelistHelper.js');
-        const entries = listBlacklist();
-        if (entries.length > 0) {
-            const yellow = '\x1b[33m';
-            const reset = '\x1b[0m';
-            console.log(`${yellow}  ℹ  Blacklisted patterns (these preferences will never be deleted):${reset}`);
-            for (const entry of entries) {
-                const key = entry.type === 'exact' ? (entry.id || entry.pattern) : entry.pattern;
-                console.log(`${yellow}     • [${entry.type}] ${key}${reset}`);
-            }
-            console.log(`${yellow}     Manage with: list-blacklist, add-to-blacklist, remove-from-blacklist${reset}\n`);
-        }
-
-        const whitelistEntries = listWhitelist();
-        if (whitelistEntries.length > 0) {
-            const cyan = '\x1b[36m';
-            const reset = '\x1b[0m';
-            console.log(`${cyan}  ℹ  Whitelist active (only matching preferences are eligible):${reset}`);
-            for (const entry of whitelistEntries) {
-                const key = entry.type === 'exact' ? (entry.id || entry.pattern) : entry.pattern;
-                console.log(`${cyan}     • [${entry.type}] ${key}${reset}`);
-            }
-            console.log(`${cyan}     Manage with: list-whitelist, add-to-whitelist, remove-from-whitelist${reset}\n`);
-        }
-
-        return true;
-    } catch (error) {
-        console.log(`${LOG_PREFIX.WARNING} Could not open file in VS Code: ${error.message}`);
-        console.log('  Make sure VS Code is installed and accessible via the "code" command.\n');
-        logRuntime(timer);
-        return false;
-    }
-}
-
-/**
  * Log top prefix summary for preferences being deleted
  * @param {string[]} preferences - Preference IDs
  */
@@ -875,7 +853,7 @@ function logDeletionPrefixSummary(preferences) {
 
 /**
  * Log summary of the selected deletion level
- * @param {string} deletionLevel - Selected deletion level (P1-P5 or REALM_TARGETED)
+ * @param {string} deletionLevel - Selected deletion level (P1-P5 cascading)
  */
 function logDeletionLevelSummary(deletionLevel) {
     const descriptions = {
@@ -883,32 +861,15 @@ function logDeletionLevelSummary(deletionLevel) {
         P2: 'P2 — Likely Safe (No Code, Has Values) [includes P1]',
         P3: 'P3 — Deprecated Code Only (No Values) [includes P1-P2]',
         P4: 'P4 — Deprecated Code + Values [includes P1-P3]',
-        P5: 'P5 — Realm-Specific (Active Code Not on All Realms) [includes P1-P4]',
-        REALM_TARGETED: 'Realm-targeted — All tiers, respects realm tags'
+        P5: 'P5 — Realm-Specific (Active Code Not on All Realms) [includes P1-P4]'
     };
 
     const desc = descriptions[deletionLevel] || deletionLevel;
     console.log(`\nSelected: ${desc}`);
-
-    if (deletionLevel === 'P2') {
-        console.log(
-            `  ${LOG_PREFIX.INFO} P2 preferences will be removed from ALL selected`
-            + ' realms (realm tags ignored)'
-        );
-    } else if (
-        deletionLevel !== DELETION_LEVELS.REALM_TARGETED
-        && deletionLevel !== 'P1'
-    ) {
-        // P3-P5: cascading includes P2, which gets the all-realms override
-        console.log(
-            `  ${LOG_PREFIX.INFO} P2 preferences (included by cascade) will be removed`
-            + ' from ALL selected realms (realm tags ignored)'
-        );
-        console.log(
-            `  ${LOG_PREFIX.INFO} All other tiers will respect per-realm targeting`
-        );
-    }
-
+    console.log(
+        `  ${LOG_PREFIX.INFO} Each realm uses its own deletion file with`
+        + ' realm-specific tier classification'
+    );
     console.log('');
 }
 
@@ -973,28 +934,30 @@ async function selectRealmsForInstance(instanceType) {
 }
 
 /**
- * Get the path to the preferences-for-deletion file
+ * Get the per-realm deletion file path for a given realm and instance type.
+ * @param {string} realm - Realm name (e.g. 'EU05')
  * @param {string} instanceType - Instance type
- * @returns {string} Absolute path
+ * @returns {string} Absolute path to the per-realm deletion file
  */
-function getDeletionFilePath(instanceType) {
+function getRealmDeletionFilePath(realm, instanceType) {
     return path.join(
         process.cwd(),
         DIRECTORIES.RESULTS,
         instanceType,
-        IDENTIFIERS.ALL_REALMS,
-        `${instanceType}${FILE_PATTERNS.PREFERENCES_FOR_DELETION}`
+        realm,
+        `${realm}${FILE_PATTERNS.PREFERENCES_FOR_DELETION}`
     );
 }
 
 /**
- * Handle backup creation workflow: classify realms, prompt user, create backups
+ * Handle backup creation workflow: classify realms, prompt user, create backups.
+ * Uses per-realm deletion file paths so each realm's backup includes only
+ * the preferences from that realm's file.
  * @param {string[]} realmsToProcess - All selected realms
  * @param {string} objectType - Object type
  * @param {string} instanceType - Instance type
- * @param {string} preferencesFilePath - Path to deletion list
  */
-async function handleBackupCreation(realmsToProcess, objectType, instanceType, preferencesFilePath) {
+async function handleBackupCreation(realmsToProcess, objectType, instanceType) {
     const { withBackups, withoutBackups } = classifyRealmBackupStatus(
         realmsToProcess, objectType, instanceType
     );
@@ -1023,13 +986,22 @@ async function handleBackupCreation(realmsToProcess, objectType, instanceType, p
         return true;
     }
 
+    // Build per-realm file path map for backup creation
+    const realmFilePaths = new Map();
+    for (const realm of realmsToBackup) {
+        const perRealmPath = getRealmDeletionFilePath(realm, instanceType);
+        if (fs.existsSync(perRealmPath)) {
+            realmFilePaths.set(realm, perRealmPath);
+        }
+    }
+
     const refreshAnswers = await inquirer.prompt(prompts.refreshMetadataPrompt());
 
     const { successCount } = await createBackupsForRealms({
         realmsToBackup,
         instanceType,
         objectType,
-        preferencesFilePath,
+        realmFilePaths,
         refreshMetadata: refreshAnswers.refreshMetadata
     });
 
