@@ -64,6 +64,25 @@ export const REALM_TAGS = {
 };
 
 /**
+ * Deletion level options for remove-preferences command.
+ * P1-P5 are cascading (selecting P3 includes P1+P2+P3).
+ * REALM_TARGETED is the legacy mode using per-realm tags for all tiers.
+ */
+export const DELETION_LEVELS = {
+    P1: 'P1',
+    P2: 'P2',
+    P3: 'P3',
+    P4: 'P4',
+    P5: 'P5',
+    REALM_TARGETED: 'REALM_TARGETED'
+};
+
+/**
+ * Priority tier numeric ordering for cascading tier selection
+ */
+export const TIER_ORDER = { P1: 1, P2: 2, P3: 3, P4: 4, P5: 5 };
+
+/**
  * File naming patterns and suffixes
  */
 export const FILE_PATTERNS = {

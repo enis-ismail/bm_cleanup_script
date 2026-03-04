@@ -15,6 +15,7 @@ export {
 } from './realmPrompts.js';
 
 export {
+    deletionLevelPrompt,
     preferenceIdPrompt,
     confirmPreferenceDeletionPrompt,
     runAnalyzePreferencesPrompt,

@@ -1,4 +1,35 @@
 {
-  "description": "",
-  "whitelist": []
+  "description": "Backup-based test whitelist for remove-preferences dry-run/validation.",
+  "whitelist": [
+    {
+      "type": "exact",
+      "id": "ThisTestAttribute",
+      "reason": "Seeded test preference present in all development backup files"
+    },
+    {
+      "type": "exact",
+      "id": "APACTestAttribute",
+      "reason": "Backed up test preference from APAC"
+    },
+    {
+      "type": "exact",
+      "id": "EU05TestAttribute",
+      "reason": "Backed up test preference from EU05"
+    },
+    {
+      "type": "exact",
+      "id": "PNATestAttribute",
+      "reason": "Backed up test preference from PNA"
+    },
+    {
+      "type": "exact",
+      "id": "GBTestAttribute",
+      "reason": "Backed up test preference from GB"
+    },
+    {
+      "type": "exact",
+      "id": "EUOnlyAttribute",
+      "reason": "Backed up EU-specific attribute for optional targeted tests"
+    }
+  ]
 }

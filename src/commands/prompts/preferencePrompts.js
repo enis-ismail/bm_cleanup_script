@@ -3,6 +3,44 @@ import { IDENTIFIERS, LOG_PREFIX, BACKUP_CONFIG } from '../../config/constants.j
 import { logSectionTitle } from '../../scripts/loggingScript/log.js';
 import { checkBackupStatusForRealms } from '../../io/backupUtils.js';
 
+export const deletionLevelPrompt = () => ([
+    {
+        type: 'rawlist',
+        name: 'deletionLevel',
+        message: 'Select deletion level:',
+        choices: [
+            {
+                name: 'P1 — Safe to Delete: No code references, no values',
+                value: 'P1'
+            },
+            {
+                name: 'P2 — Likely Safe: No code references, has values'
+                    + ' [includes P1] (deletes from ALL realms)',
+                value: 'P2'
+            },
+            {
+                name: 'P3 — Deprecated Code Only: No values [includes P1-P2]',
+                value: 'P3'
+            },
+            {
+                name: 'P4 — Deprecated Code + Values [includes P1-P3]',
+                value: 'P4'
+            },
+            {
+                name: 'P5 — Realm-Specific: Active code not on all realms'
+                    + ' [includes P1-P4]',
+                value: 'P5'
+            },
+            new inquirer.Separator('────────────────────'),
+            {
+                name: 'Realm-targeted — Remove from non-utilizing realms only'
+                    + ' (all tiers, respects realm tags)',
+                value: 'REALM_TARGETED'
+            }
+        ]
+    }
+]);
+
 export const confirmPreferenceDeletionPrompt = (count, dryRun = false) => ([
     {
         name: 'confirm',

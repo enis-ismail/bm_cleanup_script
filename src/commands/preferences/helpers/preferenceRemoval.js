@@ -7,21 +7,24 @@ import fs from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
 import { ensureResultsDir } from '../../../io/util.js';
-import { IDENTIFIERS, FILE_PATTERNS, REALM_TAGS } from '../../../config/constants.js';
+import { IDENTIFIERS, FILE_PATTERNS, REALM_TAGS, TIER_ORDER, DELETION_LEVELS } from '../../../config/constants.js';
 import { filterBlacklisted } from '../../setup/helpers/blacklistHelper.js';
 import { filterWhitelisted } from '../../setup/helpers/whitelistHelper.js';
 
 /**
  * Load preferences marked for deletion from file.
- * Parses realm tags from each preference line (e.g., "realms: ALL" or "realms: EU05, GB").
+ * Parses realm tags and tier sections from each preference line.
  * @param {string} instanceType - Instance type (sandbox, development, staging, production)
+ * @param {Object} [options] - Optional filtering options
+ * @param {string} [options.maxTier] - Maximum tier to include (e.g. 'P2' includes P1+P2).
+ *   When null/undefined, all tiers are included.
  * @returns {{
- *   allowed: Array<{id: string, realms: string[]}> | null,
+ *   allowed: Array<{id: string, realms: string[], tier: string}> | null,
  *   blocked: string[],
  *   skippedByWhitelist: string[]
  * } | null}
  */
-export function loadPreferencesForDeletion(instanceType) {
+export function loadPreferencesForDeletion(instanceType, { maxTier } = {}) {
     const resultsDir = ensureResultsDir(IDENTIFIERS.ALL_REALMS, instanceType);
     const filePath = path.join(resultsDir, `${instanceType}${FILE_PATTERNS.PREFERENCES_FOR_DELETION}`);
 
@@ -33,6 +36,10 @@ export function loadPreferencesForDeletion(instanceType) {
     const lines = content.split(/\r?\n/);
     const preferences = [];
     let inPreferenceSection = false;
+    let currentTier = null;
+
+    // Compute max tier numeric value for cascading filter
+    const maxTierOrder = maxTier ? (TIER_ORDER[maxTier] || 5) : null;
 
     for (const line of lines) {
         const trimmed = line.trim();
@@ -41,6 +48,18 @@ export function loadPreferencesForDeletion(instanceType) {
         // Also support legacy format: --- Preferences for Deletion ---
         if (trimmed.startsWith('--- [P') || trimmed === '--- Preferences for Deletion ---') {
             inPreferenceSection = true;
+
+            // Extract tier from section header: [P1], [P2], etc.
+            const tierMatch = trimmed.match(/\[P(\d)\]/);
+            currentTier = tierMatch ? `P${tierMatch[1]}` : null;
+
+            // Skip entire section if tier exceeds maxTier filter
+            if (maxTierOrder && currentTier) {
+                const tierNum = TIER_ORDER[currentTier] || 0;
+                if (tierNum > maxTierOrder) {
+                    inPreferenceSection = false;
+                }
+            }
             continue;
         }
 
@@ -81,7 +100,7 @@ export function loadPreferencesForDeletion(instanceType) {
                 }
             }
 
-            preferences.push({ id: prefId, realms });
+            preferences.push({ id: prefId, realms, tier: currentTier });
         }
     }
 
@@ -107,22 +126,36 @@ export function loadPreferencesForDeletion(instanceType) {
 /**
  * Build a per-realm preference map from loaded preference data and selected realms.
  * Maps each selected realm to the list of preference IDs that should be deleted from it.
- * @param {Array<{id: string, realms: string[]}>} preferenceData - Realm-tagged preference data
+ *
+ * When deletionLevel is a specific tier (P1-P5), P2 preferences are added to ALL
+ * selected realms regardless of their realm tags. Other tiers respect realm tags.
+ * When deletionLevel is REALM_TARGETED, all tiers respect realm tags (legacy behavior).
+ *
+ * @param {Array<{id: string, realms: string[], tier: string}>} preferenceData
  * @param {string[]} selectedRealms - Realms selected by the user for deletion
+ * @param {Object} [options] - Optional behavior overrides
+ * @param {string} [options.deletionLevel='REALM_TARGETED'] - Selected deletion level
  * @returns {Map<string, string[]>} Map of realm → preference IDs to delete from that realm
  */
-export function buildRealmPreferenceMap(preferenceData, selectedRealms) {
+export function buildRealmPreferenceMap(
+    preferenceData, selectedRealms, { deletionLevel = DELETION_LEVELS.REALM_TARGETED } = {}
+) {
     const realmMap = new Map();
 
     for (const realm of selectedRealms) {
         realmMap.set(realm, []);
     }
 
-    for (const { id, realms } of preferenceData) {
+    for (const { id, realms, tier } of preferenceData) {
         const isAllRealms = realms.length === 1 && realms[0] === REALM_TAGS.ALL;
 
+        // P2 override: when a specific tier is selected (not REALM_TARGETED),
+        // P2 preferences are removed from ALL selected realms regardless of realm tags.
+        const forceAllRealms = deletionLevel !== DELETION_LEVELS.REALM_TARGETED
+            && tier === 'P2';
+
         for (const realm of selectedRealms) {
-            if (isAllRealms || realms.includes(realm)) {
+            if (isAllRealms || forceAllRealms || realms.includes(realm)) {
                 realmMap.get(realm).push(id);
             }
         }

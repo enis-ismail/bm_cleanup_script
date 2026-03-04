@@ -17,7 +17,8 @@ import {
     prompts
 } from '../../commands/prompts/index.js';
 import {
-    LOG_PREFIX, DIRECTORIES, IDENTIFIERS, FILE_PATTERNS, ANALYSIS_STEPS
+    LOG_PREFIX, DIRECTORIES, IDENTIFIERS, FILE_PATTERNS, ANALYSIS_STEPS,
+    DELETION_LEVELS
 } from '../../config/constants.js';
 import {
     logNoMatrixFiles,
@@ -475,31 +476,41 @@ async function removePreferences(options = {}) {
     logSectionTitle('STEP 1: Select Instance Type');
     const { instanceType } = await inquirer.prompt(prompts.instanceTypePrompt('development'));
 
-    // --- STEP 2: Load Preferences for Deletion ---
-    logSectionTitle('STEP 2: Load Preferences for Deletion');
-    const loaded = await loadOrGenerateDeletionList(instanceType, timer);
+    // --- STEP 2: Select Deletion Level ---
+    logSectionTitle('STEP 2: Select Deletion Level');
+    const { deletionLevel } = await inquirer.prompt(prompts.deletionLevelPrompt());
+    const isRealmTargeted = deletionLevel === DELETION_LEVELS.REALM_TARGETED;
+    const maxTier = isRealmTargeted ? null : deletionLevel;
+
+    logDeletionLevelSummary(deletionLevel);
+
+    // --- STEP 3: Load Preferences for Deletion ---
+    logSectionTitle('STEP 3: Load Preferences for Deletion');
+    const loaded = await loadOrGenerateDeletionList(instanceType, timer, { maxTier });
     if (!loaded) {
         return;
     }
     const { preferenceData, preferenceIds } = loaded;
 
-    // --- STEP 3: Review Preferences for Deletion ---
-    logSectionTitle('STEP 3: Review Preferences for Deletion');
+    // --- STEP 4: Review Preferences for Deletion ---
+    logSectionTitle('STEP 4: Review Preferences for Deletion');
     if (!await reviewPreferencesInEditor(instanceType, timer)) {
         return;
     }
     logDeletionPrefixSummary(preferenceIds);
 
-    // --- STEP 4: Select Realms to Process ---
-    logSectionTitle('STEP 4: Select Realms to Process');
+    // --- STEP 5: Select Realms to Process ---
+    logSectionTitle('STEP 5: Select Realms to Process');
     const realmsToProcess = await selectRealmsForInstance(instanceType);
     if (!realmsToProcess) {
         logRuntime(timer);
         return;
     }
 
-    // --- STEP 4b: Build Per-Realm Preference Lists ---
-    const realmPreferenceMap = buildRealmPreferenceMap(preferenceData, realmsToProcess);
+    // --- STEP 5b: Build Per-Realm Preference Lists ---
+    const realmPreferenceMap = buildRealmPreferenceMap(
+        preferenceData, realmsToProcess, { deletionLevel }
+    );
     logPerRealmDeletionSummary(realmPreferenceMap, dryRun);
 
     // Check if any realm has preferences to delete
@@ -515,13 +526,13 @@ async function removePreferences(options = {}) {
         return;
     }
 
-    // --- STEP 5: Create Backups ---
+    // --- STEP 6: Create Backups ---
     const objectType = IDENTIFIERS.SITE_PREFERENCES;
     if (dryRun) {
-        logSectionTitle('STEP 5: Create Backups (Skipped - Dry Run)');
+        logSectionTitle('STEP 6: Create Backups (Skipped - Dry Run)');
         console.log(`${LOG_PREFIX.INFO} Skipping backup creation in dry-run mode.\n`);
     } else {
-        logSectionTitle('STEP 5: Create Backups (Per Realm)');
+        logSectionTitle('STEP 6: Create Backups (Per Realm)');
         const preferencesFilePath = getDeletionFilePath(instanceType);
         const backupsReady = await handleBackupCreation(
             realmsToProcess, objectType, instanceType, preferencesFilePath
@@ -533,8 +544,8 @@ async function removePreferences(options = {}) {
         }
     }
 
-    // --- STEP 6: Confirm Deletion ---
-    logSectionTitle(`STEP 6: Confirm Deletion${dryRun ? ' (Dry Run)' : ''}`);
+    // --- STEP 7: Confirm Deletion ---
+    logSectionTitle(`STEP 7: Confirm Deletion${dryRun ? ' (Dry Run)' : ''}`);
     if (dryRun) {
         console.log('Dry-Run Summary:');
         console.log(`  - Realms to process: ${realmsToProcess.length}`);
@@ -559,8 +570,8 @@ async function removePreferences(options = {}) {
         return;
     }
 
-    // --- STEP 7: Delete Preferences (Per-Realm) ---
-    logSectionTitle(`STEP 7: Remove Preferences${dryRun ? ' (Dry Run)' : ''}`);
+    // --- STEP 8: Delete Preferences (Per-Realm) ---
+    logSectionTitle(`STEP 8: Remove Preferences${dryRun ? ' (Dry Run)' : ''}`);
     const { totalDeleted, totalFailed } = await deletePreferencesForRealms({
         realmPreferenceMap, objectType, dryRun
     });
@@ -574,8 +585,8 @@ async function removePreferences(options = {}) {
         return;
     }
 
-    // --- STEP 8: Optional Restore ---
-    logSectionTitle('STEP 8: Restore from Backups (Optional)');
+    // --- STEP 9: Optional Restore ---
+    logSectionTitle('STEP 9: Restore from Backups (Optional)');
     const restoreAnswers = await inquirer.prompt(prompts.confirmRestoreAfterDeletionPrompt());
 
     if (!restoreAnswers.restore) {
@@ -683,12 +694,14 @@ async function backupSitePreferences() {
  * Load deletion list, or run analyze-preferences if not found
  * @param {string} instanceType - Instance type
  * @param {Object} timer - Timer instance for runtime logging
- * @returns {Promise<{preferenceData: Array<{id: string, realms: string[]}>, preferenceIds: string[]}|null>}
+ * @param {Object} [options] - Optional filtering options
+ * @param {string} [options.maxTier] - Maximum tier to include (cascading)
+ * @returns {Promise<{preferenceData: Array, preferenceIds: string[]}|null>}
  *   Realm-tagged preference data and flat ID list, or null if unavailable
  */
-async function loadOrGenerateDeletionList(instanceType, timer) {
+async function loadOrGenerateDeletionList(instanceType, timer, { maxTier } = {}) {
     const deletionFilePath = getDeletionFilePath(instanceType);
-    let result = loadPreferencesForDeletion(instanceType);
+    let result = loadPreferencesForDeletion(instanceType, { maxTier });
     let preferenceData = result?.allowed || null;
     let blockedByBlacklist = result?.blocked || [];
     let skippedByWhitelist = result?.skippedByWhitelist || [];
@@ -750,7 +763,7 @@ async function loadOrGenerateDeletionList(instanceType, timer) {
         return null;
     }
 
-    result = loadPreferencesForDeletion(instanceType);
+    result = loadPreferencesForDeletion(instanceType, { maxTier });
     preferenceData = result?.allowed || null;
     blockedByBlacklist = result?.blocked || [];
     skippedByWhitelist = result?.skippedByWhitelist || [];
@@ -857,6 +870,45 @@ function logDeletionPrefixSummary(preferences) {
         const percentage = ((count / summary.total) * 100).toFixed(1);
         console.log(`  - ${prefix}: ${count} (${percentage}%)`);
     });
+    console.log('');
+}
+
+/**
+ * Log summary of the selected deletion level
+ * @param {string} deletionLevel - Selected deletion level (P1-P5 or REALM_TARGETED)
+ */
+function logDeletionLevelSummary(deletionLevel) {
+    const descriptions = {
+        P1: 'P1 — Safe to Delete (No Code, No Values)',
+        P2: 'P2 — Likely Safe (No Code, Has Values) [includes P1]',
+        P3: 'P3 — Deprecated Code Only (No Values) [includes P1-P2]',
+        P4: 'P4 — Deprecated Code + Values [includes P1-P3]',
+        P5: 'P5 — Realm-Specific (Active Code Not on All Realms) [includes P1-P4]',
+        REALM_TARGETED: 'Realm-targeted — All tiers, respects realm tags'
+    };
+
+    const desc = descriptions[deletionLevel] || deletionLevel;
+    console.log(`\nSelected: ${desc}`);
+
+    if (deletionLevel === 'P2') {
+        console.log(
+            `  ${LOG_PREFIX.INFO} P2 preferences will be removed from ALL selected`
+            + ' realms (realm tags ignored)'
+        );
+    } else if (
+        deletionLevel !== DELETION_LEVELS.REALM_TARGETED
+        && deletionLevel !== 'P1'
+    ) {
+        // P3-P5: cascading includes P2, which gets the all-realms override
+        console.log(
+            `  ${LOG_PREFIX.INFO} P2 preferences (included by cascade) will be removed`
+            + ' from ALL selected realms (realm tags ignored)'
+        );
+        console.log(
+            `  ${LOG_PREFIX.INFO} All other tiers will respect per-realm targeting`
+        );
+    }
+
     console.log('');
 }
 
