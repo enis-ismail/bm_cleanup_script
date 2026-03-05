@@ -6,8 +6,14 @@ This document provides detailed explanations of all script functions, what they 
 
 ## OCAPI Authentication
 
-### getOAuthToken(sandbox)
+### getOAuthToken(sandbox, progressInfo = null)
 **Purpose:** Obtains OAuth 2.0 access token for all OCAPI requests.
+
+**Location:** `src/api/api.js`
+
+**Parameters:**
+- `sandbox` - Realm configuration object with hostname, clientId, clientSecret
+- `progressInfo` (optional) - Progress display callback info for UI updates
 
 **Process:**
 1. Encode client credentials (clientId:clientSecret) as Base64
@@ -22,8 +28,14 @@ This document provides detailed explanations of all script functions, what they 
 
 ## Site Management
 
-### getAllSites(sandbox)
+### getAllSites(realm, progressInfo = null)
 **Purpose:** Retrieves complete list of sites from the SFCC instance.
+
+**Location:** `src/api/api.js`
+
+**Parameters:**
+- `realm` - Realm name (e.g., "bcwr-080"). Config is resolved internally via `getSandboxConfig(realm)`.
+- `progressInfo` (optional) - Progress display callback info
 
 **Process:**
 1. Authenticate with getOAuthToken()
@@ -36,8 +48,15 @@ This document provides detailed explanations of all script functions, what they 
 
 ---
 
-### getSiteById(siteId, sandbox)
+### getSiteById(siteId, realm, progressInfo = null)
 **Purpose:** Fetches complete configuration for a specific site by ID.
+
+**Location:** `src/api/api.js`
+
+**Parameters:**
+- `siteId` - SFCC site identifier
+- `realm` - Realm name
+- `progressInfo` (optional) - Progress display callback info
 
 **Includes:** Site metadata, settings, cartridge paths, allowed currencies, and custom attributes.
 
@@ -49,8 +68,16 @@ This document provides detailed explanations of all script functions, what they 
 
 ## Attribute & Preference Definitions
 
-### getSitePreferences(objectType, sandbox)
+### getSitePreferences(objectType, realm, includeDefaults = false, progressInfo = null)
 **Purpose:** Retrieves all attribute definitions for a SFCC object type with pagination.
+
+**Location:** `src/api/api.js`
+
+**Parameters:**
+- `objectType` - SFCC object type (e.g., "SitePreferences")
+- `realm` - Realm name
+- `includeDefaults` (optional) - Whether to fetch detailed definitions with defaults via `getAttributeDefinitionById`
+- `progressInfo` (optional) - Progress display callback info
 
 **Key Details:**
 - Custom attributes start with "c_" prefix
@@ -61,7 +88,8 @@ This document provides detailed explanations of all script functions, what they 
 1. Authenticate with OAuth token
 2. Paginate through /attribute_definitions endpoint
 3. Accumulate all attributes until reaching total count
-4. Return complete list
+4. Optionally fetch detailed definitions with defaults
+5. Return complete list
 
 **Data Flow:** Attribute definitions feed into buildPreferenceMeta() for metadata enrichment and used by summarize-preferences command.
 
@@ -69,8 +97,16 @@ This document provides detailed explanations of all script functions, what they 
 
 ---
 
-### getAttributeGroups(objectType, sandbox)
+### getAttributeGroups(objectType, realm, progressCallback = null, progressInfo = null)
 **Purpose:** Retrieves all attribute groups that organize related preferences in Business Manager.
+
+**Location:** `src/api/api.js`
+
+**Parameters:**
+- `objectType` - SFCC object type
+- `realm` - Realm name
+- `progressCallback` (optional) - Callback for progress updates
+- `progressInfo` (optional) - Progress display callback info
 
 **Key Details:**
 - Each group contains multiple preference attributes
@@ -88,8 +124,15 @@ This document provides detailed explanations of all script functions, what they 
 
 ---
 
-### getAttributeGroupById(objectType, groupId, sandbox)
+### getAttributeGroupById(objectType, groupId, realm)
 **Purpose:** Fetches complete definition for a specific attribute group.
+
+**Location:** `src/api/api.js`
+
+**Parameters:**
+- `objectType` - SFCC object type
+- `groupId` - Attribute group identifier
+- `realm` - Realm name
 
 **Includes:** Group metadata and full list of member attribute IDs.
 
@@ -104,7 +147,7 @@ This document provides detailed explanations of all script functions, what they 
 
 **Example:**
 ```javascript
-const group = await getAttributeGroupById("SitePreferences", "PaymentSettings", sandbox)
+const group = await getAttributeGroupById("SitePreferences", "PaymentSettings", "bcwr-080")
 // Returns: {id: "PaymentSettings", attribute_definitions: [...], ...}
 // Creates file: PaymentSettings_response.json
 ```
@@ -113,8 +156,17 @@ const group = await getAttributeGroupById("SitePreferences", "PaymentSettings", 
 
 ## Site Preference Values
 
-### getSitePreferencesGroup(siteId, groupId, instanceType, sandbox)
+### getSitePreferencesGroup(siteId, groupId, instanceType, realm, progressInfo = null)
 **Purpose:** Retrieves actual configured values (not definitions) for all preferences in a group on a specific site.
+
+**Location:** `src/api/api.js`
+
+**Parameters:**
+- `siteId` - SFCC site identifier
+- `groupId` - Attribute group identifier
+- `instanceType` - e.g., "site_preference_default_instance"
+- `realm` - Realm name
+- `progressInfo` (optional) - Progress display callback info
 
 **Key Details:**
 - Shows what's actually set in that site's configuration
@@ -127,48 +179,15 @@ const group = await getAttributeGroupById("SitePreferences", "PaymentSettings", 
 
 ---
 
-### getPreferencesInGroup(groupId, instanceType, sandbox)
-**Purpose:** Searches all preferences within a group using SFCC's search API.
-
-**Key Details:**
-- Returns preference values regardless of site
-- Uses match_all_query to get every preference in group
-- Alternative to iterating through each site individually
-
-**Process:**
-1. Authenticate with OAuth token
-2. POST to /preference_search with match_all_query
-3. Return full preference records
-
-**Data Flow:** Used when comprehensive group-level data is needed.
-
-**Returns:** Search results with hits array containing preference objects
-
----
-
-### getPreferenceById(preferenceId, instanceType, sandbox)
-**Purpose:** Searches for a single preference by ID without knowing which group it belongs to.
-
-**Key Details:**
-- Faster than fetching all groups when you know the preference ID
-- Uses term_query filtering on ID field
-- Returns 0 or 1 match
-
-**Process:**
-1. Authenticate with OAuth token
-2. POST to /preference_search with term_query for ID
-3. Return search results
-
-**Data Flow:** Used for targeted preference lookups and validation.
-
-**Returns:** Search result with hits array (0-1 matches) or null if request fails
-
----
-
 ## Data Export Functions
 
-### exportSitesCartridgesToCSV(sandbox)
+### exportSitesCartridgesToCSV(realm)
 **Purpose:** Creates CSV inventory of all sites and their cartridge paths.
+
+**Location:** `src/io/csv.js`
+
+**Parameters:**
+- `realm` - Realm name (config resolved internally)
 
 **Output File:** `results/{realm}/active_site_cartridges_list.csv`
 
@@ -186,11 +205,7 @@ const group = await getAttributeGroupById("SitePreferences", "PaymentSettings", 
 
 **Example:**
 ```javascript
-await exportSitesCartridgesToCSV({
-  hostname: "bcwr-080.sandbox.com",
-  clientId: "...",
-  clientSecret: "..."
-})
+await exportSitesCartridgesToCSV("bcwr-080")
 // Creates: results/bcwr-080/active_site_cartridges_list.csv
 ```
 
@@ -280,8 +295,19 @@ await exportSitesCartridgesToCSV({
 
 ---
 
-### processSitesAndGroups(sitesToProcess, groupSummaries, sandbox, answers, preferenceMeta)
+### processSitesAndGroups(sitesToProcess, groupSummaries, realm, answers, preferenceMeta, progressCallback = null, progressInfo = null)
 **Purpose:** Iterates through sites and their preference groups to build comprehensive usage data.
+
+**Location:** `src/helpers/summarize.js`
+
+**Parameters:**
+- `sitesToProcess` - Array of site objects to process
+- `groupSummaries` - Array of attribute group summaries
+- `realm` - Realm name (config resolved internally)
+- `answers` - User prompt answers object
+- `preferenceMeta` - Preference metadata map from `buildPreferenceMeta()`
+- `progressCallback` (optional) - Callback for progress updates
+- `progressInfo` (optional) - Progress display callback info
 
 **Key Details:**
 - Core data collection step for analysis
@@ -302,13 +328,16 @@ await exportSitesCartridgesToCSV({
 
 ---
 
-### buildPreferenceMatrix(allPrefIds, allSiteIds, usageRows)
+### buildPreferenceMatrix(allPrefIds, allSiteIds, usageRows, preferenceMeta)
 **Purpose:** Creates 2D boolean matrix showing which preferences are used on which sites.
 
-**Key Details:**
-- Rows = preferences, Columns = sites
-- Boolean values indicate if preference has value on that site
-- Used for "X marks the spot" matrix CSV output
+**Location:** `src/helpers/summarize.js`
+
+**Parameters:**
+- `allPrefIds` - Array of all preference IDs
+- `allSiteIds` - Array of all site IDs
+- `usageRows` - Array of usage records from `processSitesAndGroups()`
+- `preferenceMeta` - Preference metadata map for enriching matrix entries
 
 **Process:**
 1. Initialize matrix with all preferences having false for every site
@@ -367,18 +396,27 @@ await exportSitesCartridgesToCSV({
 ### deriveRealm(hostname)
 **Purpose:** Converts hostname like "bcwr-080.sandbox.com" to just "bcwr-080".
 
+**Location:** `src/config/helpers/helpers.js`
+
 **Used for:** Deriving simple identifiers from full hostnames for file naming.
 
 **Returns:** Extracted realm name or "realm" as fallback
 
 ---
 
-### ensureRealmDir(realm)
+### ensureResultsDir(realm, instanceTypeOverride = null)
 **Purpose:** Creates realm-specific directory structure in results folder.
+
+**Location:** `src/io/util.js`
+
+**Parameters:**
+- `realm` - Realm name for directory creation
+- `instanceTypeOverride` (optional) - Override the instance type subfolder (otherwise derived from config)
 
 **Key Details:**
 - Creates all parent directories recursively if they don't exist
 - Used before writing realm-specific output files
+- Directory structure: `results/{instanceType}/{realm}/`
 
 **Returns:** Absolute path to the created/verified directory
 
@@ -437,14 +475,35 @@ await exportSitesCartridgesToCSV({
 
 ## Matrix File Discovery
 
-### findAllMatrixFiles()
+### findAllMatrixFiles(realmFilter = null)
 **Purpose:** Scans results folder to locate all preference matrix CSV files by realm.
 
-**Expected Pattern:** `results/{realm}/{realm}_sandbox_preferences_matrix.csv`
+**Location:** `src/io/util.js`
+
+**Parameters:**
+- `realmFilter` (optional) - If provided, only return files for the specified realm
+
+**Expected Pattern:** `results/{instanceType}/{realm}/{realm}_*_preferences_matrix.csv`
 
 **Data Flow:** Used by check-preferences command to find matrices from all realms.
 
 **Returns:** Array of objects: [{realm: "bcwr-080", matrixFile: "/path/to/matrix.csv"}]
+
+---
+
+### findAllUsageFiles(realmFilter = null)
+**Purpose:** Scans results folder to locate all preference usage CSV files by realm.
+
+**Location:** `src/io/util.js`
+
+**Parameters:**
+- `realmFilter` (optional) - If provided, only return files for the specified realm
+
+**Expected Pattern:** `results/{instanceType}/{realm}/{realm}_*_preferences_usage.csv`
+
+**Returns:** Array of objects: [{realm: "bcwr-080", usageFile: "/path/to/usage.csv"}]
+
+**Note:** Both `findAllMatrixFiles` and `findAllUsageFiles` are thin wrappers around a shared `findAllRealmFiles()` utility.
 
 ---
 
@@ -494,7 +553,5 @@ await exportSitesCartridgesToCSV({
 
 ## Data Summaries
 
-### buildPreferenceMatrix (in summarizeHelper.js)
-**Purpose:** Same as buildPreferenceMatrix above - creates boolean matrix of preference usage.
-
-**Used by:** Multiple workflows for usage analysis and matrix generation.
+### buildPreferenceMatrix
+See [buildPreferenceMatrix](#buildpreferencematrixallprefids-allsiteids-usagerows-preferencemeta) in Data Processing Functions above.

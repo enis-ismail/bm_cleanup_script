@@ -15,6 +15,7 @@ export {
 } from './realmPrompts.js';
 
 export {
+    deletionSourcePrompt,
     deletionLevelPrompt,
     preferenceIdPrompt,
     confirmPreferenceDeletionPrompt,

@@ -1,3 +1,6 @@
+---
+applyTo: "**/progressDisplay*"
+---
 # RealmProgressDisplay Logger - Implementation Guide
 
 This document explains the `RealmProgressDisplay` class: a dynamic, hierarchical progress display system for CLI applications that tracks multiple parallel processes grouped by realm (environment).
@@ -27,7 +30,7 @@ Rather than pre-allocating and updating fixed process slots, `RealmProgressDispl
 
 ## Implementation Location
 
-**File:** `src/helpers/progressDisplay.js`
+**File:** `src/scripts/loggingScript/progressDisplay.js`
 
 **Exports:**
 - `RealmProgressDisplay` (named export) - Main class
@@ -720,7 +723,7 @@ const display = new RealmProgressDisplay(500);
 
 ## References
 
-**Implementation File:** [src/helpers/progressDisplay.js](../../src/helpers/progressDisplay.js)
+**Implementation File:** [src/scripts/loggingScript/progressDisplay.js](../../src/scripts/loggingScript/progressDisplay.js)
 
 **Test/Demo:** [src/commands/debug/debug.js](../../src/commands/debug/debug.js) - `test-concurrent-timers` command
 

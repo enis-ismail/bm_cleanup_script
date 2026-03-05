@@ -26,10 +26,15 @@
       "type": "wildcard",
       "reason": "Required for Paazl payment integration"
     },
-        {
+    {
       "pattern": "payment*",
       "type": "wildcard",
       "reason": "Required for payment integration"
+    },
+    {
+      "type": "prefix",
+      "pattern": "paazl",
+      "reason": "being developed"
     }
   ]
 }

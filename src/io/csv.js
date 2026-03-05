@@ -4,6 +4,7 @@ import { getAllSites, getSiteById } from '../api/api.js';
 import { ensureResultsDir } from './util.js';
 import { logError } from '../scripts/loggingScript/log.js';
 import { FILE_PATTERNS } from '../config/constants.js';
+import { deriveRealm } from '../config/helpers/helpers.js';
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -37,23 +38,6 @@ function escapeCSVValue(value) {
     const asString = compactValue(value);
     const escaped = asString.replace(/"/g, '""');
     return `"${escaped}"`;
-}
-
-/**
- * Extract realm name from a hostname URL
- *
- * Purpose: Converts a hostname like "bcwr-080.sandbox.com" to just "bcwr-080"
- * Used to derive simple identifiers for file naming and organization.
- *
- * @param {string} hostname - Full hostname URL (e.g., "bcwr-080.sandbox.com")
- * @returns {string} Extracted realm name (e.g., "bcwr-080") or "realm" as fallback
- *
- * @example
- * deriveRealm("bcwr-080.sandbox.com") // Returns: "bcwr-080"
- * deriveRealm("") // Returns: "realm"
- */
-function deriveRealm(hostname) {
-    return String(hostname || '').split('.')[0] || 'realm';
 }
 
 /**

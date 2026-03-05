@@ -26,6 +26,7 @@ This document defines the AI agents and their capabilities for the Cleanup-Scrip
   - [src/api/api.js](src/api/api.js)
   - [src/helpers/backupJob.js](src/helpers/backupJob.js)
   - [src/helpers/batch.js](src/helpers/batch.js)
+  - [src/io/backupUtils.js](src/io/backupUtils.js) - Backup download & archive utilities
   - [src/config/ocapi_config.json](src/config/ocapi_config.json)
 
 - **Key Functions:**
@@ -33,6 +34,8 @@ This document defines the AI agents and their capabilities for the Cleanup-Scrip
   - `getAttributeGroups()`, `getSitePreferences()` - Preference data
   - `getAttributeDefinitionById()` - Detailed definitions with defaults
   - `deleteAttributeDefinitionById()` - Delete preference definitions via OCAPI
+  - `getSitePreferencesGroup()` - Fetch actual preference values per site/group
+  - `getOAuthToken()` - OAuth 2.0 authentication
   - `processBatch()` - Parallel batch processing with delays
   - `withLoadShedding()` - Rate limit handling
   - `refreshMetadataBackupForRealm()` - Backup job trigger + download
@@ -78,12 +81,14 @@ This document defines the AI agents and their capabilities for the Cleanup-Scrip
   - Multi-realm configuration management
   - Interactive CLI prompts (Inquirer.js)
   - Progress tracking and status logging
+  - Real-time progress display (RealmProgressDisplay)
   - File system utilities
 
 - **Files:**
   - [src/config/helpers/helpers.js](src/config/helpers/helpers.js) - Config read/write, realm management
   - [src/config/constants.js](src/config/constants.js) - Constants, deletion levels, tier order
-  - [src/helpers/log.js](src/helpers/log.js) - Logging utilities
+  - [src/scripts/loggingScript/log.js](src/scripts/loggingScript/log.js) - Logging utilities
+  - [src/scripts/loggingScript/progressDisplay.js](src/scripts/loggingScript/progressDisplay.js) - RealmProgressDisplay class
   - [src/helpers/timer.js](src/helpers/timer.js) - Runtime tracking
   - [src/io/util.js](src/io/util.js) - File system utilities
   - [src/commands/prompts/index.js](src/commands/prompts/index.js) - Prompt aggregation
@@ -95,10 +100,14 @@ This document defines the AI agents and their capabilities for the Cleanup-Scrip
 - **Key Functions:**
   - `getSandboxConfig()`, `getRealmsByInstanceType()` - Config retrieval
   - `addRealmToConfig()`, `removeRealmFromConfig()` - Realm management
+  - `deriveRealm()` - Extract realm name from hostname
   - `resolveRealmScopeSelection()` - Multi-realm prompts
   - `deletionLevelPrompt()` - P1–P5 cascading deletion level selection
   - `logStatusUpdate()`, `logProgress()` - User feedback
+  - `RealmProgressDisplay` - Dynamic multi-realm CLI progress display
   - `ensureResultsDir()`, `getSiblingRepositories()` - File utilities
+  - `findAllMatrixFiles()`, `findAllUsageFiles()` - Result file discovery
+  - `openFileInVSCode()` - Open files in VS Code editor
   - Command orchestration in [src/main.js](src/main.js)
 
 ---
@@ -143,8 +152,10 @@ This document defines the AI agents and their capabilities for the Cleanup-Scrip
   - [src/commands/preferences/helpers/restoreHelper.js](src/commands/preferences/helpers/restoreHelper.js) - Preference restoration
   - [src/commands/preferences/helpers/preferenceRemoval.js](src/commands/preferences/helpers/preferenceRemoval.js) - Deletion file loading & summary
   - [src/commands/preferences/helpers/backupHelpers.js](src/commands/preferences/helpers/backupHelpers.js) - Backup creation
-  - [src/commands/setup/helpers/blacklistHelper.js](src/commands/setup/helpers/blacklistHelper.js) - Blacklist management
-  - [src/commands/setup/helpers/whitelistHelper.js](src/commands/setup/helpers/whitelistHelper.js) - Whitelist management
+  - [src/commands/setup/helpers/blacklistHelper.js](src/commands/setup/helpers/blacklistHelper.js) - Blacklist management (thin wrapper)
+  - [src/commands/setup/helpers/whitelistHelper.js](src/commands/setup/helpers/whitelistHelper.js) - Whitelist management (thin wrapper)
+  - [src/commands/setup/helpers/blackAndWhiteListHelper.js](src/commands/setup/helpers/blackAndWhiteListHelper.js) - Shared list helper factory
+  - [src/commands/setup/helpers/listCommands.js](src/commands/setup/helpers/listCommands.js) - Shared CLI command factory
 
 - **Key Functions:**
   - `deletePreferencesForRealms()` - Execute OCAPI DELETE across realms
@@ -152,6 +163,8 @@ This document defines the AI agents and their capabilities for the Cleanup-Scrip
   - `restorePreferencesForRealm()` - Per-realm restore logic
   - `openRealmDeletionFilesInEditor()` - Open per-realm files for review in VS Code
   - `generateDeletionSummary()` - Summary of deletion candidates
+  - `createListHelper()` - Factory for blacklist/whitelist CRUD (shared by both)
+  - `createListCommands()` - Factory for CLI add/remove/list commands (shared by both)
   - `loadBlacklist()`, `isBlacklisted()` - Blacklist filtering
   - `loadWhitelist()`, `isWhitelisted()` - Whitelist filtering
 
@@ -371,5 +384,5 @@ When working on this project:
 
 ---
 
-*Last Updated: March 4, 2026*
+*Last Updated: March 5, 2026*
 *Project Structure: Maintained by AI agents*

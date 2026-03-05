@@ -1,5 +1,6 @@
 import path from 'path';
 import fs from 'fs';
+import { exec } from 'child_process';
 import { getValidationConfig, getInstanceType, getAvailableRealms } from '../config/helpers/helpers.js';
 import { DIRECTORIES, IDENTIFIERS, FILE_PATTERNS } from '../config/constants.js';
 
@@ -219,16 +220,24 @@ export function calculateValidationStats(comparisons) {
 }
 
 // ============================================================================
-// REALM DIRECTORY HELPERS
+// VS CODE FILE OPENER
 // ============================================================================
 
 /**
- * Ensure a realm-specific directory exists in the results folder
- * @param {string} realm - Realm name to create directory for
- * @returns {string} Absolute path to the created/verified directory
+ * Open a file in VS Code editor.
+ * @param {string} filePath - Absolute path to the file to open
+ * @returns {Promise<void>} Resolves when VS Code opens the file
  */
-export function ensureRealmDir(realm) {
-    return ensureResultsDir(realm);
+export function openFileInVSCode(filePath) {
+    return new Promise((resolve, reject) => {
+        exec(`code "${filePath}"`, (error) => {
+            if (error) {
+                reject(new Error(`Failed to open file in VS Code: ${error.message}`));
+            } else {
+                resolve();
+            }
+        });
+    });
 }
 
 // ============================================================================
@@ -255,77 +264,64 @@ export function writeTestOutput(filename, data, options = {}) {
 }
 
 // ============================================================================
-// MATRIX FILE DISCOVERY
+// REALM FILE DISCOVERY
 // ============================================================================
 
 /**
- * Find all preference matrix CSV files in the results directory
- * Expected file pattern: results/{instanceType}/{realm}/{realm}_*_preferences_matrix.csv
+ * Find all realm-specific files matching a given pattern in the results directory.
+ * Generic helper used by findAllMatrixFiles and findAllUsageFiles.
+ *
+ * @param {string} filePattern - Pattern string to match (e.g. FILE_PATTERNS.PREFERENCES_MATRIX)
+ * @param {string} propName - Property name for the file path in result objects
+ * @param {string[]|null} [realmFilter] - Optional list of realm names to filter by
+ * @returns {Array<{realm: string, [propName]: string}>} Array of realm + file path objects
+ * @private
+ */
+function findAllRealmFiles(filePattern, propName, realmFilter = null) {
+    const results = [];
+    const realms = realmFilter && realmFilter.length > 0
+        ? realmFilter
+        : getAvailableRealms();
+
+    for (const realmName of realms) {
+        try {
+            const realmDir = getResultsPath(realmName);
+
+            if (!fs.existsSync(realmDir)) {
+                continue;
+            }
+
+            const files = fs.readdirSync(realmDir);
+            const matched = files.find(f => f.includes(filePattern));
+
+            if (matched) {
+                results.push({
+                    realm: realmName,
+                    [propName]: path.join(realmDir, matched)
+                });
+            }
+        } catch {
+            // Skip realms with read errors
+        }
+    }
+
+    return results;
+}
+
+/**
+ * Find all preference matrix CSV files in the results directory.
+ * @param {string[]|null} [realmFilter] - Optional list of realm names to filter by
  * @returns {Array<{realm: string, matrixFile: string}>} Array of realm and matrix file paths
  */
 export function findAllMatrixFiles(realmFilter = null) {
-    const matrixFiles = [];
-    const realms = realmFilter && realmFilter.length > 0
-        ? realmFilter
-        : getAvailableRealms();
-
-    for (const realmName of realms) {
-        try {
-            const realmDir = getResultsPath(realmName);
-
-            if (!fs.existsSync(realmDir)) {
-                continue;
-            }
-
-            const files = fs.readdirSync(realmDir);
-            const matrixFile = files.find(f => f.includes(FILE_PATTERNS.PREFERENCES_MATRIX));
-
-            if (matrixFile) {
-                matrixFiles.push({
-                    realm: realmName,
-                    matrixFile: path.join(realmDir, matrixFile)
-                });
-            }
-        } catch {
-            // Skip realms with read errors
-        }
-    }
-
-    return matrixFiles;
+    return findAllRealmFiles(FILE_PATTERNS.PREFERENCES_MATRIX, 'matrixFile', realmFilter);
 }
+
 /**
- * Find all preference usage CSV files in the results directory
- * Expected file pattern: results/{instanceType}/{realm}/{realm}_*_preferences_usage.csv
- * @param {string[]|null} realmFilter - Optional list of realm names to filter by
+ * Find all preference usage CSV files in the results directory.
+ * @param {string[]|null} [realmFilter] - Optional list of realm names to filter by
  * @returns {Array<{realm: string, usageFile: string}>} Array of realm and usage file paths
  */
 export function findAllUsageFiles(realmFilter = null) {
-    const usageFiles = [];
-    const realms = realmFilter && realmFilter.length > 0
-        ? realmFilter
-        : getAvailableRealms();
-
-    for (const realmName of realms) {
-        try {
-            const realmDir = getResultsPath(realmName);
-
-            if (!fs.existsSync(realmDir)) {
-                continue;
-            }
-
-            const files = fs.readdirSync(realmDir);
-            const usageFile = files.find(f => f.includes(FILE_PATTERNS.PREFERENCES_USAGE));
-
-            if (usageFile) {
-                usageFiles.push({
-                    realm: realmName,
-                    usageFile: path.join(realmDir, usageFile)
-                });
-            }
-        } catch {
-            // Skip realms with read errors
-        }
-    }
-
-    return usageFiles;
+    return findAllRealmFiles(FILE_PATTERNS.PREFERENCES_USAGE, 'usageFile', realmFilter);
 }

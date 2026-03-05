@@ -3,6 +3,24 @@ import { IDENTIFIERS, LOG_PREFIX, BACKUP_CONFIG } from '../../config/constants.j
 import { logSectionTitle } from '../../scripts/loggingScript/log.js';
 import { checkBackupStatusForRealms } from '../../io/backupUtils.js';
 
+export const deletionSourcePrompt = () => ([
+    {
+        type: 'rawlist',
+        name: 'deletionSource',
+        message: 'Which deletion file should be used?',
+        choices: [
+            {
+                name: 'Per-realm files — Each realm has its own deletion candidates',
+                value: 'per-realm'
+            },
+            {
+                name: 'Cross-realm intersection — Only preferences at the same tier on ALL realms',
+                value: 'cross-realm'
+            }
+        ]
+    }
+]);
+
 export const deletionLevelPrompt = () => ([
     {
         type: 'rawlist',

@@ -231,7 +231,9 @@ The analyzer also detects **dynamic value references** — preferences whose IDs
 
 ### 2. **remove-preferences** - Delete Selected Preferences
 
-Removes preferences marked for deletion. Uses **per-realm deletion files** so each realm only deletes preferences that actually exist on it — no more 404 errors from trying to delete preferences that don't exist on a realm.
+Removes preferences marked for deletion. Supports two **deletion sources**:
+- **Per-realm files** (default) — each realm has its own deletion candidates, tiers re-classified per-realm
+- **Cross-realm intersection** — only preferences at the same tier on ALL realms, applied uniformly to all selected realms
 
 ```bash
 node src/main.js remove-preferences
@@ -249,9 +251,17 @@ Before loading files, you choose a **deletion level** (cascading tiers):
 | **P3** | P1–P3 | Adds deprecated-code-only prefs |
 | **P4** | P1–P4 | Adds deprecated code + values |
 | **P5** | P1–P5 | Everything including realm-specific |
-| **Realm-targeted** | All tiers | Legacy behavior, respects realm tags |
 
-**Flow:** Select instance → Select realms → Select deletion level → Load per-realm files → Review in VS Code → Create backups → Confirm → Delete
+**Deletion Source Selection:**
+
+After choosing the tier level, you choose which file to load:
+
+| Source | Description |
+|---|---|
+| **Per-realm files** | Each realm loads its own `{realm}_preferences_for_deletion.txt` |
+| **Cross-realm intersection** | Loads `{instance}_cross_realm_deletion_candidates.txt` and applies the same list to all selected realms. Only includes preferences at the same tier on ALL realms — safest for bulk deletion. |
+
+**Flow:** Select instance → Select realms → Select deletion level → Select deletion source → Load files → Review in VS Code → Create backups → Confirm → Delete
 
 ---
 
@@ -302,6 +312,8 @@ results/
 │   │   ├── development_cartridge_preferences.txt
 │   │   ├── development_preference_usage.txt
 │   │   ├── development_preferences_for_deletion.txt  ← UNIFIED DELETION LIST
+│   │   ├── development_combined_realm_deletion_candidates.txt  ← ALL REALMS IN ONE FILE
+│   │   ├── development_cross_realm_deletion_candidates.txt     ← CROSS-REALM INTERSECTION
 │   │   └── development_unused_preferences.txt
 │   ├── APAC/
 │   │   ├── APAC_active_site_cartridges_list.csv
@@ -329,6 +341,8 @@ results/
 - `*_unused_preferences.txt` - Preferences with no values anywhere
 - `*_cartridge_preferences.txt` - Which cartridges reference which preferences
 - `{instance}_preferences_for_deletion.txt` - Unified deletion list (all realms, with realm tags)
+- `{instance}_combined_realm_deletion_candidates.txt` - All realms' candidates in one file, grouped by realm
+- `{instance}_cross_realm_deletion_candidates.txt` - **Cross-realm intersection** (same tier on ALL realms, usable by `remove-preferences`)
 - `{realm}_preferences_for_deletion.txt` - **Per-realm deletion list** (used by `remove-preferences`)
 
 **Per-realm vs. unified deletion files:**

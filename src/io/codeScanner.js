@@ -1500,7 +1500,7 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
         const perRealmMetadata = buildPerRealmMetadataAttributeMap(allRealms);
 
         const allCandidates = [...fp1, ...fp2, ...fp3, ...fp4, ...fp5];
-        const perRealmFiles = generatePerRealmDeletionFiles({
+        const { generatedFiles: perRealmFiles, perRealmTiers } = generatePerRealmDeletionFiles({
             allCandidates,
             tierLookup,
             perRealmValues,
@@ -1509,6 +1509,7 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
             allRealms,
             instanceTypeOverride,
             codeUsageMap,
+            blacklistEntries,
             blacklistedPreferences,
             totalAnalyzed: codeResults.length || unusedPreferences.size + usedPreferences.size,
             dynamicRefCount,
@@ -1519,6 +1520,30 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
         console.log(
             `✓ Generated ${perRealmFiles.length} per-realm deletion file(s)`
         );
+
+        // Generate combined per-realm listing (all realms in one file)
+        const combinedFilePath = writeCombinedRealmDeletionFile({
+            perRealmTiers,
+            allRealms,
+            instanceTypeOverride,
+            resultsDir
+        });
+        console.log(`✓ Generated combined per-realm listing: ${path.basename(combinedFilePath)}`);
+
+        // Generate cross-realm intersection file (same tier on ALL realms)
+        const crossRealmFilePath = writeCrossRealmIntersectionFile({
+            perRealmTiers,
+            allRealms,
+            instanceTypeOverride,
+            resultsDir
+        });
+        if (crossRealmFilePath) {
+            console.log(
+                `✓ Generated cross-realm intersection file: ${path.basename(crossRealmFilePath)}`
+            );
+        } else {
+            console.log('✓ No cross-realm intersection candidates found');
+        }
     }
 
     return outputFilePath;
@@ -1540,12 +1565,13 @@ export function generatePreferenceDeletionCandidates(instanceTypeOverride = null
  * @param {string[]} params.allRealms - All available realms
  * @param {string|null} params.instanceTypeOverride - Instance type
  * @param {Map} params.codeUsageMap - Code usage data (prefId → {activeCartridges, deprecatedCartridges})
- * @param {string[]} params.blacklistedPreferences - Blacklisted preference IDs
+ * @param {Array} params.blacklistEntries - Pre-loaded blacklist entries for realm-specific filtering
+ * @param {string[]} params.blacklistedPreferences - Globally blacklisted preference IDs
  * @param {number} params.totalAnalyzed - Total preferences analyzed
  * @param {number} params.dynamicRefCount - Dynamic reference count
  * @param {Array} params.dynamicProtected - Dynamic-protected preferences
  * @param {number} params.untrackedParentCount - Untracked parent count
- * @returns {string[]} Array of generated file paths
+ * @returns {{ generatedFiles: string[], perRealmTiers: Map<string, {p1: Array, p2: Array, p3: Array, p4: Array, p5: Array}> }}
  */
 function generatePerRealmDeletionFiles({
     allCandidates,
@@ -1556,6 +1582,7 @@ function generatePerRealmDeletionFiles({
     allRealms,
     instanceTypeOverride,
     codeUsageMap,
+    blacklistEntries,
     blacklistedPreferences,
     totalAnalyzed,
     dynamicRefCount,
@@ -1563,6 +1590,7 @@ function generatePerRealmDeletionFiles({
     untrackedParentCount
 }) {
     const generatedFiles = [];
+    const perRealmTiers = new Map();
 
     for (const realm of allRealms) {
         const realmResultsDir = ensureResultsDir(realm, instanceTypeOverride);
@@ -1690,7 +1718,38 @@ function generatePerRealmDeletionFiles({
             }
         }
 
-        const totalCandidates = rp1.length + rp2.length + rp3.length + rp4.length + rp5.length;
+        // Apply realm-specific blacklist filtering.
+        // Global blacklist entries were already applied before per-realm generation.
+        // Here we filter entries that target this specific realm.
+        const realmCandidateIds = [
+            ...rp1, ...rp2, ...rp3, ...rp4, ...rp5
+        ].map(c => c.id);
+        const { blocked: realmBlocked } = filterBlacklisted(
+            realmCandidateIds, blacklistEntries, realm
+        );
+        const realmBlockedSet = new Set(realmBlocked);
+        const filterRealmBlacklisted = (arr) => arr.filter(
+            c => !realmBlockedSet.has(c.id)
+        );
+        const frp1 = filterRealmBlacklisted(rp1);
+        const frp2 = filterRealmBlacklisted(rp2);
+        const frp3 = filterRealmBlacklisted(rp3);
+        const frp4 = filterRealmBlacklisted(rp4);
+        const frp5 = filterRealmBlacklisted(rp5);
+
+        // Combine global + realm-specific blacklisted for display in the file
+        const combinedBlacklisted = [
+            ...blacklistedPreferences,
+            ...realmBlocked
+        ];
+
+        const totalCandidates = frp1.length + frp2.length + frp3.length
+            + frp4.length + frp5.length;
+
+        // Store tier data for this realm (even if empty, for cross-realm analysis)
+        perRealmTiers.set(realm, {
+            p1: frp1, p2: frp2, p3: frp3, p4: frp4, p5: frp5
+        });
 
         if (totalCandidates === 0) {
             continue;
@@ -1700,8 +1759,8 @@ function generatePerRealmDeletionFiles({
             realm,
             resultsDir: realmResultsDir,
             instanceTypeOverride,
-            rp1, rp2, rp3, rp4, rp5,
-            blacklistedPreferences,
+            rp1: frp1, rp2: frp2, rp3: frp3, rp4: frp4, rp5: frp5,
+            blacklistedPreferences: combinedBlacklisted,
             totalAnalyzed,
             dynamicRefCount,
             dynamicProtected,
@@ -1710,17 +1769,22 @@ function generatePerRealmDeletionFiles({
 
         generatedFiles.push(filePath);
 
-        const metadataNote = metadataSkipped > 0
-            ? ` (${metadataSkipped} excluded by metadata cross-check)`
+        const realmBlacklistNote = realmBlocked.length > 0
+            ? `, ${realmBlocked.length} realm-blacklisted`
             : '';
+        const metadataNote = metadataSkipped > 0
+            ? ` (${metadataSkipped} excluded by metadata cross-check${realmBlacklistNote})`
+            : realmBlocked.length > 0
+                ? ` (${realmBlacklistNote.substring(2)})`
+                : '';
         console.log(
             `  ${realm}: ${totalCandidates} candidate(s)`
-            + ` [P1:${rp1.length} P2:${rp2.length} P3:${rp3.length}`
-            + ` P4:${rp4.length} P5:${rp5.length}]${metadataNote}`
+            + ` [P1:${frp1.length} P2:${frp2.length} P3:${frp3.length}`
+            + ` P4:${frp4.length} P5:${frp5.length}]${metadataNote}`
         );
     }
 
-    return generatedFiles;
+    return { generatedFiles, perRealmTiers };
 }
 
 /**
@@ -1938,6 +2002,290 @@ function writePerRealmDeletionFile({
 
     fs.writeFileSync(outputFilePath, lines.join('\n'), 'utf-8');
 
+    return outputFilePath;
+}
+
+/**
+ * Format a tier section for a single realm within a combined file.
+ * @param {string} tierLabel - Tier label (e.g. 'P1')
+ * @param {string} tierDescription - Tier description
+ * @param {Array} candidates - Tier candidates
+ * @param {string} realm - Realm name
+ * @returns {string[]} Lines for this tier section
+ * @private
+ */
+function formatTierSection(tierLabel, tierDescription, candidates, _realm) {
+    const lines = [];
+    if (candidates.length === 0) {
+        return lines;
+    }
+
+    lines.push(
+        '',
+        `  --- [${tierLabel}] ${tierDescription} --- [${candidates.length} preferences]`
+    );
+
+    for (const c of candidates) {
+        const parts = [];
+        if (c.deprecatedCartridges) {
+            parts.push(`deprecated: ${c.deprecatedCartridges.join(', ')}`);
+        }
+        if (c.hasDefault) {
+            parts.push('has default value');
+        }
+        if (c.hasValues) {
+            parts.push(`sites with values: ${c.siteCount}`);
+        }
+        if (c.codeRealms) {
+            parts.push(`active in: ${c.codeRealms.join(', ')}`);
+        }
+        if (c.activeCartridges && c.activeCartridges.length > 0 && c.codeRealms) {
+            parts.push(`code: ${c.activeCartridges.join(', ')}`);
+        }
+        if (c.dynamicValueOf) {
+            parts.push(`\u26a0 dynamic value of: ${c.dynamicValueOf.join(', ')}`);
+        }
+        lines.push(parts.length > 0 ? `    ${c.id}  |  ${parts.join('  |  ')}` : `    ${c.id}`);
+    }
+
+    return lines;
+}
+
+/**
+ * Write a combined per-realm deletion candidates file.
+ * Lists each realm's candidates grouped by tier within one file.
+ *
+ * @param {Object} params
+ * @param {Map<string, Object>} params.perRealmTiers - Per-realm tier data
+ * @param {string[]} params.allRealms - All realm names
+ * @param {string|null} params.instanceTypeOverride - Instance type
+ * @param {string} params.resultsDir - ALL_REALMS results directory
+ * @returns {string} Path to the generated file
+ */
+function writeCombinedRealmDeletionFile({
+    perRealmTiers,
+    allRealms,
+    instanceTypeOverride,
+    resultsDir
+}) {
+    const outputFilename = `${instanceTypeOverride || 'ALL'}${FILE_PATTERNS.PREFERENCES_COMBINED_REALMS}`;
+    const outputFilePath = path.join(resultsDir, outputFilename);
+
+    const lines = [
+        'Site Preferences \u2014 Combined Per-Realm Deletion Candidates',
+        `Generated: ${new Date().toISOString()}`,
+        `Instance Type: ${instanceTypeOverride || 'ALL'}`,
+        `Realms: ${allRealms.join(', ')}`,
+        '',
+        'This file lists deletion candidates for each realm separately.',
+        'Each realm has its own tier classifications based on realm-specific',
+        'value data and cartridge presence.',
+        '',
+        'Priority Legend:',
+        '  [P1] No code references, no values \u2014 safest to remove',
+        '  [P2] No code references, but has values/defaults \u2014 verify before removing',
+        '  [P3] Only in deprecated cartridges, no values \u2014 probably safe',
+        '  [P4] Only in deprecated cartridges, has values \u2014 needs careful review',
+        '  [P5] Active code only on other realms \u2014 realm-specific deletion'
+    ];
+
+    for (const realm of allRealms) {
+        const tiers = perRealmTiers.get(realm);
+        if (!tiers) {
+            continue;
+        }
+
+        const total = tiers.p1.length + tiers.p2.length + tiers.p3.length
+            + tiers.p4.length + tiers.p5.length;
+
+        lines.push(
+            '',
+            '================================================================================',
+            `  ${realm}  \u2014  ${total} deletion candidate(s)`
+            + `  [P1:${tiers.p1.length} P2:${tiers.p2.length} P3:${tiers.p3.length}`
+            + ` P4:${tiers.p4.length} P5:${tiers.p5.length}]`,
+            '================================================================================'
+        );
+
+        if (total === 0) {
+            lines.push('', '  No deletion candidates for this realm.');
+            continue;
+        }
+
+        lines.push(
+            ...formatTierSection('P1', `Safe to Delete (No Code, No Values on ${realm})`,
+                tiers.p1, realm),
+            ...formatTierSection('P2', `Likely Safe (No Code, Has Values on ${realm})`,
+                tiers.p2, realm),
+            ...formatTierSection('P3', `Deprecated Code Only (No Values on ${realm})`,
+                tiers.p3, realm),
+            ...formatTierSection('P4', `Deprecated Code + Values on ${realm}`,
+                tiers.p4, realm),
+            ...formatTierSection('P5', 'Active Code on Other Realms',
+                tiers.p5, realm)
+        );
+    }
+
+    fs.writeFileSync(outputFilePath, lines.join('\n'), 'utf-8');
+    return outputFilePath;
+}
+
+/**
+ * Write a cross-realm intersection file.
+ * Contains only preferences that are classified at the SAME tier on ALL realms.
+ *
+ * @param {Object} params
+ * @param {Map<string, Object>} params.perRealmTiers - Per-realm tier data
+ * @param {string[]} params.allRealms - All realm names
+ * @param {string|null} params.instanceTypeOverride - Instance type
+ * @param {string} params.resultsDir - ALL_REALMS results directory
+ * @returns {string|null} Path to the generated file, or null if no intersection found
+ */
+function writeCrossRealmIntersectionFile({
+    perRealmTiers,
+    allRealms,
+    instanceTypeOverride,
+    resultsDir
+}) {
+    const outputFilename = `${instanceTypeOverride || 'ALL'}${FILE_PATTERNS.PREFERENCES_CROSS_REALM}`;
+    const outputFilePath = path.join(resultsDir, outputFilename);
+
+    // Build a map: prefId → { realm → tier }
+    const prefRealmTierMap = new Map();
+
+    for (const realm of allRealms) {
+        const tiers = perRealmTiers.get(realm);
+        if (!tiers) {
+            continue;
+        }
+
+        const tierArrays = [
+            { tier: 'P1', candidates: tiers.p1 },
+            { tier: 'P2', candidates: tiers.p2 },
+            { tier: 'P3', candidates: tiers.p3 },
+            { tier: 'P4', candidates: tiers.p4 },
+            { tier: 'P5', candidates: tiers.p5 }
+        ];
+
+        for (const { tier, candidates } of tierArrays) {
+            for (const c of candidates) {
+                if (!prefRealmTierMap.has(c.id)) {
+                    prefRealmTierMap.set(c.id, new Map());
+                }
+                prefRealmTierMap.get(c.id).set(realm, { tier, candidate: c });
+            }
+        }
+    }
+
+    // Find preferences that appear at the SAME tier on ALL realms
+    const realmsWithData = allRealms.filter(r => perRealmTiers.has(r));
+    const realmCount = realmsWithData.length;
+
+    if (realmCount < 2) {
+        return null;
+    }
+
+    const crossRealmByTier = { P1: [], P2: [], P3: [], P4: [], P5: [] };
+
+    for (const [, realmTiers] of prefRealmTierMap) {
+        // Must be present on ALL realms
+        if (realmTiers.size !== realmCount) {
+            continue;
+        }
+
+        // All realms must have the same tier
+        const tiers = [...realmTiers.values()].map(v => v.tier);
+        const firstTier = tiers[0];
+        const allSameTier = tiers.every(t => t === firstTier);
+
+        if (allSameTier) {
+            // Use the candidate data from the first realm for display
+            const firstEntry = [...realmTiers.values()][0];
+            crossRealmByTier[firstTier].push(firstEntry.candidate);
+        }
+    }
+
+    // Sort each tier alphabetically
+    for (const tier of Object.keys(crossRealmByTier)) {
+        crossRealmByTier[tier].sort((a, b) => a.id.localeCompare(b.id));
+    }
+
+    const totalIntersection = Object.values(crossRealmByTier)
+        .reduce((sum, arr) => sum + arr.length, 0);
+
+    if (totalIntersection === 0) {
+        return null;
+    }
+
+    const lines = [
+        'Site Preferences \u2014 Cross-Realm Deletion Candidates (Intersection)',
+        `Generated: ${new Date().toISOString()}`,
+        `Instance Type: ${instanceTypeOverride || 'ALL'}`,
+        `Realms: ${realmsWithData.join(', ')}`,
+        '',
+        'This file lists preferences that are classified at the SAME priority',
+        'tier on ALL realms. These are the safest candidates for bulk deletion',
+        'because the analysis is consistent across every realm.',
+        '',
+        'Analysis Summary:',
+        `  \u2022 Realms analyzed: ${realmCount} (${realmsWithData.join(', ')})`,
+        `  \u2022 [P1] Same tier on all realms (no code, no values): ${crossRealmByTier.P1.length}`,
+        `  \u2022 [P2] Same tier on all realms (no code, has values): ${crossRealmByTier.P2.length}`,
+        '  \u2022 [P3] Same tier on all realms (deprecated code, no values): '
+            + `${crossRealmByTier.P3.length}`,
+        '  \u2022 [P4] Same tier on all realms (deprecated code, has values): '
+            + `${crossRealmByTier.P4.length}`,
+        `  \u2022 [P5] Same tier on all realms (realm-specific): ${crossRealmByTier.P5.length}`,
+        `  \u2022 Total cross-realm candidates: ${totalIntersection}`,
+        '',
+        'Priority Legend:',
+        '  [P1] No code references, no values on ANY realm \u2014 safest to remove',
+        '  [P2] No code references, has values/defaults on ALL realms \u2014 verify',
+        '  [P3] Only in deprecated cartridges on ALL realms, no values \u2014 probably safe',
+        '  [P4] Only in deprecated cartridges on ALL realms, has values \u2014 careful review',
+        '  [P5] Realm-specific on ALL realms \u2014 unusual but consistent'
+    ];
+
+    const tierConfigs = [
+        { key: 'P1', desc: 'Safe to Delete on All Realms (No Code, No Values)' },
+        { key: 'P2', desc: 'Likely Safe on All Realms (No Code, Has Values)' },
+        { key: 'P3', desc: 'Deprecated Code Only on All Realms (No Values)' },
+        { key: 'P4', desc: 'Deprecated Code + Values on All Realms' },
+        { key: 'P5', desc: 'Realm-Specific on All Realms' }
+    ];
+
+    for (const { key, desc } of tierConfigs) {
+        const candidates = crossRealmByTier[key];
+        if (candidates.length === 0) {
+            continue;
+        }
+
+        lines.push(
+            '',
+            '================================================================================',
+            '',
+            `--- [${key}] ${desc} --- [${candidates.length} preferences]`
+        );
+
+        for (const c of candidates) {
+            const parts = [];
+            if (c.deprecatedCartridges) {
+                parts.push(`deprecated: ${c.deprecatedCartridges.join(', ')}`);
+            }
+            if (c.hasDefault) {
+                parts.push('has default value');
+            }
+            if (c.hasValues) {
+                parts.push(`sites with values: ${c.siteCount}`);
+            }
+            if (c.dynamicValueOf) {
+                parts.push(`\u26a0 dynamic value of: ${c.dynamicValueOf.join(', ')}`);
+            }
+            lines.push(parts.length > 0 ? `${c.id}  |  ${parts.join('  |  ')}` : c.id);
+        }
+    }
+
+    fs.writeFileSync(outputFilePath, lines.join('\n'), 'utf-8');
     return outputFilePath;
 }
 

@@ -89,6 +89,8 @@ export const FILE_PATTERNS = {
     PREFERENCES_USAGE: '_preferences_usage.csv',
     UNUSED_PREFERENCES: '_unused_preferences.txt',
     PREFERENCES_FOR_DELETION: '_preferences_for_deletion.txt',
+    PREFERENCES_COMBINED_REALMS: '_combined_realm_deletion_candidates.txt',
+    PREFERENCES_CROSS_REALM: '_cross_realm_deletion_candidates.txt',
     CARTRIDGE_PREFERENCES: '_cartridge_preferences.txt',
     PREFERENCE_USAGE: '_preference_usage.txt',
     USED_PREFERENCES: '_used_preferences.txt',

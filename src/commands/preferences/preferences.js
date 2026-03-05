@@ -44,7 +44,9 @@ import {
 import {
     generateDeletionSummary,
     buildRealmPreferenceMapFromFiles,
-    openRealmDeletionFilesInEditor
+    buildCrossRealmPreferenceMap,
+    openRealmDeletionFilesInEditor,
+    openCrossRealmFileInEditor
 } from './helpers/preferenceRemoval.js';
 import { loadBackupFile } from '../../io/backupUtils.js';
 import { refreshMetadataBackupForRealm } from '../../helpers/backupJob.js';
@@ -487,56 +489,125 @@ async function removePreferences(options = {}) {
 
     logDeletionLevelSummary(deletionLevel);
 
-    // --- STEP 4: Load Per-Realm Deletion Lists ---
-    logSectionTitle('STEP 4: Load Per-Realm Deletion Lists');
+    // --- STEP 4: Select Deletion Source ---
+    logSectionTitle('STEP 4: Select Deletion Source');
+    const { deletionSource } = await inquirer.prompt(prompts.deletionSourcePrompt());
+    const useCrossRealm = deletionSource === 'cross-realm';
 
-    // Check if per-realm files exist; if not, offer to run analyze-preferences
-    const perRealmResult = buildRealmPreferenceMapFromFiles(
-        realmsToProcess, instanceType, { maxTier: deletionLevel }
-    );
-
-    if (perRealmResult.missingRealms.length > 0) {
+    if (useCrossRealm) {
         console.log(
-            `\n${LOG_PREFIX.WARNING} Per-realm deletion files not found for:`
-            + ` ${perRealmResult.missingRealms.join(', ')}`
+            `\n${LOG_PREFIX.INFO} Using cross-realm intersection file.`
+            + ' The same preference list will be applied to all selected realms.\n'
         );
+    } else {
         console.log(
-            `${LOG_PREFIX.INFO} Run analyze-preferences to generate per-realm deletion files.\n`
+            `\n${LOG_PREFIX.INFO} Using per-realm deletion files.`
+            + ' Each realm has its own deletion candidates.\n'
         );
+    }
 
-        const analyzeAnswers = await inquirer.prompt(
-            prompts.runAnalyzePreferencesPrompt(instanceType)
-        );
+    // --- STEP 5: Load Deletion Lists ---
+    logSectionTitle(useCrossRealm
+        ? 'STEP 5: Load Cross-Realm Deletion List'
+        : 'STEP 5: Load Per-Realm Deletion Lists');
 
-        if (!analyzeAnswers.runAnalyze) {
-            console.log(`\n${LOG_PREFIX.INFO} Preference removal cancelled.\n`);
-            logRuntime(timer);
-            return;
-        }
+    let perRealmResult;
 
-        try {
-            await runAnalyzePreferencesSubprocess();
-        } catch (error) {
-            console.log(`\nERROR: ${error.message}`);
-            logRuntime(timer);
-            return;
-        }
-
-        // Retry loading per-realm files after analyze
-        const retryResult = buildRealmPreferenceMapFromFiles(
+    if (useCrossRealm) {
+        perRealmResult = buildCrossRealmPreferenceMap(
             realmsToProcess, instanceType, { maxTier: deletionLevel }
         );
 
-        if (retryResult.missingRealms.length === realmsToProcess.length) {
+        if (perRealmResult.missingRealms.length > 0 || !perRealmResult.filePath) {
             console.log(
-                `\n${LOG_PREFIX.WARNING} Per-realm deletion files still not found.`
-                + ' Please check the analyze-preferences output.\n'
+                `\n${LOG_PREFIX.WARNING} Cross-realm deletion file not found for '${instanceType}'.`
             );
-            logRuntime(timer);
-            return;
-        }
+            console.log(
+                `${LOG_PREFIX.INFO} Run analyze-preferences to generate this file.\n`
+            );
 
-        Object.assign(perRealmResult, retryResult);
+            const analyzeAnswers = await inquirer.prompt(
+                prompts.runAnalyzePreferencesPrompt(instanceType)
+            );
+
+            if (!analyzeAnswers.runAnalyze) {
+                console.log(`\n${LOG_PREFIX.INFO} Preference removal cancelled.\n`);
+                logRuntime(timer);
+                return;
+            }
+
+            try {
+                await runAnalyzePreferencesSubprocess();
+            } catch (error) {
+                console.log(`\nERROR: ${error.message}`);
+                logRuntime(timer);
+                return;
+            }
+
+            // Retry loading cross-realm file after analyze
+            perRealmResult = buildCrossRealmPreferenceMap(
+                realmsToProcess, instanceType, { maxTier: deletionLevel }
+            );
+
+            if (!perRealmResult.filePath) {
+                console.log(
+                    `\n${LOG_PREFIX.WARNING} Cross-realm deletion file still not found.`
+                    + ' Please check the analyze-preferences output.\n'
+                );
+                logRuntime(timer);
+                return;
+            }
+        }
+    } else {
+        // Per-realm files (original behavior)
+        perRealmResult = buildRealmPreferenceMapFromFiles(
+            realmsToProcess, instanceType, { maxTier: deletionLevel }
+        );
+
+        if (perRealmResult.missingRealms.length > 0) {
+            console.log(
+                `\n${LOG_PREFIX.WARNING} Per-realm deletion files not found for:`
+                + ` ${perRealmResult.missingRealms.join(', ')}`
+            );
+            console.log(
+                `${LOG_PREFIX.INFO} Run analyze-preferences to generate per-realm`
+                + ' deletion files.\n'
+            );
+
+            const analyzeAnswers = await inquirer.prompt(
+                prompts.runAnalyzePreferencesPrompt(instanceType)
+            );
+
+            if (!analyzeAnswers.runAnalyze) {
+                console.log(`\n${LOG_PREFIX.INFO} Preference removal cancelled.\n`);
+                logRuntime(timer);
+                return;
+            }
+
+            try {
+                await runAnalyzePreferencesSubprocess();
+            } catch (error) {
+                console.log(`\nERROR: ${error.message}`);
+                logRuntime(timer);
+                return;
+            }
+
+            // Retry loading per-realm files after analyze
+            const retryResult = buildRealmPreferenceMapFromFiles(
+                realmsToProcess, instanceType, { maxTier: deletionLevel }
+            );
+
+            if (retryResult.missingRealms.length === realmsToProcess.length) {
+                console.log(
+                    `\n${LOG_PREFIX.WARNING} Per-realm deletion files still not found.`
+                    + ' Please check the analyze-preferences output.\n'
+                );
+                logRuntime(timer);
+                return;
+            }
+
+            Object.assign(perRealmResult, retryResult);
+        }
     }
 
     const { realmPreferenceMap } = perRealmResult;
@@ -571,17 +642,36 @@ async function removePreferences(options = {}) {
 
     const preferenceIds = [...new Set(Array.from(realmPreferenceMap.values()).flat())];
 
-    // --- STEP 5: Review Per-Realm Deletion Files ---
-    logSectionTitle('STEP 5: Review Per-Realm Deletion Files');
+    // --- STEP 6: Review Deletion Files ---
+    logSectionTitle(useCrossRealm
+        ? 'STEP 6: Review Cross-Realm Deletion File'
+        : 'STEP 6: Review Per-Realm Deletion Files');
     try {
-        const openedFiles = await openRealmDeletionFilesInEditor(realmsToProcess, instanceType);
-        if (openedFiles.length > 0) {
-            console.log(
-                `${LOG_PREFIX.INFO} Opened ${openedFiles.length} per-realm`
-                + ' deletion file(s) in VS Code.\n'
-            );
+        if (useCrossRealm) {
+            const openedFile = await openCrossRealmFileInEditor(instanceType);
+            if (openedFile) {
+                console.log(
+                    `${LOG_PREFIX.INFO} Opened cross-realm deletion file in VS Code.\n`
+                );
+            } else {
+                console.log(
+                    `${LOG_PREFIX.WARNING} Cross-realm deletion file not found to open.\n`
+                );
+            }
         } else {
-            console.log(`${LOG_PREFIX.WARNING} No per-realm deletion files found to open.\n`);
+            const openedFiles = await openRealmDeletionFilesInEditor(
+                realmsToProcess, instanceType
+            );
+            if (openedFiles.length > 0) {
+                console.log(
+                    `${LOG_PREFIX.INFO} Opened ${openedFiles.length} per-realm`
+                    + ' deletion file(s) in VS Code.\n'
+                );
+            } else {
+                console.log(
+                    `${LOG_PREFIX.WARNING} No per-realm deletion files found to open.\n`
+                );
+            }
         }
 
         // Show blacklist/whitelist reminders
@@ -632,13 +722,13 @@ async function removePreferences(options = {}) {
 
     logDeletionPrefixSummary(preferenceIds);
 
-    // --- STEP 6: Create Backups ---
+    // --- STEP 7: Create Backups ---
     const objectType = IDENTIFIERS.SITE_PREFERENCES;
     if (dryRun) {
-        logSectionTitle('STEP 6: Create Backups (Skipped - Dry Run)');
+        logSectionTitle('STEP 7: Create Backups (Skipped - Dry Run)');
         console.log(`${LOG_PREFIX.INFO} Skipping backup creation in dry-run mode.\n`);
     } else {
-        logSectionTitle('STEP 6: Create Backups (Per Realm)');
+        logSectionTitle('STEP 7: Create Backups (Per Realm)');
         const backupsReady = await handleBackupCreation(
             realmsToProcess, objectType, instanceType
         );
@@ -649,8 +739,8 @@ async function removePreferences(options = {}) {
         }
     }
 
-    // --- STEP 7: Confirm Deletion ---
-    logSectionTitle(`STEP 7: Confirm Deletion${dryRun ? ' (Dry Run)' : ''}`);
+    // --- STEP 8: Confirm Deletion ---
+    logSectionTitle(`STEP 8: Confirm Deletion${dryRun ? ' (Dry Run)' : ''}`);
     if (dryRun) {
         console.log('Dry-Run Summary:');
         console.log(`  - Realms to process: ${realmsToProcess.length}`);
@@ -675,8 +765,8 @@ async function removePreferences(options = {}) {
         return;
     }
 
-    // --- STEP 8: Delete Preferences (Per-Realm) ---
-    logSectionTitle(`STEP 8: Remove Preferences${dryRun ? ' (Dry Run)' : ''}`);
+    // --- STEP 9: Delete Preferences (Per-Realm) ---
+    logSectionTitle(`STEP 9: Remove Preferences${dryRun ? ' (Dry Run)' : ''}`);
     const { totalDeleted, totalFailed } = await deletePreferencesForRealms({
         realmPreferenceMap, objectType, dryRun
     });
@@ -690,8 +780,8 @@ async function removePreferences(options = {}) {
         return;
     }
 
-    // --- STEP 9: Optional Restore ---
-    logSectionTitle('STEP 9: Restore from Backups (Optional)');
+    // --- STEP 10: Optional Restore ---
+    logSectionTitle('STEP 10: Restore from Backups (Optional)');
     const restoreAnswers = await inquirer.prompt(prompts.confirmRestoreAfterDeletionPrompt());
 
     if (!restoreAnswers.restore) {

@@ -4,7 +4,7 @@ import {
     findUnusedPreferences,
     writeUnusedPreferencesFile
 } from '../io/csv.js';
-import { ensureRealmDir } from '../io/util.js';
+import { ensureResultsDir } from '../io/util.js';
 import { FILE_PATTERNS } from '../config/constants.js';
 import {
     logProcessingRealm,
@@ -424,7 +424,7 @@ export async function executePreferenceSummarization(params, progressInfo) {
         logStatusUpdate(`Fetching preferences for ${params.realm}`);
     }
 
-    const realmDir = ensureRealmDir(params.realm);
+    const realmDir = ensureResultsDir(params.realm);
 
     const apiData = await fetchPreferenceData(params, progressInfo);
     const sitesToProcess = validateAndFilterSites(
@@ -479,7 +479,7 @@ export async function executePreferenceSummarizationFromMetadata(params, progres
         logStatusUpdate(`Processing preferences for ${params.realm} (metadata mode)`);
     }
 
-    const realmDir = ensureRealmDir(params.realm);
+    const realmDir = ensureResultsDir(params.realm);
 
     let metadataData;
     try {
