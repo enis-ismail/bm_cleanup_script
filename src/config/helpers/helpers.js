@@ -83,6 +83,16 @@ export function getAvailableRealms() {
 }
 
 /**
+ * Get the core site template path from config.
+ * Falls back to 'sites/site_template' if not configured.
+ * @returns {string} Relative path to the core site template directory
+ */
+export function getCoreSiteTemplatePath() {
+    const config = loadConfig();
+    return config.coreSiteTemplatePath || 'sites/site_template';
+}
+
+/**
  * Get the instance type for a specific realm
  * See .github/instructions/function-reference.md for detailed documentation
  * @param {string} realmName - Name of the realm

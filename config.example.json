@@ -1,4 +1,5 @@
 {
+  "coreSiteTemplatePath": "sites/site_template",
   "validation": {
     "ignoreBmCartridges": true
   },
