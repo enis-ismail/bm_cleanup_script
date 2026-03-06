@@ -14,7 +14,10 @@ import {
     formatCleanupPlan,
     formatExecutionResults,
     scanSitesForRemainingPreferences,
-    formatSitesScanResults
+    formatSitesScanResults,
+    removePreferenceValuesFromSites,
+    formatPreferenceValueResults,
+    stripCustomPrefix
 } from './helpers/metaFileCleanup.js';
 import {
     consolidateMetaFiles,
@@ -28,6 +31,7 @@ import {
     getInstanceType,
     getAvailableRealms
 } from '../../config/helpers/helpers.js';
+import { TIER_DESCRIPTIONS } from '../../config/constants.js';
 import {
     getCurrentBranch,
     listBranches,
@@ -187,6 +191,15 @@ export function registerMetaCommands(program) {
             const results = executeMetaCleanupPlan(plan, { dryRun });
             console.log(formatExecutionResults(results));
 
+            // Remove orphaned preference values from preferences.xml files
+            console.log('\n  Cleaning preference values from preferences.xml files...');
+            const prefValueResults = removePreferenceValuesFromSites({
+                repoPath,
+                preferenceIds: selectedPreferenceIds,
+                dryRun
+            });
+            console.log(formatPreferenceValueResults(prefValueResults));
+
             if (useCrossRealm) {
                 console.log('\n  Running cross-realm residual scan in sites/ ...');
                 const scanResults = scanSitesForRemainingPreferences({
@@ -279,7 +292,7 @@ export function registerMetaCommands(program) {
 
             // ── Step 5: Generate branch name ───────────────────────────────
             const suggestedName = generateCleanupBranchName(
-                `P${maxTier}-${instanceType}`
+                `${maxTier}-${instanceType}`
             );
 
             const { branchName } = await inquirer.prompt([{
@@ -393,6 +406,21 @@ export function registerMetaCommands(program) {
             const results = executeMetaCleanupPlan(plan, { dryRun: false });
             console.log(formatExecutionResults(results));
 
+            // ── Step 8a: Remove orphaned preference values ─────────────────
+            console.log('\n  Cleaning preference values from preferences.xml files...');
+            const prefValueResults = removePreferenceValuesFromSites({
+                repoPath,
+                preferenceIds: selectedPreferenceIds
+            });
+            console.log(formatPreferenceValueResults(prefValueResults));
+
+            if (prefValueResults.totalRemoved > 0) {
+                results.filesModified.push(
+                    ...prefValueResults.filesModified
+                        .map(rel => path.join(repoPath, rel))
+                );
+            }
+
             if (useCrossRealm) {
                 console.log('\n  Running cross-realm residual scan in sites/ ...');
                 const scanResults = scanSitesForRemainingPreferences({
@@ -482,16 +510,14 @@ export function registerMetaCommands(program) {
                 console.log(`\n  Staged changes:\n${diffStat.split('\n').map(l => `    ${l}`).join('\n')}\n`);
             }
 
-            // Build list of removed attribute IDs (deduplicated, sorted)
+            // Build list of selected attribute IDs from deletion source + P level
             const removedIds = [...new Set(
-                plan.actions
-                    .filter(a => a.type === 'remove')
-                    .map(a => a.attributeId)
+                selectedPreferenceIds.map(stripCustomPrefix)
             )].sort();
 
             const suggestedMsg = 'chore: remove '
                 + `${removedIds.length} unused site preference definition(s)`
-                + ` — P${maxTier} ${instanceType}`;
+                + ` — ${maxTier} ${instanceType}`;
 
             const { commitMsg } = await inquirer.prompt([{
                 name: 'commitMsg',
@@ -500,9 +526,15 @@ export function registerMetaCommands(program) {
                 default: suggestedMsg
             }]);
 
-            // Build commit body with removed attribute list
-            const commitBody = 'Removed attributes:\n'
-                + removedIds.map(id => `- ${id}`).join('\n');
+            // Build commit body with source context, selected level, and attribute list
+            const tierDesc = TIER_DESCRIPTIONS[maxTier] || maxTier;
+            const commitBody = [
+                `Source: ${useCrossRealm ? 'cross-realm intersection' : 'per-realm deletion files'}`,
+                `Level: ${maxTier} — ${tierDesc}`,
+                '',
+                'Removed attributes:',
+                ...removedIds.map(id => `- ${id}`)
+            ].join('\n');
 
             const committed = commitChanges(
                 repoPath, commitMsg.trim(), commitBody

@@ -7,7 +7,7 @@
  * @module gitHelper
  */
 
-import { execSync } from 'child_process';
+import { execSync, execFileSync } from 'child_process';
 import { LOG_PREFIX } from '../../../config/constants.js';
 import { logError } from '../../../scripts/loggingScript/log.js';
 
@@ -141,16 +141,14 @@ export function stageAllChanges(repoPath) {
  */
 export function commitChanges(repoPath, subject, body) {
     try {
-        const args = ['-m', subject];
+        const args = ['commit', '-m', subject];
         if (body) {
             args.push('-m', body);
         }
 
-        execSync(
-            'git commit '
-            + args.map(a => `"${a.replace(/"/g, '\\"')}"`).join(' '),
-            { cwd: repoPath, encoding: 'utf-8', stdio: 'pipe' }
-        );
+        execFileSync('git', args, {
+            cwd: repoPath, encoding: 'utf-8', stdio: 'pipe'
+        });
 
         console.log(`${LOG_PREFIX.SUCCESS} Committed: ${subject}`);
         return true;

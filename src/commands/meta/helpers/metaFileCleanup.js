@@ -91,6 +91,30 @@ function removeAttributeFromXml(xmlContent, attributeId) {
 }
 
 /**
+ * Remove a `<preference preference-id="X">` element from preferences.xml content.
+ *
+ * Handles three formats:
+ *  - Self-closing: `<preference preference-id="X"/>`
+ *  - Single-line:  `<preference preference-id="X">value</preference>`
+ *  - Multi-line:   `<preference preference-id="X">\n<value>...</value>\n</preference>`
+ *
+ * @param {string} xmlContent - Raw preferences.xml content
+ * @param {string} preferenceId - Preference ID (without c_ prefix)
+ * @returns {{ content: string, removed: boolean }} Updated XML and whether a removal occurred
+ * @private
+ */
+function removePreferenceValue(xmlContent, preferenceId) {
+    const pattern = new RegExp(
+        '[ \\t]*<preference\\s+preference-id="' + escapeRegex(preferenceId) + '"'
+        + '(?:\\s*/>|[^>]*>[\\s\\S]*?</preference>)[ \\t]*\\n?',
+        'g'
+    );
+
+    const result = xmlContent.replace(pattern, '');
+    return { content: result, removed: result !== xmlContent };
+}
+
+/**
  * Check whether a meta file still has any attribute definitions or group assignments.
  *
  * @param {string} xmlContent - Raw XML string
@@ -288,7 +312,9 @@ export function scanSitesForRemainingPreferences({ repoPath, preferenceIds }) {
     const idPatterns = new Map(
         barePreferenceIds.map(id => [
             id,
-            new RegExp(`attribute-id=["']${escapeRegex(id)}["']`, 'i')
+            new RegExp(
+                `(?:attribute-id|preference-id)=["']${escapeRegex(id)}["']`, 'i'
+            )
         ])
     );
 
@@ -927,6 +953,109 @@ export function formatExecutionResults(results) {
  * @param {CrossRealmSitesScanResults} results - Results from scanSitesForRemainingPreferences
  * @returns {string} Multi-line summary
  */
+/**
+ * Remove preference value entries from all preferences.xml files under sites/.
+ *
+ * After removing attribute definitions from meta XML, the corresponding
+ * `<preference preference-id="X">` entries in site preference data files
+ * must also be removed — otherwise preference imports break or silently
+ * drop the setting.
+ *
+ * @param {Object} options
+ * @param {string} options.repoPath - Absolute path to sibling SFCC repository
+ * @param {string[]} options.preferenceIds - Preference IDs to remove (with or without c_ prefix)
+ * @param {boolean} [options.dryRun=false] - If true, only report what would be removed
+ * @returns {{ filesModified: string[], totalRemoved: number, details: Array<{file: string, removed: string[]}> }}
+ */
+export function removePreferenceValuesFromSites({ repoPath, preferenceIds, dryRun = false }) {
+    const sitesDir = path.join(repoPath, 'sites');
+    const rawIds = Array.isArray(preferenceIds) ? preferenceIds : [];
+    const bareIds = Array.from(new Set(rawIds.map(stripCustomPrefix))).sort();
+    const filesModified = [];
+    const details = [];
+    let totalRemoved = 0;
+    const prefix = dryRun ? '[DRY-RUN] ' : '';
+
+    if (bareIds.length === 0) {
+        return { filesModified, totalRemoved, details };
+    }
+
+    // Only scan preferences.xml files (not meta files)
+    const prefFiles = listXmlFilesRecursively(sitesDir)
+        .filter(f => path.basename(f) === 'preferences.xml');
+
+    for (const filePath of prefFiles) {
+        let content = fs.readFileSync(filePath, 'utf-8');
+        const removedInFile = [];
+
+        for (const id of bareIds) {
+            const result = removePreferenceValue(content, id);
+            if (result.removed) {
+                content = result.content;
+                removedInFile.push(id);
+            }
+        }
+
+        if (removedInFile.length === 0) {
+            continue;
+        }
+
+        const relPath = path.relative(repoPath, filePath);
+        console.log(
+            `${prefix}${LOG_PREFIX.INFO} PREF-VALUE: removed `
+            + `${removedInFile.length} preference(s) from ${relPath}`
+        );
+
+        if (!dryRun) {
+            fs.writeFileSync(filePath, content, 'utf-8');
+        }
+
+        filesModified.push(relPath);
+        totalRemoved += removedInFile.length;
+        details.push({ file: relPath, removed: removedInFile });
+    }
+
+    return { filesModified, totalRemoved, details };
+}
+
+/**
+ * Format preference value removal results for console output.
+ *
+ * @param {Object} results - Return value from removePreferenceValuesFromSites
+ * @param {string[]} results.filesModified - Relative paths of modified files
+ * @param {number} results.totalRemoved - Total preference values removed
+ * @param {Array<{file: string, removed: string[]}>} results.details - Per-file details
+ * @returns {string} Formatted output string
+ */
+export function formatPreferenceValueResults(results) {
+    const lines = [];
+
+    lines.push('');
+    lines.push('─'.repeat(80));
+    lines.push(' PREFERENCE VALUE CLEANUP (preferences.xml)');
+    lines.push('─'.repeat(80));
+
+    if (results.totalRemoved === 0) {
+        lines.push('  ✓ No orphaned preference values found in any preferences.xml files.');
+        lines.push('─'.repeat(80));
+        return lines.join('\n');
+    }
+
+    lines.push(`  Files modified: ${results.filesModified.length}`);
+    lines.push(`  Total preference values removed: ${results.totalRemoved}`);
+    lines.push('');
+
+    for (const { file, removed } of results.details) {
+        lines.push(`    ${file}`);
+        for (const id of removed) {
+            lines.push(`      - ${id}`);
+        }
+    }
+
+    lines.push('─'.repeat(80));
+    return lines.join('\n');
+}
+
 export function formatSitesScanResults(results) {
     const lines = [];
     const unresolvedPreferenceIds = [...results.matchesByPreference.keys()].sort();

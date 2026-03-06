@@ -82,6 +82,17 @@ export const DELETION_LEVELS = {
 export const TIER_ORDER = { P1: 1, P2: 2, P3: 3, P4: 4, P5: 5 };
 
 /**
+ * Human-readable descriptions for each priority tier.
+ */
+export const TIER_DESCRIPTIONS = {
+    P1: 'Safe to Delete — No code references, no values',
+    P2: 'Likely Safe — No code references, has values',
+    P3: 'Deprecated Code Only — No values',
+    P4: 'Deprecated Code + Values',
+    P5: 'Realm-Specific — Active code not on all realms'
+};
+
+/**
  * File naming patterns and suffixes
  */
 export const FILE_PATTERNS = {
