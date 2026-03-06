@@ -13,7 +13,9 @@ import { loadBackupFile } from '../../io/backupUtils.js';
 import {
     realmPrompt,
     objectTypePrompt,
-    instanceTypePrompt
+    instanceTypePrompt,
+    repositoryPrompt,
+    preferenceIdPrompt
 } from '../prompts/index.js';
 
 import path from 'path';
@@ -21,29 +23,11 @@ import fs from 'fs';
 import { findAllMatrixFiles, getSiblingRepositories } from '../../io/util.js';
 
 import { getActivePreferencesFromMatrices, findPreferenceUsage } from '../../io/codeScanner.js';
-import {
-    repositoryPrompt,
-    preferenceIdPrompt,
-    resolveRealmScopeSelection,
-    deletionLevelPrompt,
-    deletionSourcePrompt
-} from '../prompts/index.js';
 import { findAttributeInMetaFiles } from '../../io/siteXmlHelper.js';
-import {
-    buildMetaCleanupPlan,
-    executeMetaCleanupPlan,
-    formatCleanupPlan,
-    formatExecutionResults
-} from '../preferences/helpers/metaFileCleanup.js';
-import {
-    buildRealmPreferenceMapFromFiles,
-    buildCrossRealmPreferenceMap
-} from '../preferences/helpers/preferenceRemoval.js';
 import { refreshMetadataBackupForRealm, getMetadataBackupPathForRealm } from '../../helpers/backupJob.js';
 import {
     getInstanceType,
-    getRealmsByInstanceType,
-    getAvailableRealms
+    getRealmsByInstanceType
 } from '../../config/helpers/helpers.js';
 
 // ============================================================================
@@ -1076,131 +1060,4 @@ export function registerDebugCommands(program) {
             }
         });
 
-    // ========================================================================
-    // META FILE CLEANUP
-    // ========================================================================
-
-    program
-        .command('test-meta-cleanup')
-        .description('(Debug) Test meta file cleanup — preview/execute removal of preference definitions from repo XML')
-        .option('--dry-run', 'Preview changes without modifying files (default)', true)
-        .option('--execute', 'Actually modify files (disables dry-run)')
-        .action(async (options) => {
-            const timer = startTimer();
-            const dryRun = !options.execute;
-
-            console.log(`\n${'═'.repeat(80)}`);
-            console.log(' META FILE CLEANUP — TEST COMMAND');
-            console.log(`${'═'.repeat(80)}`);
-            console.log(`  Mode: ${dryRun ? 'DRY-RUN (no files will be changed)' : '⚠  LIVE — files will be modified'}`);
-            console.log('');
-
-            // Step 1: Select sibling repository
-            const siblings = await getSiblingRepositories();
-            if (siblings.length === 0) {
-                console.log('No sibling repositories found.');
-                return;
-            }
-
-            const siblingAnswers = await inquirer.prompt(await repositoryPrompt(siblings));
-            const repoPath = path.join(path.dirname(process.cwd()), siblingAnswers.repository);
-
-            // Step 2: Select realms
-            const { realmList, instanceTypeOverride } = await resolveRealmScopeSelection(
-                (questions) => inquirer.prompt(questions)
-            );
-
-            if (!realmList || realmList.length === 0) {
-                console.log('No realms selected.');
-                return;
-            }
-
-            // Determine instance type from first realm if not overridden
-            const instanceType = instanceTypeOverride || getInstanceType(realmList[0]);
-            console.log(`\n  Realms: ${realmList.join(', ')}`);
-            console.log(`  Instance type: ${instanceType}`);
-            console.log(`  Repository: ${repoPath}\n`);
-
-            // Step 3: Select deletion tier
-            const tierAnswers = await inquirer.prompt(deletionLevelPrompt());
-            const maxTier = tierAnswers.deletionLevel;
-
-            // Step 4: Select deletion source (per-realm vs cross-realm)
-            const { deletionSource } = await inquirer.prompt(deletionSourcePrompt());
-            const useCrossRealm = deletionSource === 'cross-realm';
-
-            console.log(
-                `\n  Source: ${useCrossRealm ? 'Cross-realm intersection' : 'Per-realm files'}`
-            );
-
-            // Step 5: Load deletion files
-            console.log(`  Loading deletion candidates up to tier ${maxTier}...`);
-            const {
-                realmPreferenceMap,
-                blockedByBlacklist,
-                skippedByWhitelist,
-                missingRealms
-            } = useCrossRealm
-                ? buildCrossRealmPreferenceMap(realmList, instanceType, { maxTier })
-                : buildRealmPreferenceMapFromFiles(realmList, instanceType, { maxTier });
-
-            // Show summary of loaded preferences
-            let totalPrefs = 0;
-            for (const [realm, prefs] of realmPreferenceMap) {
-                console.log(`    ${realm}: ${prefs.length} preference(s)`);
-                totalPrefs += prefs.length;
-            }
-
-            if (blockedByBlacklist.length > 0) {
-                console.log(`    Blocked by blacklist: ${blockedByBlacklist.length}`);
-            }
-            if (skippedByWhitelist.length > 0) {
-                console.log(`    Skipped (not whitelisted): ${skippedByWhitelist.length}`);
-            }
-            if (missingRealms.length > 0) {
-                console.log(`    Missing deletion files for: ${missingRealms.join(', ')}`);
-            }
-
-            if (totalPrefs === 0) {
-                console.log('\n  No preferences to process. Run analyze-preferences first.');
-                return;
-            }
-
-            // Step 5: Build cleanup plan
-            console.log('\n  Building meta file cleanup plan...');
-            const allConfiguredRealms = getAvailableRealms();
-            const plan = buildMetaCleanupPlan(repoPath, realmPreferenceMap, allConfiguredRealms);
-
-            // Step 6: Display the plan
-            console.log(formatCleanupPlan(plan));
-
-            if (plan.actions.length === 0) {
-                console.log('  No meta file changes needed.');
-                const elapsed = timer.stop();
-                console.log(`\n  Completed in ${elapsed}\n`);
-                return;
-            }
-
-            // Step 7: Confirm and execute
-            const confirmAnswers = await inquirer.prompt([{
-                name: 'proceed',
-                type: 'confirm',
-                message: dryRun
-                    ? `Execute dry-run for ${plan.actions.length} action(s)? (no files will be changed)`
-                    : `⚠  Execute ${plan.actions.length} action(s)? This will modify files in the repository.`,
-                default: dryRun
-            }]);
-
-            if (!confirmAnswers.proceed) {
-                console.log('\n  Aborted.\n');
-                return;
-            }
-
-            console.log('');
-            const results = executeMetaCleanupPlan(plan, { dryRun });
-            console.log(formatExecutionResults(results));
-
-            const elapsed = timer.stop();
-            console.log(`  Completed in ${elapsed}\n`);
-        });
 }

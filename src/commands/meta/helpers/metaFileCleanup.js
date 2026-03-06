@@ -371,9 +371,12 @@ export function getCoreMetaDir(repoPath) {
  * @param {string} repoPath - Absolute path to the sibling SFCC repository
  * @param {Map<string, string[]>} realmPreferenceMap - Map of realm → preference IDs to delete
  * @param {string[]} allConfiguredRealms - All realm names in config (for core removal decisions)
+ * @param {Object} [options] - Planning options
+ * @param {boolean} [options.crossRealm=false] - When true, skip move logic (cross-realm means
+ *   all attributes are confirmed unused everywhere — just remove, never move to remaining realms)
  * @returns {MetaCleanupPlan} Plan describing all file operations needed
  */
-export function buildMetaCleanupPlan(repoPath, realmPreferenceMap, allConfiguredRealms) {
+export function buildMetaCleanupPlan(repoPath, realmPreferenceMap, allConfiguredRealms, { crossRealm = false } = {}) {
     const actions = [];
     const warnings = [];
     const skipped = [];
@@ -395,7 +398,11 @@ export function buildMetaCleanupPlan(repoPath, realmPreferenceMap, allConfigured
 
     // Process each attribute
     for (const [bareId, deletedRealms] of attrToDeletedRealms) {
-        const deletedFromAll = allConfiguredRealms.every(r => deletedRealms.has(r));
+        // Cross-realm mode: attributes come from the cross-realm intersection file,
+        // meaning they are confirmed unused across ALL realms — always treat as
+        // "deleted from all" so we only remove (never move to remaining realms).
+        const deletedFromAll = crossRealm
+            || allConfiguredRealms.every(r => deletedRealms.has(r));
         const remainingRealms = allConfiguredRealms.filter(r => !deletedRealms.has(r));
 
         // Step 1: Check realm-specific meta directories

@@ -146,7 +146,25 @@ Copy the `resources` array from [src/config/ocapi_config.json](src/config/ocapi_
 
 ---
 
-### Step 3: Add Realm Configuration
+### Step 3: Import Backup Job on Your Environment
+
+The `remove-preferences` and `backup-site-preferences` commands trigger a server-side backup job before deleting any preferences. This job must exist on each SFCC instance you intend to run the script against.
+
+**Steps:**
+
+1. In **Business Manager**, go to **Administration** → **Site Development** → **Import & Export**
+2. Upload the job definition file located at [`src/config/jobs-import-SFCC-413.xml`](src/config/jobs-import-SFCC-413.xml)
+3. Select **Import** and choose the uploaded file
+4. Confirm the import — this creates a job called **`site preferences - BACKUP`**
+5. Verify the job exists under **Administration** → **Operations** → **Jobs**
+
+> **Note:** The job ID (`site preferences - BACKUP`) must match the `backup.jobId` value in your `config.json`. If you rename the job, update the config to match.
+
+> **Repeat for each environment** — the job must be imported on every realm/instance where you plan to run `remove-preferences` or `backup-site-preferences`.
+
+---
+
+### Step 4: Add Realm Configuration
 
 Once you have credentials, add them to the script via CLI (recommended) or manually.
 

@@ -25,6 +25,7 @@ import { registerCartridgeCommands } from './commands/cartridges/cartridges.js';
 import { registerSetupCommands } from './commands/setup/setup.js';
 import { registerBlacklistCommands } from './commands/setup/blacklist.js';
 import { registerWhitelistCommands } from './commands/setup/whitelist.js';
+import { registerMetaCommands } from './commands/meta/meta.js';
 
 // ============================================================================
 // CLI ENTRYPOINT
@@ -93,6 +94,17 @@ registerCartridgeCommands(program);
 //   - backup-site-preferences: Trigger backup job and download metadata
 
 registerPreferenceCommands(program);
+
+// ============================================================================
+// REGISTER META COMMANDS
+// ============================================================================
+// Location: src/commands/meta/meta.js
+// Commands:
+//   - test-meta-cleanup: Preview/execute removal of preference definitions
+//     from sibling repo XML files (dry-run supported)
+//   - meta-cleanup: Full workflow — create branch, run cleanup, stage & commit
+
+registerMetaCommands(program);
 
 // ============================================================================
 // REGISTER DEBUG COMMANDS

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>    
+<jobs xmlns="http://www.demandware.com/xml/impex/jobs/2015-07-01">
+    <job job-id="site preferences - BACKUP">
+        <description/>
+        <parameters/>
+        <flow>
+            <context site-id="Sites"/>
+            <step step-id="site-export" type="ExportMetaData" enforce-restart="false">
+                <description/>
+                <parameters>
+                    <parameter name="ExportSystemTypes">true</parameter>
+                    <parameter name="ExportCustomTypes">true</parameter>
+                    <parameter name="ExportFile">meta_data_backup</parameter>
+                    <parameter name="OverwriteExportFile">true</parameter>
+                </parameters>
+            </step>
+        </flow>
+        <rules/>
+        <triggers>
+            <run-once enabled="false">
+                <date>2026-02-16Z</date>
+                <time>13:28:00.000Z</time>
+            </run-once>
+        </triggers>
+    </job>
+</jobs>

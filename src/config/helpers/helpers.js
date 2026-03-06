@@ -7,14 +7,68 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
- * Load configuration from config.json file
+ * Default configuration structure with all base properties.
+ * Used when creating a new config or backfilling missing properties.
+ * @private
+ */
+const DEFAULT_CONFIG = {
+    coreSiteTemplatePath: 'sites/site_template',
+    validation: {
+        ignoreBmCartridges: true
+    },
+    realms: [],
+    backup: {
+        jobId: 'site preferences - BACKUP',
+        pollIntervalMs: 5000,
+        timeoutMs: 600000,
+        ocapiVersion: 'v25_6',
+        webdavUsername: '',
+        webdavPassword: '',
+        webdavFilePath: '/on/demandware.servlet/webdav/Sites/Impex/src/meta_data_backup.xml',
+        outputDir: './backup_downloads'
+    }
+};
+
+/**
+ * Load configuration from config.json file.
+ * Creates a default config if the file does not exist.
+ * Backfills any missing top-level properties from defaults on every load.
  * @returns {Object} Parsed configuration object
  * @private
  */
 function loadConfig() {
     const configPath = path.resolve(__dirname, '../config.json');
+
+    if (!fs.existsSync(configPath)) {
+        fs.writeFileSync(configPath, JSON.stringify(DEFAULT_CONFIG, null, 2));
+        return JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+    }
+
     try {
-        return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+
+        // Backfill missing top-level properties from defaults
+        let patched = false;
+        for (const [key, value] of Object.entries(DEFAULT_CONFIG)) {
+            if (!(key in config)) {
+                config[key] = JSON.parse(JSON.stringify(value));
+                patched = true;
+            } else if (typeof value === 'object' && !Array.isArray(value)) {
+                // Backfill missing nested properties (one level deep)
+                for (const [subKey, subValue] of Object.entries(value)) {
+                    if (!(subKey in config[key])) {
+                        config[key][subKey] = JSON.parse(JSON.stringify(subValue));
+                        patched = true;
+                    }
+                }
+            }
+        }
+
+        if (patched) {
+            fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        }
+
+        return config;
     } catch (error) {
         logError(`Failed to load config.json: ${error.message}`);
         throw error;
