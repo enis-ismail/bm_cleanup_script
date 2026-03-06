@@ -297,6 +297,50 @@ For complete interactive prompts, output files, and config requirements for each
 
 ---
 
+## Meta File Cleanup
+
+After removing preferences via OCAPI, you also need to remove their XML definitions from the sibling SFCC repository's meta files — otherwise, redeployment would recreate them.
+
+### 4. **test-meta-cleanup** — Preview Changes
+
+Dry-run by default. Scans meta XML files in the sibling repo and shows what would be removed.
+
+```bash
+node src/main.js test-meta-cleanup              # preview only (default)
+node src/main.js test-meta-cleanup --execute     # actually modify files
+```
+
+**What it does:**
+1. Select sibling SFCC repository & realms
+2. Load deletion candidates (per-realm or cross-realm intersection)
+3. Build a cleanup plan (attribute definitions, group assignments, preference values)
+4. Show the plan — optionally execute
+5. Run residual scan to catch any remaining references
+
+### 5. **meta-cleanup** — Full Git Workflow
+
+End-to-end: creates a branch, removes definitions, cleans up preference values, optionally consolidates to single meta file, stages and commits.
+
+```bash
+node src/main.js meta-cleanup
+```
+
+**Workflow:**
+1. Select sibling repo, check for uncommitted changes
+2. Select base branch (e.g., `develop`)
+3. Select realms, deletion tier (P1–P5), and source (per-realm or cross-realm)
+4. Create a new branch (e.g., `chore/cleanup-P2-development-2026-03-06`)
+5. Build and execute cleanup plan
+6. Remove orphaned `<preference preference-id="X">` entries from `preferences.xml` files
+7. Optional: consolidate to single meta file per realm (triggers BM backup job)
+8. Stage all changes and commit with descriptive message + full attribute list
+
+**Commit output includes:**
+- Subject: `chore: remove N unused site preference definition(s) — P2 development`
+- Body: source type, tier level + description, and list of all removed attribute IDs
+
+---
+
 ## Output Files
 
 Files are organized by realm and instance type:
@@ -317,7 +361,12 @@ backup/
 ### Backup Downloads (Metadata XML)
 ```
 backup_downloads/
-└── sandbox_bcwr-080.dx.commercecloud.salesforce.com_meta_data_backup.xml
+├── APAC_meta_data_backup_2026-03-05.xml
+├── EU05_meta_data_backup_2026-03-05.xml
+├── GB_meta_data_backup_2026-03-05.xml
+├── PNA_meta_data_backup_2026-03-05.xml
+└── archive/
+    └── *_meta_data_backup_*.xml    (auto-archived on refresh)
 ```
 
 ### Results Files
@@ -548,23 +597,32 @@ OCAPI (SFCC Cloud)
     ↓
 api.js (OAuth authenticated requests)
     ↓
-preferenceHelper.js (aggregates data, generates matrices)
+analyzer.js / summarize.js (aggregates data, generates matrices)
     ↓
 CSV outputs (matrix, usage)
     ↓
-preferenceUsage.js (scans cartridges for references)
+codeScanner.js (scans cartridges for references)
     ↓
-Text outputs (unused, cartridge mapping, deletion list)
+Text outputs (unused, cartridge mapping, per-realm deletion lists)
+    ↓
+[Optional] meta-cleanup (removes from sibling repo XML + git commit)
 ```
 
 ### Key Files
 
-- **[src/main.js](src/main.js)** - CLI commands, user interaction
-- **[src/api.js](src/api.js)** - OCAPI client, all SFCC communication
-- **[src/helpers/preferenceHelper.js](src/helpers/preferenceHelper.js)** - Data aggregation and CSV generation
-- **[src/helpers/preferenceUsage.js](src/helpers/preferenceUsage.js)** - Cartridge code scanning
-- **[src/helpers/preferenceBackup.js](src/helpers/preferenceBackup.js)** - Backup file generation
-- **[src/helpers/backupJob.js](src/helpers/backupJob.js)** - SFCC backup job triggering
+- **[src/main.js](src/main.js)** - CLI entry point, command registration
+- **[src/api/api.js](src/api/api.js)** - OCAPI client, all SFCC communication
+- **[src/helpers/summarize.js](src/helpers/summarize.js)** - Data aggregation and matrix building
+- **[src/helpers/analyzer.js](src/helpers/analyzer.js)** - Matrix processing orchestration
+- **[src/io/codeScanner.js](src/io/codeScanner.js)** - Cartridge code scanning & deletion candidates
+- **[src/io/csv.js](src/io/csv.js)** - CSV read/write
+- **[src/commands/preferences/preferences.js](src/commands/preferences/preferences.js)** - Remove/restore commands
+- **[src/commands/meta/meta.js](src/commands/meta/meta.js)** - Meta cleanup commands
+- **[src/commands/meta/helpers/metaFileCleanup.js](src/commands/meta/helpers/metaFileCleanup.js)** - Meta XML manipulation
+- **[src/commands/meta/helpers/gitHelper.js](src/commands/meta/helpers/gitHelper.js)** - Git operations for sibling repo
+- **[src/commands/meta/helpers/metaConsolidation.js](src/commands/meta/helpers/metaConsolidation.js)** - Single-file meta consolidation
+- **[src/config/constants.js](src/config/constants.js)** - Application constants (tiers, patterns, log prefixes)
+- **[src/config/helpers/helpers.js](src/config/helpers/helpers.js)** - Config read/write, realm management
 - **[config.json](config.json)** - Realm configuration (credentials)
 - **[src/config/ocapi_config.json](src/config/ocapi_config.json)** - OCAPI resource definitions
 
