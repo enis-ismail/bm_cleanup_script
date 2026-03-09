@@ -24,11 +24,121 @@ import { realmPrompt, repositoryPrompt } from '../prompts/index.js';
 import { resolveRealmScopeSelection } from '../prompts/commonPrompts.js';
 
 // ============================================================================
-// SHARED HELPERS
+// CARTRIDGE COMMANDS REGISTRATION
+// Register all cartridge-related commands with the CLI program
 // ============================================================================
 
 /**
- * Prompt user to select a sibling repository and return the resolved path
+ * Register cartridge commands with the CLI
+ * @param {Command} program - Commander program instance
+ */
+export function registerCartridgeCommands(program) {
+    program
+        .command('list-sites')
+        .description('List all sites and export cartridge paths to CSV')
+        .action(listSites);
+
+    program
+        .command('validate-cartridges-all')
+        .description('[WIP] Validate cartridges across ALL configured realms (parallel)')
+        .action(validateCartridgesAll);
+
+    program
+        .command('validate-site-xml')
+        .description('[WIP] Validate that site.xml files match live SFCC cartridge paths')
+        .action(validateSiteXml);
+}
+
+// ============================================================================
+// LIST SITES
+// List all sites and export cartridge paths to CSV
+// ============================================================================
+
+async function listSites() {
+    const selection = await resolveRealmScopeSelection(inquirer.prompt);
+    const realmsToProcess = selection.realmList;
+
+    if (!realmsToProcess || realmsToProcess.length === 0) {
+        console.log('No realms found for the selected scope.');
+        return;
+    }
+
+    for (const realm of realmsToProcess) {
+        await executeListSites(realm);
+    }
+}
+
+// ============================================================================
+// VALIDATE CARTRIDGES ALL
+// Validate cartridges across ALL configured realms (parallel)
+// ============================================================================
+
+async function validateCartridgesAll() {
+    const selection = await resolveRealmScopeSelection(inquirer.prompt);
+    const { realmList, instanceTypeOverride } = selection;
+
+    if (!realmList || realmList.length === 0) {
+        console.log('No realms found for the selected scope.');
+        return;
+    }
+
+    const targetPath = await promptForRepositoryPath();
+    if (!targetPath) {
+        return;
+    }
+
+    const result = await executeValidateCartridgesAll(
+        targetPath,
+        realmList,
+        instanceTypeOverride
+    );
+
+    if (!result) {
+        return;
+    }
+
+    logCartridgeValidationSummaryHeader();
+    logRealmsProcessed(result.realmSummary);
+    logCartridgeValidationStats(result);
+
+    if (result.comparisonResult.unused.length > 0) {
+        logCartridgeValidationWarning(
+            result.comparisonResult.unused.length,
+            result.consolidatedFilePath
+        );
+    }
+
+    logCartridgeValidationSummaryFooter();
+}
+
+// ============================================================================
+// VALIDATE SITE XML
+// Validate that site.xml files match live SFCC cartridge paths
+// ============================================================================
+
+async function validateSiteXml() {
+    const targetPath = await promptForRepositoryPath();
+    if (!targetPath) {
+        return;
+    }
+
+    const realmAnswers = await inquirer.prompt(realmPrompt());
+    const result = await executeValidateSiteXml(targetPath, realmAnswers.realm);
+
+    if (!result) {
+        return;
+    }
+
+    logSiteXmlValidationSummary(result.stats);
+}
+
+// ============================================================================
+// PRIVATE HELPER FUNCTIONS
+// Small focused functions that support the command workflows above
+// ============================================================================
+
+/**
+ * Prompt user to select a sibling repository and return the resolved path.
  * @returns {Promise<string|null>} Resolved repository path, or null if none found
  */
 async function promptForRepositoryPath() {
@@ -43,7 +153,7 @@ async function promptForRepositoryPath() {
 }
 
 /**
- * Derive a single instance type from a list of realms, if all share the same type
+ * Derive a single instance type from a list of realms, if all share the same type.
  * @param {string[]} realms - Realm names
  * @returns {string|null} Instance type if uniform, null otherwise
  */
@@ -55,12 +165,8 @@ function deriveInstanceType(realms) {
     return types.size === 1 ? Array.from(types)[0] : null;
 }
 
-// ============================================================================
-// LIST SITES COMMAND
-// ============================================================================
-
 /**
- * List all sites and export cartridge paths to CSV
+ * List all sites and export cartridge paths to CSV.
  * @param {string} realm - Realm name to fetch sites from
  * @returns {Promise<void>}
  */
@@ -68,15 +174,12 @@ export async function executeListSites(realm) {
     await exportSitesCartridgesToCSV(realm);
 }
 
-// ============================================================================
-// VALIDATE CARTRIDGES ALL COMMAND
-// ============================================================================
-
 /**
- * Validate cartridges across ALL configured realms in parallel
+ * Validate cartridges across ALL configured realms in parallel.
  * @param {string} repositoryPath - Path to the repository containing cartridges
+ * @param {string[]} [realmsToProcess] - Realms to validate against
  * @param {string} [instanceTypeOverride] - Optional instance type override for output path
- * @returns {Promise<void>}
+ * @returns {Promise<Object|undefined>} Validation results or undefined
  */
 export async function executeValidateCartridgesAll(
     repositoryPath,
@@ -132,15 +235,11 @@ export async function executeValidateCartridgesAll(
     return { realmSummary, comparisonResult, consolidatedFilePath };
 }
 
-// ============================================================================
-// VALIDATE SITE XML COMMAND
-// ============================================================================
-
 /**
- * Validate that site.xml files match live SFCC cartridge paths
+ * Validate that site.xml files match live SFCC cartridge paths.
  * @param {string} repositoryPath - Path to the repository containing site.xml files
  * @param {string} realm - Realm name to validate against
- * @returns {Promise<Object>} Validation results including stats and report path
+ * @returns {Promise<Object|null>} Validation results including stats and report path
  */
 export async function executeValidateSiteXml(repositoryPath, realm) {
     const selectedRepo = path.basename(repositoryPath);
@@ -203,91 +302,4 @@ export async function executeValidateSiteXml(repositoryPath, realm) {
 
     const stats = calculateValidationStats(comparisons);
     return { stats, reportPath, comparisons };
-}
-
-// ============================================================================
-// COMMAND REGISTRATION
-// ============================================================================
-
-/**
- * Register cartridge commands with the CLI
- * @param {Command} program - Commander program instance
- */
-export function registerCartridgeCommands(program) {
-    program
-        .command('list-sites')
-        .description('List all sites and export cartridge paths to CSV')
-        .action(async () => {
-            const selection = await resolveRealmScopeSelection(inquirer.prompt);
-            const realmsToProcess = selection.realmList;
-
-            if (!realmsToProcess || realmsToProcess.length === 0) {
-                console.log('No realms found for the selected scope.');
-                return;
-            }
-
-            for (const realm of realmsToProcess) {
-                await executeListSites(realm);
-            }
-        });
-
-    program
-        .command('validate-cartridges-all')
-        .description('[WIP] Validate cartridges across ALL configured realms (parallel)')
-        .action(async () => {
-            const selection = await resolveRealmScopeSelection(inquirer.prompt);
-            const { realmList, instanceTypeOverride } = selection;
-
-            if (!realmList || realmList.length === 0) {
-                console.log('No realms found for the selected scope.');
-                return;
-            }
-
-            const targetPath = await promptForRepositoryPath();
-            if (!targetPath) {
-                return;
-            }
-
-            const result = await executeValidateCartridgesAll(
-                targetPath,
-                realmList,
-                instanceTypeOverride
-            );
-
-            if (!result) {
-                return;
-            }
-
-            logCartridgeValidationSummaryHeader();
-            logRealmsProcessed(result.realmSummary);
-            logCartridgeValidationStats(result);
-
-            if (result.comparisonResult.unused.length > 0) {
-                logCartridgeValidationWarning(
-                    result.comparisonResult.unused.length,
-                    result.consolidatedFilePath
-                );
-            }
-
-            logCartridgeValidationSummaryFooter();
-        });
-
-    program
-        .command('validate-site-xml')
-        .description('[WIP] Validate that site.xml files match live SFCC cartridge paths')
-        .action(async () => {
-            const targetPath = await promptForRepositoryPath();
-            if (!targetPath) {
-                return;
-            }
-
-            const realmAnswers = await inquirer.prompt(realmPrompt());
-            const result = await executeValidateSiteXml(targetPath, realmAnswers.realm);
-
-            if (!result) {
-                return;
-            }
-
-            logSiteXmlValidationSummary(result.stats);
-        });
 }

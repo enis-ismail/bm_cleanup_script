@@ -59,9 +59,26 @@ vi.mock('../../src/config/constants.js', async (importOriginal) => {
 // Imports — after mocks
 // ============================================================================
 
-import { processPreferenceMatrixFiles } from '../../src/helpers/analyzer.js';
-import { parseCSVToNestedArray, findUnusedPreferences, writeUnusedPreferencesFile } from '../../src/io/csv.js';
-import { logProcessingRealm, logEmptyCSV, logRealmResults } from '../../src/scripts/loggingScript/log.js';
+import {
+    processPreferenceMatrixFiles,
+    executePreferenceSummarization,
+    executePreferenceSummarizationFromMetadata
+} from '../../src/helpers/analyzer.js';
+import {
+    parseCSVToNestedArray,
+    findUnusedPreferences,
+    writeUnusedPreferencesFile,
+    writeUsageCSV,
+    writeMatrixCSV
+} from '../../src/io/csv.js';
+import { logProcessingRealm, logEmptyCSV, logRealmResults, logError } from '../../src/scripts/loggingScript/log.js';
+import { ensureResultsDir, filterSitesByScope, buildGroupSummaries } from '../../src/io/util.js';
+import { getAttributeGroups, getAllSites, getSitePreferences } from '../../src/api/api.js';
+import { buildPreferenceMeta, processSitesAndGroups, buildPreferenceMatrix } from '../../src/helpers/summarize.js';
+import {
+    getAllAttributeDefinitionsFromMetadata,
+    getAttributeGroupsFromMetadataFile
+} from '../../src/io/siteXmlHelper.js';
 
 // ============================================================================
 // processPreferenceMatrixFiles
@@ -268,5 +285,473 @@ describe('processPreferenceMatrixFiles', () => {
         expect(result[0].total).toBe(10);
         expect(result[0].unused).toBe(3);
         expect(result[0].used).toBe(7);
+    });
+});
+
+// ============================================================================
+// executePreferenceSummarization
+// ============================================================================
+
+describe('executePreferenceSummarization', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'analyzer-exec-'));
+        vi.spyOn(console, 'log').mockImplementation(() => {});
+
+        // Reset all mocks to clean state
+        vi.clearAllMocks();
+
+        // Setup default mock returns
+        ensureResultsDir.mockReturnValue(tmpDir);
+        getSitePreferences.mockResolvedValue([
+            { id: 'c_pref1', value_type: 'string' },
+            { id: 'c_pref2', value_type: 'boolean' }
+        ]);
+        getAttributeGroups.mockResolvedValue([
+            { id: 'GeneralSettings', name: 'GeneralSettings', display_name: 'General' }
+        ]);
+        buildGroupSummaries.mockReturnValue({
+            GeneralSettings: { id: 'GeneralSettings', display_name: 'General' }
+        });
+        getAllSites.mockResolvedValue([
+            { id: 'SiteA' },
+            { id: 'SiteB' }
+        ]);
+        filterSitesByScope.mockImplementation((sites) => sites);
+        buildPreferenceMeta.mockReturnValue({
+            c_pref1: { id: 'c_pref1', type: 'string' },
+            c_pref2: { id: 'c_pref2', type: 'boolean' }
+        });
+        processSitesAndGroups.mockResolvedValue({ usageRows: [] });
+        buildPreferenceMatrix.mockReturnValue([]);
+        writeUsageCSV.mockReturnValue(path.join(tmpDir, 'usage.csv'));
+        writeMatrixCSV.mockReturnValue(path.join(tmpDir, 'matrix.csv'));
+        parseCSVToNestedArray.mockReturnValue([
+            ['preferenceId', 'defaultValue', 'SiteA'],
+            ['c_pref1', '', 'X']
+        ]);
+        findUnusedPreferences.mockReturnValue([]);
+        writeUnusedPreferencesFile.mockReturnValue(path.join(tmpDir, 'unused.txt'));
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        vi.restoreAllMocks();
+    });
+
+    it('returns realmDir and success flag on successful run', async () => {
+        const params = {
+            realm: 'EU05',
+            objectType: 'SitePreferences',
+            instanceType: 'development',
+            scope: 'all',
+            siteId: null,
+            includeDefaults: false
+        };
+
+        const result = await executePreferenceSummarization(params);
+
+        expect(result).not.toBeNull();
+        expect(result.realmDir).toBe(tmpDir);
+        expect(result.success).toBe(true);
+    });
+
+    it('calls ensureResultsDir with the realm', async () => {
+        const params = {
+            realm: 'APAC',
+            objectType: 'SitePreferences',
+            instanceType: 'development',
+            scope: 'all',
+            siteId: null,
+            includeDefaults: false
+        };
+
+        await executePreferenceSummarization(params);
+
+        expect(ensureResultsDir).toHaveBeenCalledWith('APAC');
+    });
+
+    it('fetches preferences, groups, and sites from API', async () => {
+        const params = {
+            realm: 'EU05',
+            objectType: 'SitePreferences',
+            instanceType: 'development',
+            scope: 'all',
+            siteId: null,
+            includeDefaults: true
+        };
+
+        await executePreferenceSummarization(params);
+
+        expect(getSitePreferences).toHaveBeenCalled();
+        expect(getAttributeGroups).toHaveBeenCalled();
+        expect(getAllSites).toHaveBeenCalled();
+    });
+
+    it('builds preference matrices and exports results', async () => {
+        const params = {
+            realm: 'EU05',
+            objectType: 'SitePreferences',
+            instanceType: 'development',
+            scope: 'all',
+            siteId: null,
+            includeDefaults: false
+        };
+
+        await executePreferenceSummarization(params);
+
+        expect(buildPreferenceMeta).toHaveBeenCalled();
+        expect(processSitesAndGroups).toHaveBeenCalled();
+        expect(buildPreferenceMatrix).toHaveBeenCalled();
+        expect(writeUsageCSV).toHaveBeenCalled();
+        expect(writeMatrixCSV).toHaveBeenCalled();
+    });
+
+    it('returns null when no sites match scope filter', async () => {
+        filterSitesByScope.mockReturnValue([]);
+
+        const params = {
+            realm: 'EU05',
+            objectType: 'SitePreferences',
+            instanceType: 'development',
+            scope: 'single',
+            siteId: 'NonExistentSite',
+            includeDefaults: false
+        };
+
+        const result = await executePreferenceSummarization(params);
+
+        expect(result).toBeNull();
+        expect(logError).toHaveBeenCalled();
+    });
+
+    it('writes unused preferences file during export', async () => {
+        const params = {
+            realm: 'GB',
+            objectType: 'SitePreferences',
+            instanceType: 'development',
+            scope: 'all',
+            siteId: null,
+            includeDefaults: false
+        };
+
+        await executePreferenceSummarization(params);
+
+        expect(writeUnusedPreferencesFile).toHaveBeenCalled();
+    });
+
+    it('passes progress display info when provided', async () => {
+        const mockDisplay = {
+            startStep: vi.fn(),
+            completeStep: vi.fn(),
+            setStepProgress: vi.fn()
+        };
+
+        const params = {
+            realm: 'EU05',
+            objectType: 'SitePreferences',
+            instanceType: 'development',
+            scope: 'all',
+            siteId: null,
+            includeDefaults: false
+        };
+
+        const progressInfo = {
+            display: mockDisplay,
+            hostname: 'dev-eu05.example.com',
+            realmName: 'EU05'
+        };
+
+        const result = await executePreferenceSummarization(params, progressInfo);
+
+        expect(result).not.toBeNull();
+        expect(result.success).toBe(true);
+    });
+
+    it('handles single site scope', async () => {
+        filterSitesByScope.mockReturnValue([{ id: 'SiteA' }]);
+
+        const params = {
+            realm: 'EU05',
+            objectType: 'SitePreferences',
+            instanceType: 'development',
+            scope: 'single',
+            siteId: 'SiteA',
+            includeDefaults: false
+        };
+
+        const result = await executePreferenceSummarization(params);
+
+        expect(result).not.toBeNull();
+        expect(filterSitesByScope).toHaveBeenCalledWith(
+            expect.any(Array),
+            'single',
+            'SiteA'
+        );
+    });
+
+    it('passes includeDefaults to getSitePreferences', async () => {
+        const params = {
+            realm: 'EU05',
+            objectType: 'SitePreferences',
+            instanceType: 'development',
+            scope: 'all',
+            siteId: null,
+            includeDefaults: true
+        };
+
+        await executePreferenceSummarization(params);
+
+        expect(getSitePreferences).toHaveBeenCalledWith(
+            'SitePreferences',
+            'EU05',
+            true,
+            undefined,
+            expect.any(Function),
+            expect.any(Function),
+            expect.anything()
+        );
+    });
+});
+
+// ============================================================================
+// executePreferenceSummarizationFromMetadata
+// ============================================================================
+
+describe('executePreferenceSummarizationFromMetadata', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'analyzer-meta-'));
+        vi.spyOn(console, 'log').mockImplementation(() => {});
+
+        // Reset all mocks
+        vi.clearAllMocks();
+
+        // Setup default mock returns
+        ensureResultsDir.mockReturnValue(tmpDir);
+        getAllAttributeDefinitionsFromMetadata.mockResolvedValue([
+            { id: 'c_pref1', value_type: 'string', default_value: null },
+            { id: 'c_pref2', value_type: 'boolean', default_value: 'true' }
+        ]);
+        getAttributeGroupsFromMetadataFile.mockResolvedValue([
+            { group_id: 'GeneralSettings', group_display_name: 'General', attributes: [] }
+        ]);
+        buildGroupSummaries.mockReturnValue({
+            GeneralSettings: { id: 'GeneralSettings', display_name: 'General' }
+        });
+        getAllSites.mockResolvedValue([
+            { id: 'SiteA' },
+            { id: 'SiteB' }
+        ]);
+        filterSitesByScope.mockImplementation((sites) => sites);
+        buildPreferenceMeta.mockReturnValue({
+            c_pref1: { id: 'c_pref1', type: 'string' },
+            c_pref2: { id: 'c_pref2', type: 'boolean' }
+        });
+        processSitesAndGroups.mockResolvedValue({ usageRows: [] });
+        buildPreferenceMatrix.mockReturnValue([]);
+        writeUsageCSV.mockReturnValue(path.join(tmpDir, 'usage.csv'));
+        writeMatrixCSV.mockReturnValue(path.join(tmpDir, 'matrix.csv'));
+        parseCSVToNestedArray.mockReturnValue([
+            ['preferenceId', 'defaultValue', 'SiteA'],
+            ['c_pref1', '', 'X']
+        ]);
+        findUnusedPreferences.mockReturnValue([]);
+        writeUnusedPreferencesFile.mockReturnValue(path.join(tmpDir, 'unused.txt'));
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        vi.restoreAllMocks();
+    });
+
+    it('returns realmDir and success flag on successful run', async () => {
+        const params = {
+            realm: 'EU05',
+            objectType: 'SitePreferences',
+            instanceType: 'development',
+            scope: 'all',
+            siteId: null,
+            metadataFilePath: '/path/to/metadata.xml'
+        };
+
+        const result = await executePreferenceSummarizationFromMetadata(params);
+
+        expect(result).not.toBeNull();
+        expect(result.realmDir).toBe(tmpDir);
+        expect(result.success).toBe(true);
+    });
+
+    it('reads definitions from metadata XML instead of OCAPI', async () => {
+        const params = {
+            realm: 'EU05',
+            objectType: 'SitePreferences',
+            instanceType: 'development',
+            scope: 'all',
+            siteId: null,
+            metadataFilePath: '/path/to/metadata.xml'
+        };
+
+        await executePreferenceSummarizationFromMetadata(params);
+
+        expect(getAllAttributeDefinitionsFromMetadata).toHaveBeenCalledWith(
+            '/path/to/metadata.xml',
+            'SitePreferences'
+        );
+        expect(getAttributeGroupsFromMetadataFile).toHaveBeenCalledWith(
+            '/path/to/metadata.xml',
+            'SitePreferences'
+        );
+        // OCAPI preference fetch should NOT be called
+        expect(getSitePreferences).not.toHaveBeenCalled();
+        expect(getAttributeGroups).not.toHaveBeenCalled();
+    });
+
+    it('still fetches sites via OCAPI', async () => {
+        const params = {
+            realm: 'APAC',
+            objectType: 'SitePreferences',
+            instanceType: 'development',
+            scope: 'all',
+            siteId: null,
+            metadataFilePath: '/path/to/metadata.xml'
+        };
+
+        await executePreferenceSummarizationFromMetadata(params);
+
+        expect(getAllSites).toHaveBeenCalledWith('APAC', null);
+    });
+
+    it('converts XML group format to OCAPI-like format', async () => {
+        getAttributeGroupsFromMetadataFile.mockResolvedValue([
+            { group_id: 'Search', group_display_name: 'Search Settings', attributes: [] },
+            { group_id: 'Payment', group_display_name: 'Payment Config', attributes: [] }
+        ]);
+
+        const params = {
+            realm: 'EU05',
+            objectType: 'SitePreferences',
+            instanceType: 'development',
+            scope: 'all',
+            siteId: null,
+            metadataFilePath: '/path/to/metadata.xml'
+        };
+
+        await executePreferenceSummarizationFromMetadata(params);
+
+        expect(buildGroupSummaries).toHaveBeenCalledWith([
+            { id: 'Search', name: 'Search', display_name: 'Search Settings' },
+            { id: 'Payment', name: 'Payment', display_name: 'Payment Config' }
+        ]);
+    });
+
+    it('returns null when no sites match scope filter', async () => {
+        filterSitesByScope.mockReturnValue([]);
+
+        const params = {
+            realm: 'EU05',
+            objectType: 'SitePreferences',
+            instanceType: 'development',
+            scope: 'single',
+            siteId: 'NonExistent',
+            metadataFilePath: '/path/to/metadata.xml'
+        };
+
+        const result = await executePreferenceSummarizationFromMetadata(params);
+
+        expect(result).toBeNull();
+    });
+
+    it('throws metadata error with context when XML parsing fails', async () => {
+        getAllAttributeDefinitionsFromMetadata.mockRejectedValue(
+            new Error('Invalid XML format')
+        );
+
+        const params = {
+            realm: 'EU05',
+            objectType: 'SitePreferences',
+            instanceType: 'development',
+            scope: 'all',
+            siteId: null,
+            metadataFilePath: '/bad/path.xml'
+        };
+
+        await expect(
+            executePreferenceSummarizationFromMetadata(params)
+        ).rejects.toThrow('Metadata file error for EU05');
+    });
+
+    it('preserves original error in thrown error', async () => {
+        const originalError = new Error('Cannot read file');
+        getAllAttributeDefinitionsFromMetadata.mockRejectedValue(originalError);
+
+        const params = {
+            realm: 'GB',
+            objectType: 'SitePreferences',
+            instanceType: 'development',
+            scope: 'all',
+            siteId: null,
+            metadataFilePath: '/bad/path.xml'
+        };
+
+        try {
+            await executePreferenceSummarizationFromMetadata(params);
+        } catch (error) {
+            expect(error.originalError).toBe(originalError);
+            expect(error.realm).toBe('GB');
+            expect(error.isMetadataError).toBe(true);
+        }
+    });
+
+    it('passes progress info to all steps', async () => {
+        const mockDisplay = {
+            startStep: vi.fn(),
+            completeStep: vi.fn(),
+            setStepProgress: vi.fn()
+        };
+
+        const params = {
+            realm: 'EU05',
+            objectType: 'SitePreferences',
+            instanceType: 'development',
+            scope: 'all',
+            siteId: null,
+            metadataFilePath: '/path/to/metadata.xml'
+        };
+
+        const progressInfo = {
+            display: mockDisplay,
+            hostname: 'dev-eu05.example.com',
+            realmName: 'EU05'
+        };
+
+        const result = await executePreferenceSummarizationFromMetadata(params, progressInfo);
+
+        expect(result.success).toBe(true);
+        expect(mockDisplay.startStep).toHaveBeenCalled();
+        expect(mockDisplay.completeStep).toHaveBeenCalled();
+    });
+
+    it('uses group_id as fallback display name when group_display_name is missing', async () => {
+        getAttributeGroupsFromMetadataFile.mockResolvedValue([
+            { group_id: 'NoDisplayName', attributes: [] }
+        ]);
+
+        const params = {
+            realm: 'EU05',
+            objectType: 'SitePreferences',
+            instanceType: 'development',
+            scope: 'all',
+            siteId: null,
+            metadataFilePath: '/path/to/metadata.xml'
+        };
+
+        await executePreferenceSummarizationFromMetadata(params);
+
+        expect(buildGroupSummaries).toHaveBeenCalledWith([
+            { id: 'NoDisplayName', name: 'NoDisplayName', display_name: 'NoDisplayName' }
+        ]);
     });
 });
