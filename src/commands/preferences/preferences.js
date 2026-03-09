@@ -13,9 +13,7 @@ import {
 } from '../../config/helpers/helpers.js';
 import { startTimer } from '../../helpers/timer.js';
 import { RealmProgressDisplay } from '../../scripts/loggingScript/progressDisplay.js';
-import {
-    prompts
-} from '../../commands/prompts/index.js';
+import * as prompts from '../prompts/index.js';
 import {
     LOG_PREFIX, DIRECTORIES, IDENTIFIERS, FILE_PATTERNS, ANALYSIS_STEPS
 } from '../../config/constants.js';

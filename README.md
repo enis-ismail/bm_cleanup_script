@@ -475,6 +475,7 @@ Follow the prompts to add your first realm.
 4. Restart your sandbox if OCAPI settings were just changed
 
 **Solution:**
+- Run `node src/main.js check-api-endpoints` to see exactly which permissions are missing
 - Update credentials: `node src/main.js remove-realm` then `add-realm` again
 - Or manually edit `config.json` and verify formatting
 
@@ -537,6 +538,27 @@ The script has built-in rate limiting, but if it still fails:
 When prompted "Create new ones anyway?":
 - Answer **YES** to overwrite with fresh data
 - Answer **NO** to reuse existing backup (faster)
+
+---
+
+### Diagnose API Permission Issues
+
+If any command fails with `403 Forbidden` or you're unsure which OCAPI permissions are configured, run the endpoint health check:
+
+```bash
+# Check all realms at once
+node src/main.js check-api-endpoints
+
+# Check a single realm
+node src/main.js check-api-endpoints -r EU05
+```
+
+This probes all 21 OCAPI endpoints used by the tool (without modifying any data) and reports:
+- Whether OAuth authentication works for each realm
+- Which endpoints are accessible and which return `403 Forbidden`
+- Exact action items telling you which resource and method to add in Business Manager
+
+See [COMMANDS.md — check-api-endpoints](COMMANDS.md#check-api-endpoints) for full details.
 
 ---
 

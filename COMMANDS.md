@@ -21,6 +21,7 @@ Complete reference for all available commands. For the main workflow overview, s
 | `list-sites` | Utility | List all sites and export cartridge paths to CSV |
 | `validate-cartridges-all` | Utility (WIP) | Validate cartridges across all realms |
 | `validate-site-xml` | Utility (WIP) | Validate site.xml vs live cartridge paths |
+| `check-api-endpoints` | Debug | Check OCAPI endpoint permissions across all realms |
 | `find-preference-usage` | Debug | Find cartridges using a specific preference ID |
 | `list-attribute-groups` | Debug | List attribute groups for an object type |
 | `get-attribute-group` | Debug | Get details of a specific attribute group |
@@ -541,6 +542,47 @@ Validate that `site.xml` files in your repository match the live SFCC cartridge 
 ## 9. Debug Commands
 
 These commands are for development and troubleshooting. They are not part of the main workflow.
+
+### check-api-endpoints
+
+```bash
+# Check all configured realms
+node src/main.js check-api-endpoints
+
+# Check a single realm
+node src/main.js check-api-endpoints -r EU05
+```
+
+Probe every OCAPI endpoint used by this tool and report which permissions are missing. If you run into `403 Forbidden` errors during `analyze-preferences` or `remove-preferences`, run this command first to diagnose the problem.
+
+The command checks all 12 OCAPI resources and their HTTP methods (21 probes total) against each configured realm in parallel. For write-method probes (PUT, PATCH, DELETE, POST) it targets nonexistent resources so **no data is modified**.
+
+**Options:** `-r, --realm <realm>` — Check a single realm instead of all.
+
+**Required config:** At least one realm in `config.json`.
+
+**Output:**
+- Per-realm authentication status (OAuth token test)
+- Per-endpoint status: accessible or forbidden
+- Action items listing the exact BM resource path to configure for any failing endpoint
+
+**Example output:**
+```
+Realm: EU05  (development-eu05-puma.demandware.net)
+  ✓ Authentication: OK
+  Endpoints: 20/21 accessible
+
+  ✓ Sites (list, GET) (/sites)
+  ✓ Attribute Definition (GET) (/system_object_definitions/*/attribute_definitions/*)
+    - Endpoint is accessible (permission granted)
+  ✗ Attribute Definition (PATCH) - 403 Forbidden
+    -> Add PATCH permission for /system_object_definitions/*/attribute_definitions/*.
+
+Action Items:
+  1. [EU05] Attribute Definition (PATCH): Add PATCH permission for ...
+```
+
+---
 
 ### find-preference-usage
 

@@ -109,8 +109,9 @@ registerMetaCommands(program);
 // ============================================================================
 // REGISTER DEBUG COMMANDS
 // ============================================================================
-// Location: src/debug.js
+// Location: src/commands/debug/debug.js
 // Commands: Various debug/test commands for development and troubleshooting
+//   - check-api-endpoints: Probe OCAPI endpoints for all configured realms
 
 registerDebugCommands(program);
 
