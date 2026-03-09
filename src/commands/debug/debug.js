@@ -15,7 +15,8 @@ import {
     objectTypePrompt,
     instanceTypePrompt,
     repositoryPrompt,
-    preferenceIdPrompt
+    preferenceIdPrompt,
+    groupIdPrompt
 } from '../prompts/index.js';
 
 import path from 'path';
@@ -116,11 +117,7 @@ export function registerDebugCommands(program) {
             const instanceType = getInstanceType(realm);
             const objectTypeAnswers = await inquirer.prompt(objectTypePrompt('SitePreferences'));
             const objectType = objectTypeAnswers.objectType;
-            const groupAnswers = await inquirer.prompt([{
-                name: 'groupId',
-                message: 'Attribute Group ID?',
-                validate: (input) => input && input.trim().length > 0 ? true : 'Group ID is required'
-            }]);
+            const groupAnswers = await inquirer.prompt(groupIdPrompt());
 
             const group = await getAttributeGroupById(objectType, groupAnswers.groupId, realm);
             if (!group) {

@@ -6,7 +6,15 @@ import {
     repositoryPrompt,
     resolveRealmScopeSelection,
     deletionLevelPrompt,
-    deletionSourcePrompt
+    deletionSourcePrompt,
+    confirmExecutionPrompt,
+    uncommittedChangesPrompt,
+    baseBranchPrompt,
+    branchNamePrompt,
+    consolidateMetaPrompt,
+    consolidationFailurePrompt,
+    confirmCommitPrompt,
+    commitMessagePrompt
 } from '../prompts/index.js';
 import {
     buildMetaCleanupPlan,
@@ -173,16 +181,11 @@ export function registerMetaCommands(program) {
             }
 
             // Step 8: Confirm and execute
-            const confirmAnswers = await inquirer.prompt([{
-                name: 'proceed',
-                type: 'confirm',
-                message: dryRun
-                    ? `Execute dry-run for ${plan.actions.length} action(s)? (no files will be changed)`
-                    : `⚠  Execute ${plan.actions.length} action(s)? This will modify files in the repository.`,
-                default: dryRun
-            }]);
+            const { confirm } = await inquirer.prompt(
+                confirmExecutionPrompt({ actionCount: plan.actions.length, dryRun })
+            );
 
-            if (!confirmAnswers.proceed) {
+            if (!confirm) {
                 console.log('\n  Aborted.\n');
                 return;
             }
@@ -249,12 +252,9 @@ export function registerMetaCommands(program) {
                     .map(l => `    ${l}`)
                     .join('\n'));
 
-                const { proceed } = await inquirer.prompt([{
-                    name: 'proceed',
-                    type: 'confirm',
-                    message: 'There are uncommitted changes. Continue anyway?',
-                    default: false
-                }]);
+                const { proceed } = await inquirer.prompt(
+                    uncommittedChangesPrompt()
+                );
 
                 if (!proceed) {
                     console.log('\n  Aborted — commit or stash changes first.\n');
@@ -264,13 +264,9 @@ export function registerMetaCommands(program) {
 
             // ── Step 3: Select base branch ─────────────────────────────────
             const branches = listBranches(repoPath);
-            const { baseBranch } = await inquirer.prompt([{
-                name: 'baseBranch',
-                type: 'list',
-                message: 'Select the base branch for the cleanup:',
-                choices: branches,
-                default: currentBranch
-            }]);
+            const { baseBranch } = await inquirer.prompt(
+                baseBranchPrompt(branches, currentBranch)
+            );
 
             // ── Step 4: Select realms & tier ───────────────────────────────
             const { realmList, instanceTypeOverride } = await resolveRealmScopeSelection(
@@ -295,24 +291,9 @@ export function registerMetaCommands(program) {
                 `${maxTier}-${instanceType}`
             );
 
-            const { branchName } = await inquirer.prompt([{
-                name: 'branchName',
-                type: 'input',
-                message: 'Branch name:',
-                default: suggestedName,
-                validate: (input) => {
-                    if (!input || !input.trim()) {
-                        return 'Branch name cannot be empty';
-                    }
-                    if (/\s/.test(input.trim())) {
-                        return 'Branch name cannot contain spaces';
-                    }
-                    if (branches.includes(input.trim())) {
-                        return 'Branch already exists';
-                    }
-                    return true;
-                }
-            }]);
+            const { branchName } = await inquirer.prompt(
+                branchNamePrompt(suggestedName, branches)
+            );
 
             // ── Step 6: Create branch ──────────────────────────────────────
             console.log(`\n  Creating branch ${branchName} from ${baseBranch}...`);
@@ -389,13 +370,12 @@ export function registerMetaCommands(program) {
             }
 
             // ── Step 8: Confirm and execute ────────────────────────────────
-            const { confirmExecute } = await inquirer.prompt([{
-                name: 'confirmExecute',
-                type: 'confirm',
-                message: `Execute ${plan.actions.length} action(s)?`
-                    + ` This will modify files in ${siblingAnswers.repository}.`,
-                default: false
-            }]);
+            const { confirm: confirmExecute } = await inquirer.prompt(
+                confirmExecutionPrompt({
+                    actionCount: plan.actions.length,
+                    repoName: siblingAnswers.repository
+                })
+            );
 
             if (!confirmExecute) {
                 console.log('\n  Aborted. Branch exists but no files were modified.\n');
@@ -430,26 +410,12 @@ export function registerMetaCommands(program) {
                 console.log(formatSitesScanResults(scanResults));
             }
 
-            // ── Step 8b: Meta file format ──────────────────────────────────
-            const { metaFormat } = await inquirer.prompt([{
-                name: 'metaFormat',
-                type: 'list',
-                message: 'How should meta files be structured going forward?',
-                choices: [
-                    {
-                        name: 'Keep current multi-file setup',
-                        value: 'multi'
-                    },
-                    {
-                        name: 'Consolidate to single file per realm'
-                            + ' (runs backup job to download fresh metadata)',
-                        value: 'single'
-                    }
-                ],
-                default: 'multi'
-            }]);
+            // ── Step 8b: Meta file consolidation ───────────────────────────
+            const { consolidate } = await inquirer.prompt(
+                consolidateMetaPrompt()
+            );
 
-            if (metaFormat === 'single') {
+            if (consolidate) {
                 console.log('\n  Consolidating meta files...\n');
 
                 const consolidation = await consolidateMetaFiles({
@@ -460,13 +426,9 @@ export function registerMetaCommands(program) {
                 if (consolidation.failCount > 0 && consolidation.successCount === 0) {
                     console.log('  All consolidations failed — skipping.\n');
                 } else if (consolidation.failCount > 0) {
-                    const { continueAnyway } = await inquirer.prompt([{
-                        name: 'continueAnyway',
-                        type: 'confirm',
-                        message: `${consolidation.failCount} realm(s) failed to consolidate.`
-                            + ' Continue with commit?',
-                        default: true
-                    }]);
+                    const { continueAnyway } = await inquirer.prompt(
+                        consolidationFailurePrompt(consolidation.failCount)
+                    );
 
                     if (!continueAnyway) {
                         console.log('  Aborted.\n');
@@ -489,12 +451,9 @@ export function registerMetaCommands(program) {
                 return;
             }
 
-            const { confirmCommit } = await inquirer.prompt([{
-                name: 'confirmCommit',
-                type: 'confirm',
-                message: `Stage and commit ${totalChanged} changed file(s)?`,
-                default: true
-            }]);
+            const { confirmCommit } = await inquirer.prompt(
+                confirmCommitPrompt(totalChanged)
+            );
 
             if (!confirmCommit) {
                 console.log('  Changes left unstaged. Commit manually when ready.\n');
@@ -519,12 +478,9 @@ export function registerMetaCommands(program) {
                 + `${removedIds.length} unused site preference definition(s)`
                 + ` — ${maxTier} ${instanceType}`;
 
-            const { commitMsg } = await inquirer.prompt([{
-                name: 'commitMsg',
-                type: 'input',
-                message: 'Commit message:',
-                default: suggestedMsg
-            }]);
+            const { commitMsg } = await inquirer.prompt(
+                commitMessagePrompt(suggestedMsg)
+            );
 
             // Build commit body with source context, selected level, and attribute list
             const tierDesc = TIER_DESCRIPTIONS[maxTier] || maxTier;

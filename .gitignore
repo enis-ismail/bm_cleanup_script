@@ -31,6 +31,7 @@ npm-debug.log*
 # Temporary files
 *.tmp
 *.bak
+coverage/
 
 # github files
 !.github/instructions

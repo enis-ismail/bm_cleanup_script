@@ -1,0 +1,124 @@
+/**
+ * Prompts for meta file cleanup commands.
+ * Used by test-meta-cleanup and meta-cleanup in meta.js.
+ *
+ * @module metaPrompts
+ */
+
+/**
+ * Confirm execution of a meta cleanup plan.
+ * Supports both dry-run (test-meta-cleanup) and live (meta-cleanup) modes.
+ * @param {Object} options
+ * @param {number} options.actionCount - Number of planned actions
+ * @param {boolean} [options.dryRun=false] - Whether this is a dry-run
+ * @param {string} [options.repoName] - Repository name for display in live mode
+ * @returns {Object[]} Inquirer prompt config — answer key: `confirm`
+ */
+export const confirmExecutionPrompt = ({ actionCount, dryRun = false, repoName }) => ([{
+    name: 'confirm',
+    type: 'confirm',
+    message: dryRun
+        ? `Execute dry-run for ${actionCount} action(s)? (no files will be changed)`
+        : `⚠  Execute ${actionCount} action(s)?`
+            + ` This will modify files in ${repoName || 'the repository'}.`,
+    default: dryRun
+}]);
+
+/**
+ * Warn about uncommitted changes in the repository.
+ * @returns {Object[]} Inquirer prompt config — answer key: `proceed`
+ */
+export const uncommittedChangesPrompt = () => ([{
+    name: 'proceed',
+    type: 'confirm',
+    message: 'There are uncommitted changes. Continue anyway?',
+    default: false
+}]);
+
+/**
+ * Select the base branch for the cleanup.
+ * @param {string[]} branches - Available branch names
+ * @param {string} currentBranch - Currently checked-out branch
+ * @returns {Object[]} Inquirer prompt config — answer key: `baseBranch`
+ */
+export const baseBranchPrompt = (branches, currentBranch) => ([{
+    name: 'baseBranch',
+    type: 'list',
+    message: 'Select the base branch for the cleanup:',
+    choices: branches,
+    default: currentBranch
+}]);
+
+/**
+ * Input the branch name for the cleanup.
+ * @param {string} suggestedName - Default branch name suggestion
+ * @param {string[]} existingBranches - List of existing branch names
+ * @returns {Object[]} Inquirer prompt config — answer key: `branchName`
+ */
+export const branchNamePrompt = (suggestedName, existingBranches) => ([{
+    name: 'branchName',
+    type: 'input',
+    message: 'Branch name:',
+    default: suggestedName,
+    validate: (input) => {
+        if (!input || !input.trim()) {
+            return 'Branch name cannot be empty';
+        }
+        if (/\s/.test(input.trim())) {
+            return 'Branch name cannot contain spaces';
+        }
+        if (existingBranches.includes(input.trim())) {
+            return 'Branch already exists';
+        }
+        return true;
+    }
+}]);
+
+/**
+ * Ask whether to consolidate meta files to a single file per realm.
+ * @returns {Object[]} Inquirer prompt config — answer key: `consolidate`
+ */
+export const consolidateMetaPrompt = () => ([{
+    name: 'consolidate',
+    type: 'confirm',
+    message: 'Consolidate to single meta file per realm?'
+        + ' (runs backup job to download fresh metadata)',
+    default: false
+}]);
+
+/**
+ * Ask whether to continue after partial consolidation failure.
+ * @param {number} failCount - Number of realms that failed consolidation
+ * @returns {Object[]} Inquirer prompt config — answer key: `continueAnyway`
+ */
+export const consolidationFailurePrompt = (failCount) => ([{
+    name: 'continueAnyway',
+    type: 'confirm',
+    message: `${failCount} realm(s) failed to consolidate.`
+        + ' Continue with commit?',
+    default: true
+}]);
+
+/**
+ * Confirm staging and committing changed files.
+ * @param {number} totalChanged - Number of files changed
+ * @returns {Object[]} Inquirer prompt config — answer key: `confirmCommit`
+ */
+export const confirmCommitPrompt = (totalChanged) => ([{
+    name: 'confirmCommit',
+    type: 'confirm',
+    message: `Stage and commit ${totalChanged} changed file(s)?`,
+    default: true
+}]);
+
+/**
+ * Input the commit message.
+ * @param {string} suggestedMsg - Default commit message suggestion
+ * @returns {Object[]} Inquirer prompt config — answer key: `commitMsg`
+ */
+export const commitMessagePrompt = (suggestedMsg) => ([{
+    name: 'commitMsg',
+    type: 'input',
+    message: 'Commit message:',
+    default: suggestedMsg
+}]);

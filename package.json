@@ -5,15 +5,19 @@
   "main": "src/main.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "eslint src/ --max-warnings 0",
-    "lint:fix": "eslint src/ --fix"
+    "lint:fix": "eslint src/ --fix",
+    "coverage:open": "start coverage/index.html"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "eslint": "^9.39.2"
+    "@vitest/coverage-v8": "^4.0.18",
+    "eslint": "^9.39.2",
+    "vitest": "^4.0.18"
   },
   "dependencies": {
     "axios": "^1.13.3",

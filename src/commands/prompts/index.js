@@ -1,7 +1,3 @@
-﻿import * as realmPrompts from './realmPrompts.js';
-import * as preferencePrompts from './preferencePrompts.js';
-import * as commonPrompts from './commonPrompts.js';
-
 // Re-export all prompts for convenience
 export {
     realmPrompt,
@@ -42,10 +38,17 @@ export {
     getRealmsForInstanceType
 } from './commonPrompts.js';
 
-export const prompts = {
-    ...realmPrompts,
-    ...preferencePrompts,
-    ...commonPrompts
-};
+export {
+    groupIdPrompt
+} from './debugPrompts.js';
 
-export default prompts;
+export {
+    confirmExecutionPrompt,
+    uncommittedChangesPrompt,
+    baseBranchPrompt,
+    branchNamePrompt,
+    consolidateMetaPrompt,
+    consolidationFailurePrompt,
+    confirmCommitPrompt,
+    commitMessagePrompt
+} from './metaPrompts.js';
