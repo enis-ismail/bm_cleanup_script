@@ -3,6 +3,11 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
+// Mock child_process
+vi.mock('child_process', () => ({
+    spawn: vi.fn()
+}));
+
 // Mock API module
 vi.mock('../../../src/api/api.js', () => ({
     updateAttributeDefinitionById: vi.fn()
@@ -32,8 +37,10 @@ import {
     getBackupFilePath,
     classifyRealmBackupStatus,
     deletePreferencesForRealms,
-    restorePreferencesFromBackups
+    restorePreferencesFromBackups,
+    runAnalyzePreferencesSubprocess
 } from '../../../src/commands/preferences/helpers/deleteHelpers.js';
+import { spawn } from 'child_process';
 import { updateAttributeDefinitionById } from '../../../src/api/api.js';
 import { loadBackupFile } from '../../../src/io/backupUtils.js';
 import { restorePreferencesForRealm } from '../../../src/commands/preferences/helpers/restoreHelper.js';
@@ -476,5 +483,66 @@ describe('restorePreferencesFromBackups', () => {
         expect(loadBackupFile).toHaveBeenCalledWith(
             expect.stringContaining(expectedFilename)
         );
+    });
+});
+
+// ============================================================================
+// runAnalyzePreferencesSubprocess
+// ============================================================================
+
+describe('runAnalyzePreferencesSubprocess', () => {
+    let logSpy;
+
+    beforeEach(() => {
+        logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('resolves true when subprocess exits with code 0', async () => {
+        const mockProcess = {
+            on: vi.fn((event, callback) => {
+                if (event === 'close') {
+                    setTimeout(() => callback(0), 0);
+                }
+            })
+        };
+        spawn.mockReturnValue(mockProcess);
+
+        const result = await runAnalyzePreferencesSubprocess();
+        expect(result).toBe(true);
+        expect(spawn).toHaveBeenCalledWith(
+            'node',
+            ['src/main.js', 'analyze-preferences'],
+            expect.objectContaining({ stdio: 'inherit', shell: true })
+        );
+    });
+
+    it('rejects when subprocess exits with non-zero code', async () => {
+        const mockProcess = {
+            on: vi.fn((event, callback) => {
+                if (event === 'close') {
+                    setTimeout(() => callback(1), 0);
+                }
+            })
+        };
+        spawn.mockReturnValue(mockProcess);
+
+        await expect(runAnalyzePreferencesSubprocess()).rejects.toThrow('exited with code 1');
+    });
+
+    it('rejects when subprocess emits error', async () => {
+        const mockProcess = {
+            on: vi.fn((event, callback) => {
+                if (event === 'error') {
+                    setTimeout(() => callback(new Error('spawn failed')), 0);
+                }
+            })
+        };
+        spawn.mockReturnValue(mockProcess);
+
+        await expect(runAnalyzePreferencesSubprocess()).rejects.toThrow('spawn failed');
     });
 });

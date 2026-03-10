@@ -379,10 +379,94 @@ Priority files for coverage expansion (highest value first):
 
 ---
 
-## 11. What NOT To Do
+## 11. Testing Command Files (Orchestrator Pattern)
+
+Command files (`src/commands/<domain>/<domain>.js`) are orchestrators that wire together
+prompts, helpers, and API calls. Their helpers are already tested in separate test files.
+Follow these rules when testing command files:
+
+### 11.1 Mock All Helpers, Verify Invocations
+
+For functions already tested by helper test files, **do not re-test their logic**.
+Instead, mock them and verify they are called with the correct arguments:
+
+```javascript
+// The helper is already tested in its own test file
+vi.mock('../../../src/commands/meta/helpers/metaFileCleanup.js', () => ({
+    buildMetaCleanupPlan: vi.fn(() => ({ actions: [], skipped: [] })),
+    formatCleanupPlan: vi.fn(() => ''),
+    // ...
+}));
+
+// In the test: verify the orchestrator calls the helper
+it('calls buildMetaCleanupPlan with repo path and preference map', async () => {
+    await triggerCommand();
+    expect(buildMetaCleanupPlan).toHaveBeenCalledWith(
+        '/mock/repo', expect.any(Map), expect.any(Array), expect.any(Object)
+    );
+});
+```
+
+### 11.2 Test Internal Output-Generating Functions
+
+If the command file has private functions that format output, log summaries, or build
+data structures, test those through the command flow:
+
+```javascript
+// Trigger a command and check that the internal function's console output appeared
+it('logs per-realm deletion summary', async () => {
+    setupMocksForRemoveFlow();
+    await triggerRemovePreferences();
+    expect(console.log).toHaveBeenCalledWith(
+        expect.stringContaining('Per-Realm Deletion Breakdown')
+    );
+});
+```
+
+### 11.3 Test Early-Exit Branches
+
+Each command has guard clauses that exit early (no realms, no files, user cancels).
+These are high-value tests because they verify graceful degradation:
+
+```javascript
+it('exits early when no realms are selected', async () => {
+    resolveRealmScopeSelection.mockResolvedValue({ realmList: [] });
+    await triggerCommand();
+    expect(buildMetaCleanupPlan).not.toHaveBeenCalled();
+});
+```
+
+### 11.4 Triggering Command Actions
+
+Use Commander's `parseAsync` to trigger commands through their registered actions:
+
+```javascript
+async function triggerCommand(args = []) {
+    const program = new Command();
+    program.exitOverride();
+    registerXxxCommands(program);
+    await program.parseAsync(['node', 'test', 'command-name', ...args]);
+}
+```
+
+### 11.5 What to Cover in Command Tests
+
+| What | How | Priority |
+|------|-----|----------|
+| Registration (commands exist) | Assert `program.commands` after registration | Required |
+| Happy-path flow | Mock helpers, verify call sequence and args | Required |
+| Early exits (guard clauses) | Mock empty/null returns, verify no downstream calls | Required |
+| User cancellation | Mock `inquirer.prompt` to return `confirm: false` | Required |
+| Internal formatting functions | Trigger flow, check `console.log` calls | Nice to have |
+| Error handling | Mock helper throws, verify graceful handling | Nice to have |
+
+---
+
+## 12. What NOT To Do
 
 - **Never** make real API calls in tests
 - **Never** read from the actual `results/` or `backup/` directories — copy formats into fixtures
 - **Never** use `setTimeout` or timing-based assertions
-- **Never** test console output content (mock it, don't assert it)
+- **Never** test console output content (mock it, don't assert it) — exception: command file tests may assert `console.log` was called with specific strings for internal formatting functions
 - **Never** create test files with CRLF line endings
+- **Never** re-test helper logic in command tests — only verify the helper was called

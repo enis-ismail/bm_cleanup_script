@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import path from 'path';
+import { Command } from 'commander';
 
 // ============================================================================
 // Mocks
@@ -81,18 +82,40 @@ vi.mock('../../../src/commands/prompts/commonPrompts.js', () => ({
     resolveRealmScopeSelection: vi.fn()
 }));
 
+vi.mock('inquirer', () => ({
+    default: { prompt: vi.fn() }
+}));
+
 import {
     registerCartridgeCommands,
     executeListSites,
     executeValidateCartridgesAll,
     executeValidateSiteXml
 } from '../../../src/commands/cartridges/cartridges.js';
+import inquirer from 'inquirer';
 import { exportSitesCartridgesToCSV } from '../../../src/io/csv.js';
-import { findCartridgeFolders, calculateValidationStats } from '../../../src/io/util.js';
+import { findCartridgeFolders, calculateValidationStats, getSiblingRepositories } from '../../../src/io/util.js';
 import { compareCartridges, exportComparisonToFile } from '../../../src/commands/cartridges/helpers/cartridgeComparison.js';
 import { fetchAndTransformSites, fetchSitesFromAllRealms } from '../../../src/commands/cartridges/helpers/siteHelper.js';
 import { getAvailableRealms, getRealmConfig } from '../../../src/index.js';
 import { findSiteXmlFiles, parseAndCompareSiteXmls, exportSiteXmlComparison } from '../../../src/io/siteXmlHelper.js';
+import { resolveRealmScopeSelection } from '../../../src/commands/prompts/commonPrompts.js';
+import {
+    logCartridgeValidationSummaryHeader,
+    logRealmsProcessed,
+    logCartridgeValidationStats,
+    logCartridgeValidationWarning,
+    logCartridgeValidationSummaryFooter,
+    logSiteXmlValidationSummary
+} from '../../../src/scripts/loggingScript/log.js';
+
+// Helper to trigger commands
+async function triggerCommand(commandName) {
+    const program = new Command();
+    program.exitOverride();
+    registerCartridgeCommands(program);
+    await program.parseAsync(['node', 'test', commandName]);
+}
 
 beforeEach(() => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -304,5 +327,162 @@ describe('executeValidateSiteXml', () => {
         const result = await executeValidateSiteXml('/mock/repo', 'EU05');
 
         expect(result).toBeNull();
+    });
+});
+
+// ============================================================================
+// listSites — command flow
+// ============================================================================
+
+describe('listSites command flow', () => {
+    it('calls resolveRealmScopeSelection and processes each realm', async () => {
+        resolveRealmScopeSelection.mockResolvedValue({
+            realmList: ['EU05', 'APAC'],
+            instanceTypeOverride: null
+        });
+
+        await triggerCommand('list-sites');
+
+        expect(resolveRealmScopeSelection).toHaveBeenCalled();
+        expect(exportSitesCartridgesToCSV).toHaveBeenCalledWith('EU05');
+        expect(exportSitesCartridgesToCSV).toHaveBeenCalledWith('APAC');
+        expect(exportSitesCartridgesToCSV).toHaveBeenCalledTimes(2);
+    });
+
+    it('exits early when no realms selected', async () => {
+        resolveRealmScopeSelection.mockResolvedValue({
+            realmList: [],
+            instanceTypeOverride: null
+        });
+
+        await triggerCommand('list-sites');
+
+        expect(exportSitesCartridgesToCSV).not.toHaveBeenCalled();
+    });
+
+    it('exits early when realmList is null', async () => {
+        resolveRealmScopeSelection.mockResolvedValue({
+            realmList: null,
+            instanceTypeOverride: null
+        });
+
+        await triggerCommand('list-sites');
+
+        expect(exportSitesCartridgesToCSV).not.toHaveBeenCalled();
+    });
+});
+
+// ============================================================================
+// validateCartridgesAll — command flow
+// ============================================================================
+
+describe('validateCartridgesAll command flow', () => {
+    it('calls logging functions with validation results', async () => {
+        resolveRealmScopeSelection.mockResolvedValue({
+            realmList: ['EU05'],
+            instanceTypeOverride: 'development'
+        });
+        getSiblingRepositories.mockResolvedValue(['repo-a']);
+        inquirer.prompt.mockResolvedValueOnce({ repository: 'repo-a' });
+
+        await triggerCommand('validate-cartridges-all');
+
+        expect(logCartridgeValidationSummaryHeader).toHaveBeenCalled();
+        expect(logRealmsProcessed).toHaveBeenCalled();
+        expect(logCartridgeValidationStats).toHaveBeenCalled();
+        expect(logCartridgeValidationSummaryFooter).toHaveBeenCalled();
+    });
+
+    it('shows warning when unused cartridges exist', async () => {
+        resolveRealmScopeSelection.mockResolvedValue({
+            realmList: ['EU05'],
+            instanceTypeOverride: 'development'
+        });
+        getSiblingRepositories.mockResolvedValue(['repo-a']);
+        inquirer.prompt.mockResolvedValueOnce({ repository: 'repo-a' });
+
+        compareCartridges.mockReturnValue({
+            total: 2,
+            used: ['app_storefront'],
+            unused: ['int_payment'],
+            detail: []
+        });
+
+        await triggerCommand('validate-cartridges-all');
+
+        expect(logCartridgeValidationWarning).toHaveBeenCalledWith(
+            1,
+            expect.any(String)
+        );
+    });
+
+    it('exits early when no realms selected', async () => {
+        resolveRealmScopeSelection.mockResolvedValue({
+            realmList: [],
+            instanceTypeOverride: null
+        });
+
+        await triggerCommand('validate-cartridges-all');
+
+        expect(logCartridgeValidationSummaryHeader).not.toHaveBeenCalled();
+    });
+
+    it('exits early when no sibling repositories found', async () => {
+        resolveRealmScopeSelection.mockResolvedValue({
+            realmList: ['EU05'],
+            instanceTypeOverride: null
+        });
+        getSiblingRepositories.mockResolvedValue([]);
+
+        await triggerCommand('validate-cartridges-all');
+
+        expect(findCartridgeFolders).not.toHaveBeenCalled();
+    });
+});
+
+// ============================================================================
+// validateSiteXml — command flow
+// ============================================================================
+
+describe('validateSiteXml command flow', () => {
+    it('calls logSiteXmlValidationSummary with results', async () => {
+        getSiblingRepositories.mockResolvedValue(['repo-a']);
+        inquirer.prompt
+            .mockResolvedValueOnce({ repository: 'repo-a' })
+            .mockResolvedValueOnce({ realm: 'EU05' });
+
+        getRealmConfig.mockReturnValue({ siteTemplatesPath: 'sites/template' });
+        findSiteXmlFiles.mockResolvedValue([
+            { siteLocale: 'default', relativePath: 'sites/site.xml' }
+        ]);
+        fetchAndTransformSites.mockResolvedValue([
+            { id: 'SiteA', cartridges: ['app_storefront'] }
+        ]);
+        parseAndCompareSiteXmls.mockResolvedValue([{ file: 'site.xml', matches: true }]);
+
+        await triggerCommand('validate-site-xml');
+
+        expect(logSiteXmlValidationSummary).toHaveBeenCalled();
+    });
+
+    it('exits early when no sibling repos found', async () => {
+        getSiblingRepositories.mockResolvedValue([]);
+
+        await triggerCommand('validate-site-xml');
+
+        expect(findSiteXmlFiles).not.toHaveBeenCalled();
+    });
+
+    it('does not call logSiteXmlValidationSummary when validation returns null', async () => {
+        getSiblingRepositories.mockResolvedValue(['repo-a']);
+        inquirer.prompt
+            .mockResolvedValueOnce({ repository: 'repo-a' })
+            .mockResolvedValueOnce({ realm: 'EU05' });
+
+        getRealmConfig.mockReturnValue({});
+
+        await triggerCommand('validate-site-xml');
+
+        expect(logSiteXmlValidationSummary).not.toHaveBeenCalled();
     });
 });

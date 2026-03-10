@@ -845,3 +845,1045 @@ describe('formatPreferenceValueResults', () => {
         expect(output).toContain('maxResults');
     });
 });
+
+// ============================================================================
+// XML OUTPUT CORRECTNESS — attribute definition removal
+// Verifies that removeAttributeFromXml (exercised through executeMetaCleanupPlan)
+// produces valid XML with ONLY the target attributes removed.
+// ============================================================================
+
+describe('XML output correctness — attribute definition removal', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'meta-xml-'));
+        vi.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        console.log.mockRestore();
+    });
+
+    it('removes only the targeted attribute, preserving others intact', () => {
+        const metaDir = path.join(tmpDir, 'meta');
+        fs.mkdirSync(metaDir, { recursive: true });
+
+        const xml = createMetaXml(['keepFirst', 'removeTarget', 'keepLast']);
+        const filePath = path.join(metaDir, 'meta.xml');
+        fs.writeFileSync(filePath, xml, 'utf-8');
+
+        const plan = {
+            actions: [{
+                type: 'remove', attributeId: 'removeTarget',
+                filePath, realm: 'EU05', reason: 'test'
+            }],
+            warnings: [], skipped: [],
+            realmPreferenceMap: new Map(), repoPath: tmpDir
+        };
+
+        executeMetaCleanupPlan(plan);
+
+        const result = fs.readFileSync(filePath, 'utf-8');
+        expect(result).toContain('attribute-id="keepFirst"');
+        expect(result).toContain('attribute-id="keepLast"');
+        expect(result).not.toContain('removeTarget');
+        // Verify both definition and group assignment were removed
+        expect(result).not.toContain('<attribute-definition attribute-id="removeTarget"');
+        expect(result).not.toContain('<attribute attribute-id="removeTarget"');
+    });
+
+    it('removes attribute with complex nested XML elements', () => {
+        const metaDir = path.join(tmpDir, 'meta');
+        fs.mkdirSync(metaDir, { recursive: true });
+
+        const complexXml = `<?xml version="1.0" encoding="UTF-8"?>
+<metadata xmlns="http://www.demandware.com/xml/impex/metadata/2006-10-31">
+    <type-extension type-id="SitePreferences">
+        <custom-attribute-definitions>
+            <attribute-definition attribute-id="simpleAttr">
+                <display-name xml:lang="x-default">Simple</display-name>
+                <type>string</type>
+            </attribute-definition>
+            <attribute-definition attribute-id="complexAttr">
+                <display-name xml:lang="x-default">Complex</display-name>
+                <display-name xml:lang="de-DE">Komplex</display-name>
+                <description xml:lang="x-default">A complex attribute with many properties</description>
+                <type>enum-of-string</type>
+                <mandatory-flag>false</mandatory-flag>
+                <externally-managed-flag>false</externally-managed-flag>
+                <value-definitions>
+                    <value-definition>
+                        <display xml:lang="x-default">Option A</display>
+                        <value>optionA</value>
+                    </value-definition>
+                    <value-definition>
+                        <display xml:lang="x-default">Option B</display>
+                        <value>optionB</value>
+                    </value-definition>
+                </value-definitions>
+            </attribute-definition>
+        </custom-attribute-definitions>
+        <group-definitions>
+            <attribute-group group-id="TestGroup">
+                <display-name xml:lang="x-default">TestGroup</display-name>
+                <attribute attribute-id="simpleAttr"/>
+                <attribute attribute-id="complexAttr"/>
+            </attribute-group>
+        </group-definitions>
+    </type-extension>
+</metadata>
+`;
+        const filePath = path.join(metaDir, 'meta.xml');
+        fs.writeFileSync(filePath, complexXml, 'utf-8');
+
+        const plan = {
+            actions: [{
+                type: 'remove', attributeId: 'complexAttr',
+                filePath, realm: 'EU05', reason: 'remove complex'
+            }],
+            warnings: [], skipped: [],
+            realmPreferenceMap: new Map(), repoPath: tmpDir
+        };
+
+        executeMetaCleanupPlan(plan);
+
+        const result = fs.readFileSync(filePath, 'utf-8');
+        // Complex attribute fully removed
+        expect(result).not.toContain('complexAttr');
+        expect(result).not.toContain('enum-of-string');
+        expect(result).not.toContain('value-definitions');
+        expect(result).not.toContain('Option A');
+        // Simple attribute preserved
+        expect(result).toContain('attribute-id="simpleAttr"');
+        expect(result).toContain('<type>string</type>');
+        // Structure still valid
+        expect(result).toContain('</custom-attribute-definitions>');
+        expect(result).toContain('</group-definitions>');
+        expect(result).toContain('</metadata>');
+    });
+
+    it('preserves XML declaration and namespace after removal', () => {
+        const metaDir = path.join(tmpDir, 'meta');
+        fs.mkdirSync(metaDir, { recursive: true });
+
+        const xml = createMetaXml(['onlyAttr', 'keepAttr']);
+        const filePath = path.join(metaDir, 'meta.xml');
+        fs.writeFileSync(filePath, xml, 'utf-8');
+
+        const plan = {
+            actions: [{
+                type: 'remove', attributeId: 'onlyAttr',
+                filePath, realm: 'EU05', reason: 'test'
+            }],
+            warnings: [], skipped: [],
+            realmPreferenceMap: new Map(), repoPath: tmpDir
+        };
+
+        executeMetaCleanupPlan(plan);
+
+        const result = fs.readFileSync(filePath, 'utf-8');
+        expect(result).toContain('<?xml version="1.0" encoding="UTF-8"?>');
+        expect(result).toContain('demandware.com/xml/impex/metadata');
+        expect(result).toContain('type-id="SitePreferences"');
+    });
+
+    it('handles attribute IDs with regex special characters', () => {
+        const metaDir = path.join(tmpDir, 'meta');
+        fs.mkdirSync(metaDir, { recursive: true });
+
+        // Build XML manually with a tricky attribute ID
+        const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<metadata xmlns="http://www.demandware.com/xml/impex/metadata/2006-10-31">
+    <type-extension type-id="SitePreferences">
+        <custom-attribute-definitions>
+            <attribute-definition attribute-id="test.attr+name">
+                <display-name xml:lang="x-default">Test</display-name>
+                <type>string</type>
+            </attribute-definition>
+            <attribute-definition attribute-id="normalAttr">
+                <display-name xml:lang="x-default">Normal</display-name>
+                <type>string</type>
+            </attribute-definition>
+        </custom-attribute-definitions>
+        <group-definitions>
+            <attribute-group group-id="G1">
+                <display-name xml:lang="x-default">G1</display-name>
+                <attribute attribute-id="test.attr+name"/>
+                <attribute attribute-id="normalAttr"/>
+            </attribute-group>
+        </group-definitions>
+    </type-extension>
+</metadata>
+`;
+        const filePath = path.join(metaDir, 'meta.xml');
+        fs.writeFileSync(filePath, xml, 'utf-8');
+
+        const plan = {
+            actions: [{
+                type: 'remove', attributeId: 'test.attr+name',
+                filePath, realm: 'EU05', reason: 'special chars'
+            }],
+            warnings: [], skipped: [],
+            realmPreferenceMap: new Map(), repoPath: tmpDir
+        };
+
+        executeMetaCleanupPlan(plan);
+
+        const result = fs.readFileSync(filePath, 'utf-8');
+        expect(result).not.toContain('test.attr+name');
+        expect(result).toContain('normalAttr');
+    });
+});
+
+// ============================================================================
+// XML OUTPUT CORRECTNESS — preference value removal
+// Verifies that removePreferenceValue correctly handles all XML formats
+// ============================================================================
+
+describe('XML output correctness — preference value removal', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'meta-prefval-'));
+        vi.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        console.log.mockRestore();
+    });
+
+    it('removes multi-line preference values with nested elements', () => {
+        const siteDir = path.join(tmpDir, 'sites', 'site1');
+        fs.mkdirSync(siteDir, { recursive: true });
+
+        const prefXml = `<?xml version="1.0" encoding="UTF-8"?>
+<preferences>
+    <preference preference-id="keepMe">simpleValue</preference>
+    <preference preference-id="removeMultiLine">
+        <value>line1</value>
+        <value>line2</value>
+    </preference>
+    <preference preference-id="alsoKeep">another</preference>
+</preferences>
+`;
+        fs.writeFileSync(path.join(siteDir, 'preferences.xml'), prefXml, 'utf-8');
+
+        const result = removePreferenceValuesFromSites({
+            repoPath: tmpDir,
+            preferenceIds: ['removeMultiLine']
+        });
+
+        expect(result.totalRemoved).toBe(1);
+        const content = fs.readFileSync(path.join(siteDir, 'preferences.xml'), 'utf-8');
+        expect(content).not.toContain('removeMultiLine');
+        expect(content).toContain('keepMe');
+        expect(content).toContain('alsoKeep');
+    });
+
+    it('removes multiple preferences from the same file', () => {
+        const siteDir = path.join(tmpDir, 'sites', 'site1');
+        fs.mkdirSync(siteDir, { recursive: true });
+
+        const prefXml = createPreferencesXml([
+            { id: 'removeA', value: 'valA' },
+            { id: 'keepB', value: 'valB' },
+            { id: 'removeC', value: 'valC' },
+            { id: 'keepD', value: 'valD' }
+        ]);
+        fs.writeFileSync(path.join(siteDir, 'preferences.xml'), prefXml, 'utf-8');
+
+        const result = removePreferenceValuesFromSites({
+            repoPath: tmpDir,
+            preferenceIds: ['removeA', 'c_removeC']
+        });
+
+        expect(result.totalRemoved).toBe(2);
+        const content = fs.readFileSync(path.join(siteDir, 'preferences.xml'), 'utf-8');
+        expect(content).not.toContain('removeA');
+        expect(content).not.toContain('removeC');
+        expect(content).toContain('keepB');
+        expect(content).toContain('keepD');
+    });
+
+    it('handles non-existent sites directory gracefully', () => {
+        const result = removePreferenceValuesFromSites({
+            repoPath: path.join(tmpDir, 'nonexistent'),
+            preferenceIds: ['c_anything']
+        });
+
+        expect(result.totalRemoved).toBe(0);
+        expect(result.filesModified).toEqual([]);
+    });
+
+    it('scans nested subdirectories under sites/', () => {
+        // Create deeply nested site structure
+        const deepDir = path.join(tmpDir, 'sites', 'region', 'site_a');
+        fs.mkdirSync(deepDir, { recursive: true });
+
+        const prefXml = createPreferencesXml([
+            { id: 'deepPref', value: 'nestedVal' }
+        ]);
+        fs.writeFileSync(path.join(deepDir, 'preferences.xml'), prefXml, 'utf-8');
+
+        const result = removePreferenceValuesFromSites({
+            repoPath: tmpDir,
+            preferenceIds: ['deepPref']
+        });
+
+        expect(result.totalRemoved).toBe(1);
+    });
+});
+
+// ============================================================================
+// executeMetaCleanupPlan — error handling and edge cases
+// ============================================================================
+
+describe('executeMetaCleanupPlan — error handling', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'meta-exec-err-'));
+        vi.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        console.log.mockRestore();
+    });
+
+    it('skips remove action when file does not exist', () => {
+        const plan = {
+            actions: [{
+                type: 'remove', attributeId: 'ghost',
+                filePath: path.join(tmpDir, 'nonexistent.xml'),
+                realm: 'EU05', reason: 'test missing file'
+            }],
+            warnings: [], skipped: [],
+            realmPreferenceMap: new Map(), repoPath: tmpDir
+        };
+
+        const result = executeMetaCleanupPlan(plan);
+
+        expect(result.filesModified).toEqual([]);
+        expect(result.filesDeleted).toEqual([]);
+        expect(result.errors).toEqual([]);
+    });
+
+    it('skips file when attribute is not found in content (no matching IDs)', () => {
+        const metaDir = path.join(tmpDir, 'meta');
+        fs.mkdirSync(metaDir, { recursive: true });
+
+        const xml = createMetaXml(['existingAttr']);
+        const filePath = path.join(metaDir, 'meta.xml');
+        fs.writeFileSync(filePath, xml, 'utf-8');
+
+        const plan = {
+            actions: [{
+                type: 'remove', attributeId: 'nonExistentAttr',
+                filePath, realm: 'EU05', reason: 'not in file'
+            }],
+            warnings: [], skipped: [],
+            realmPreferenceMap: new Map(), repoPath: tmpDir
+        };
+
+        const result = executeMetaCleanupPlan(plan);
+
+        // File should not be modified since nothing was removed
+        expect(result.filesModified).toEqual([]);
+        expect(result.filesDeleted).toEqual([]);
+        // File content should be unchanged
+        const content = fs.readFileSync(filePath, 'utf-8');
+        expect(content).toContain('existingAttr');
+    });
+
+    it('does not create files in dry-run mode for create-realm-file actions', () => {
+        const coreDir = path.join(tmpDir, 'core', 'meta');
+        const realmDir = path.join(tmpDir, 'realm', 'meta');
+        fs.mkdirSync(coreDir, { recursive: true });
+        fs.mkdirSync(realmDir, { recursive: true });
+
+        const coreXml = createMetaXml(['dryRunPref']);
+        const coreFilePath = path.join(coreDir, 'meta.xml');
+        fs.writeFileSync(coreFilePath, coreXml, 'utf-8');
+
+        const targetFilePath = path.join(realmDir, 'meta.xml');
+
+        const plan = {
+            actions: [{
+                type: 'create-realm-file', attributeId: 'dryRunPref',
+                filePath: coreFilePath, targetFilePath,
+                realm: 'APAC', reason: 'dry run test'
+            }],
+            warnings: [], skipped: [],
+            realmPreferenceMap: new Map(), repoPath: tmpDir
+        };
+
+        const result = executeMetaCleanupPlan(plan, { dryRun: true });
+
+        expect(result.filesCreated).toEqual([]);
+        expect(fs.existsSync(targetFilePath)).toBe(false);
+    });
+
+    it('does not delete empty files in dry-run mode', () => {
+        const metaDir = path.join(tmpDir, 'meta');
+        fs.mkdirSync(metaDir, { recursive: true });
+
+        const xml = createMetaXml(['soleAttr']);
+        const filePath = path.join(metaDir, 'meta.xml');
+        fs.writeFileSync(filePath, xml, 'utf-8');
+
+        const plan = {
+            actions: [{
+                type: 'remove', attributeId: 'soleAttr',
+                filePath, realm: 'EU05', reason: 'should not delete in dry-run'
+            }],
+            warnings: [], skipped: [],
+            realmPreferenceMap: new Map(), repoPath: tmpDir
+        };
+
+        const result = executeMetaCleanupPlan(plan, { dryRun: true });
+
+        expect(result.filesDeleted).toEqual([]);
+        expect(result.filesModified).toEqual([]);
+        // File still exists with original content
+        expect(fs.existsSync(filePath)).toBe(true);
+        expect(fs.readFileSync(filePath, 'utf-8')).toContain('soleAttr');
+    });
+
+    it('handles mixed create + remove plan in correct order', () => {
+        const coreDir = path.join(tmpDir, 'core', 'meta');
+        const realmDir = path.join(tmpDir, 'realm', 'meta');
+        fs.mkdirSync(coreDir, { recursive: true });
+        fs.mkdirSync(realmDir, { recursive: true });
+
+        const coreXml = createMetaXml(['movedAttr', 'otherAttr']);
+        const coreFilePath = path.join(coreDir, 'meta.xml');
+        fs.writeFileSync(coreFilePath, coreXml, 'utf-8');
+
+        const targetFilePath = path.join(realmDir, 'meta.xml');
+
+        const plan = {
+            actions: [
+                {
+                    type: 'create-realm-file', attributeId: 'movedAttr',
+                    filePath: coreFilePath, targetFilePath,
+                    realm: 'APAC', reason: 'copy before removing from core'
+                },
+                {
+                    type: 'remove', attributeId: 'movedAttr',
+                    filePath: coreFilePath, realm: 'CORE',
+                    reason: 'remove from core after copy'
+                }
+            ],
+            warnings: [], skipped: [],
+            realmPreferenceMap: new Map(), repoPath: tmpDir
+        };
+
+        const result = executeMetaCleanupPlan(plan);
+
+        // Realm file was created with the attribute
+        expect(result.filesCreated).toHaveLength(1);
+        const realmContent = fs.readFileSync(targetFilePath, 'utf-8');
+        expect(realmContent).toContain('movedAttr');
+
+        // Core file was modified (movedAttr removed, otherAttr remains)
+        expect(result.filesModified).toHaveLength(1);
+        const coreContent = fs.readFileSync(coreFilePath, 'utf-8');
+        expect(coreContent).not.toContain('movedAttr');
+        expect(coreContent).toContain('otherAttr');
+    });
+});
+
+// ============================================================================
+// executeMetaCleanupPlan — create-realm-file append to existing file
+// Tests the appendAttributeToExistingFile path (uncovered until now)
+// ============================================================================
+
+describe('executeMetaCleanupPlan — append to existing realm file', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'meta-append-'));
+        vi.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        console.log.mockRestore();
+    });
+
+    it('appends attribute definition and group assignment into existing realm file', () => {
+        const coreDir = path.join(tmpDir, 'core', 'meta');
+        const realmDir = path.join(tmpDir, 'realm', 'meta');
+        fs.mkdirSync(coreDir, { recursive: true });
+        fs.mkdirSync(realmDir, { recursive: true });
+
+        // Core file has the attribute to copy
+        const coreXml = createMetaXml(['newAttr', 'otherCoreAttr']);
+        fs.writeFileSync(path.join(coreDir, 'meta.xml'), coreXml, 'utf-8');
+
+        // Target realm file already exists with a different attribute
+        const existingRealmXml = createMetaXml(['existingRealmAttr']);
+        const targetFilePath = path.join(realmDir, 'meta.xml');
+        fs.writeFileSync(targetFilePath, existingRealmXml, 'utf-8');
+
+        const plan = {
+            actions: [{
+                type: 'create-realm-file', attributeId: 'newAttr',
+                filePath: path.join(coreDir, 'meta.xml'),
+                targetFilePath,
+                realm: 'APAC', reason: 'append to existing'
+            }],
+            warnings: [], skipped: [],
+            realmPreferenceMap: new Map(), repoPath: tmpDir
+        };
+
+        const result = executeMetaCleanupPlan(plan);
+
+        expect(result.filesCreated).toHaveLength(1);
+        const content = fs.readFileSync(targetFilePath, 'utf-8');
+        // Both old and new attributes should be present
+        expect(content).toContain('attribute-id="existingRealmAttr"');
+        expect(content).toContain('attribute-id="newAttr"');
+        // The other core attribute should NOT be copied
+        expect(content).not.toContain('otherCoreAttr');
+        // XML structure should be valid
+        expect(content).toContain('</custom-attribute-definitions>');
+        expect(content).toContain('</attribute-group>');
+    });
+
+    it('appends multiple attributes from separate create actions', () => {
+        const coreDir = path.join(tmpDir, 'core', 'meta');
+        const realmDir = path.join(tmpDir, 'realm', 'meta');
+        fs.mkdirSync(coreDir, { recursive: true });
+        fs.mkdirSync(realmDir, { recursive: true });
+
+        const coreXml = createMetaXml(['attrX', 'attrY', 'attrZ']);
+        const coreFilePath = path.join(coreDir, 'meta.xml');
+        fs.writeFileSync(coreFilePath, coreXml, 'utf-8');
+
+        // Existing realm file
+        const existingRealmXml = createMetaXml(['realmOriginal']);
+        const targetFilePath = path.join(realmDir, 'meta.xml');
+        fs.writeFileSync(targetFilePath, existingRealmXml, 'utf-8');
+
+        const plan = {
+            actions: [
+                {
+                    type: 'create-realm-file', attributeId: 'attrX',
+                    filePath: coreFilePath, targetFilePath,
+                    realm: 'APAC', reason: 'copy X'
+                },
+                {
+                    type: 'create-realm-file', attributeId: 'attrY',
+                    filePath: coreFilePath, targetFilePath,
+                    realm: 'APAC', reason: 'copy Y'
+                }
+            ],
+            warnings: [], skipped: [],
+            realmPreferenceMap: new Map(), repoPath: tmpDir
+        };
+
+        const result = executeMetaCleanupPlan(plan);
+
+        const content = fs.readFileSync(targetFilePath, 'utf-8');
+        expect(content).toContain('attribute-id="realmOriginal"');
+        expect(content).toContain('attribute-id="attrX"');
+        expect(content).toContain('attribute-id="attrY"');
+        expect(content).not.toContain('attrZ');
+    });
+});
+
+// ============================================================================
+// executeMetaCleanupPlan — create-realm-file with fallback group
+// Tests the path where extractContainingGroup returns null
+// ============================================================================
+
+describe('executeMetaCleanupPlan — create-realm-file fallback paths', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'meta-fallback-'));
+        vi.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        console.log.mockRestore();
+    });
+
+    it('creates file with "Migrated" group when no containing group block found', () => {
+        const coreDir = path.join(tmpDir, 'core', 'meta');
+        const realmDir = path.join(tmpDir, 'realm', 'meta');
+        fs.mkdirSync(coreDir, { recursive: true });
+        fs.mkdirSync(realmDir, { recursive: true });
+
+        // Create a core file where attribution is in group but the group
+        // structure doesn't match the extractContainingGroup pattern
+        // (no group assignment at all — only definition exists)
+        const coreXml = `<?xml version="1.0" encoding="UTF-8"?>
+<metadata xmlns="http://www.demandware.com/xml/impex/metadata/2006-10-31">
+    <type-extension type-id="SitePreferences">
+        <custom-attribute-definitions>
+            <attribute-definition attribute-id="orphanAttr">
+                <display-name xml:lang="x-default">Orphan</display-name>
+                <type>string</type>
+            </attribute-definition>
+        </custom-attribute-definitions>
+    </type-extension>
+</metadata>
+`;
+        const coreFilePath = path.join(coreDir, 'meta.xml');
+        fs.writeFileSync(coreFilePath, coreXml, 'utf-8');
+
+        const targetFilePath = path.join(realmDir, 'meta.xml');
+
+        const plan = {
+            actions: [{
+                type: 'create-realm-file', attributeId: 'orphanAttr',
+                filePath: coreFilePath, targetFilePath,
+                realm: 'APAC', reason: 'no group block'
+            }],
+            warnings: [], skipped: [],
+            realmPreferenceMap: new Map(), repoPath: tmpDir
+        };
+
+        executeMetaCleanupPlan(plan);
+
+        const content = fs.readFileSync(targetFilePath, 'utf-8');
+        // Should have the definition
+        expect(content).toContain('attribute-id="orphanAttr"');
+        // Should NOT have a Migrated group since there's no group assignment to extract
+        expect(content).toContain('</type-extension>');
+        expect(content).toContain('</metadata>');
+    });
+
+    it('creates meta directory if it does not exist', () => {
+        const coreDir = path.join(tmpDir, 'core', 'meta');
+        fs.mkdirSync(coreDir, { recursive: true });
+
+        const coreXml = createMetaXml(['newRealmAttr']);
+        const coreFilePath = path.join(coreDir, 'meta.xml');
+        fs.writeFileSync(coreFilePath, coreXml, 'utf-8');
+
+        // Target directory does NOT exist yet
+        const targetFilePath = path.join(tmpDir, 'new-realm', 'meta', 'meta.xml');
+
+        const plan = {
+            actions: [{
+                type: 'create-realm-file', attributeId: 'newRealmAttr',
+                filePath: coreFilePath, targetFilePath,
+                realm: 'APAC', reason: 'create dir'
+            }],
+            warnings: [], skipped: [],
+            realmPreferenceMap: new Map(), repoPath: tmpDir
+        };
+
+        executeMetaCleanupPlan(plan);
+
+        expect(fs.existsSync(targetFilePath)).toBe(true);
+        const content = fs.readFileSync(targetFilePath, 'utf-8');
+        expect(content).toContain('newRealmAttr');
+    });
+});
+
+// ============================================================================
+// buildMetaCleanupPlan — additional branch coverage
+// ============================================================================
+
+describe('buildMetaCleanupPlan — additional scenarios', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'meta-plan2-'));
+        vi.spyOn(console, 'log').mockImplementation(() => {});
+
+        getSandboxConfig.mockImplementation((realm) => ({
+            siteTemplatesPath: `sites/site_template_${realm.toLowerCase()}`
+        }));
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        console.log.mockRestore();
+        vi.restoreAllMocks();
+    });
+
+    it('skips create-realm-file when remaining realm already has the attribute', () => {
+        const coreMetaDir = path.join(tmpDir, 'sites', 'site_template', 'meta');
+        fs.mkdirSync(coreMetaDir, { recursive: true });
+
+        const realmMetaDirEU = path.join(tmpDir, 'sites', 'site_template_eu05', 'meta');
+        const realmMetaDirAPAC = path.join(tmpDir, 'sites', 'site_template_apac', 'meta');
+        fs.mkdirSync(realmMetaDirEU, { recursive: true });
+        fs.mkdirSync(realmMetaDirAPAC, { recursive: true });
+
+        // Core has the attribute
+        const coreXml = createMetaXml(['partialPref']);
+        fs.writeFileSync(path.join(coreMetaDir, 'meta.xml'), coreXml, 'utf-8');
+
+        // APAC already has it in its own realm folder
+        const apacXml = createMetaXml(['partialPref']);
+        fs.writeFileSync(path.join(realmMetaDirAPAC, 'meta.xml'), apacXml, 'utf-8');
+
+        // Only EU05 deletes — APAC still needs it, but already has it
+        const realmPreferenceMap = new Map([
+            ['EU05', ['c_partialPref']]
+        ]);
+
+        const plan = buildMetaCleanupPlan(tmpDir, realmPreferenceMap, ['EU05', 'APAC']);
+
+        // No create-realm-file needed since APAC already has the attribute
+        const createActions = plan.actions.filter(a => a.type === 'create-realm-file');
+        expect(createActions).toEqual([]);
+
+        // But should still remove from core
+        const coreRemoves = plan.actions.filter(a => a.realm === 'CORE');
+        expect(coreRemoves.length).toBe(1);
+    });
+
+    it('handles multiple attributes across multiple realms', () => {
+        const coreMetaDir = path.join(tmpDir, 'sites', 'site_template', 'meta');
+        fs.mkdirSync(coreMetaDir, { recursive: true });
+
+        for (const realm of ['eu05', 'apac', 'pna']) {
+            const realmMetaDir = path.join(tmpDir, 'sites', `site_template_${realm}`, 'meta');
+            fs.mkdirSync(realmMetaDir, { recursive: true });
+        }
+
+        // Core has multiple attributes
+        const coreXml = createMetaXml(['sharedA', 'sharedB', 'sharedC']);
+        fs.writeFileSync(path.join(coreMetaDir, 'meta.xml'), coreXml, 'utf-8');
+
+        // EU05 realm has its own attributes
+        const euXml = createMetaXml(['realmOnlyA']);
+        fs.writeFileSync(
+            path.join(tmpDir, 'sites', 'site_template_eu05', 'meta', 'meta.xml'),
+            euXml, 'utf-8'
+        );
+
+        const realmPreferenceMap = new Map([
+            ['EU05', ['c_sharedA', 'c_sharedB', 'c_realmOnlyA']],
+            ['APAC', ['c_sharedA', 'c_sharedB']],
+            ['PNA', ['c_sharedA', 'c_sharedB']]
+        ]);
+
+        const plan = buildMetaCleanupPlan(
+            tmpDir, realmPreferenceMap, ['EU05', 'APAC', 'PNA']
+        );
+
+        // sharedA and sharedB deleted from ALL realms → remove from core
+        const coreSARemove = plan.actions.filter(
+            a => a.attributeId === 'sharedA' && a.realm === 'CORE'
+        );
+        const coreSBRemove = plan.actions.filter(
+            a => a.attributeId === 'sharedB' && a.realm === 'CORE'
+        );
+        expect(coreSARemove.length).toBe(1);
+        expect(coreSBRemove.length).toBe(1);
+
+        // sharedC NOT deleted → should remain in core
+        const coresCRemove = plan.actions.filter(a => a.attributeId === 'sharedC');
+        expect(coresCRemove).toEqual([]);
+
+        // realmOnlyA only in EU05 realm → remove from EU05
+        const euRealmRemove = plan.actions.filter(
+            a => a.attributeId === 'realmOnlyA' && a.realm === 'EU05'
+        );
+        expect(euRealmRemove.length).toBe(1);
+    });
+
+    it('handles attribute in both realm and core files (removes from both)', () => {
+        const coreMetaDir = path.join(tmpDir, 'sites', 'site_template', 'meta');
+        const realmMetaDir = path.join(tmpDir, 'sites', 'site_template_eu05', 'meta');
+        fs.mkdirSync(coreMetaDir, { recursive: true });
+        fs.mkdirSync(realmMetaDir, { recursive: true });
+
+        // Same attribute in both core and realm
+        const xml = createMetaXml(['duplicated']);
+        fs.writeFileSync(path.join(coreMetaDir, 'meta.xml'), xml, 'utf-8');
+        fs.writeFileSync(path.join(realmMetaDir, 'meta.xml'), xml, 'utf-8');
+
+        const realmPreferenceMap = new Map([
+            ['EU05', ['c_duplicated']]
+        ]);
+
+        const plan = buildMetaCleanupPlan(tmpDir, realmPreferenceMap, ['EU05']);
+
+        // Should remove from both realm AND core
+        const realmRemove = plan.actions.filter(a => a.realm === 'EU05');
+        const coreRemove = plan.actions.filter(a => a.realm === 'CORE');
+        expect(realmRemove.length).toBe(1);
+        expect(coreRemove.length).toBe(1);
+    });
+
+    it('handles non-xml files in meta directory (ignores them)', () => {
+        const coreMetaDir = path.join(tmpDir, 'sites', 'site_template', 'meta');
+        const realmMetaDir = path.join(tmpDir, 'sites', 'site_template_eu05', 'meta');
+        fs.mkdirSync(coreMetaDir, { recursive: true });
+        fs.mkdirSync(realmMetaDir, { recursive: true });
+
+        // Write a non-XML file alongside the meta XML
+        fs.writeFileSync(
+            path.join(coreMetaDir, 'readme.txt'),
+            'This is not XML', 'utf-8'
+        );
+        // Write XML without SitePreferences type-extension
+        fs.writeFileSync(
+            path.join(coreMetaDir, 'other.xml'),
+            '<metadata><type-extension type-id="OtherObject"></type-extension></metadata>',
+            'utf-8'
+        );
+
+        const realmPreferenceMap = new Map([
+            ['EU05', ['c_testAttr']]
+        ]);
+
+        const plan = buildMetaCleanupPlan(tmpDir, realmPreferenceMap, ['EU05']);
+
+        // Should skip testAttr since no SitePreferences meta file contains it
+        expect(plan.skipped).toContain('testAttr');
+    });
+});
+
+// ============================================================================
+// scanSitesForRemainingPreferences — additional coverage
+// ============================================================================
+
+describe('scanSitesForRemainingPreferences — additional scenarios', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'meta-scan2-'));
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('matches preference-id pattern in addition to attribute-id', () => {
+        const sitesDir = path.join(tmpDir, 'sites', 'site1');
+        fs.mkdirSync(sitesDir, { recursive: true });
+
+        // This XML uses preference-id (not attribute-id)
+        const prefXml = `<preferences>
+    <preference preference-id="matchThisPref">value</preference>
+</preferences>`;
+        fs.writeFileSync(path.join(sitesDir, 'preferences.xml'), prefXml, 'utf-8');
+
+        const result = scanSitesForRemainingPreferences({
+            repoPath: tmpDir,
+            preferenceIds: ['c_matchThisPref']
+        });
+
+        expect(result.matchesByPreference.has('matchThisPref')).toBe(true);
+    });
+
+    it('handles non-array preferenceIds gracefully', () => {
+        const result = scanSitesForRemainingPreferences({
+            repoPath: tmpDir,
+            preferenceIds: null
+        });
+
+        expect(result.checkedPreferences).toBe(0);
+        expect(result.matchesByPreference.size).toBe(0);
+    });
+
+    it('returns repo-relative paths in matches', () => {
+        const sitesDir = path.join(tmpDir, 'sites', 'region', 'siteA');
+        fs.mkdirSync(sitesDir, { recursive: true });
+
+        fs.writeFileSync(
+            path.join(sitesDir, 'meta.xml'),
+            '<attribute attribute-id="foundHere"/>',
+            'utf-8'
+        );
+
+        const result = scanSitesForRemainingPreferences({
+            repoPath: tmpDir,
+            preferenceIds: ['foundHere']
+        });
+
+        const files = result.matchesByPreference.get('foundHere');
+        expect(files).toHaveLength(1);
+        // Path should be relative to repoPath, not absolute
+        expect(files[0]).not.toContain(tmpDir);
+        expect(files[0]).toContain('sites');
+    });
+});
+
+// ============================================================================
+// formatSitesScanResults — overflow (>5 files) coverage
+// ============================================================================
+
+describe('formatSitesScanResults — overflow display', () => {
+    it('truncates file list and shows count when more than 5 files match', () => {
+        const matches = new Map([
+            ['overflowPref', [
+                'sites/site1/meta.xml',
+                'sites/site2/meta.xml',
+                'sites/site3/meta.xml',
+                'sites/site4/meta.xml',
+                'sites/site5/meta.xml',
+                'sites/site6/meta.xml',
+                'sites/site7/meta.xml'
+            ]]
+        ]);
+
+        const results = {
+            sitesDir: '/repo/sites',
+            scannedFiles: 20,
+            checkedPreferences: 1,
+            matchesByPreference: matches
+        };
+
+        const output = formatSitesScanResults(results);
+
+        expect(output).toContain('overflowPref');
+        expect(output).toContain('7 file(s)');
+        expect(output).toContain('... and 2 more');
+        // Should show first 5 files
+        expect(output).toContain('site1');
+        expect(output).toContain('site5');
+    });
+});
+
+// ============================================================================
+// End-to-end: buildMetaCleanupPlan + executeMetaCleanupPlan
+// Simulates the full cleanup workflow to verify output files are correct
+// ============================================================================
+
+describe('End-to-end meta cleanup workflow', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'meta-e2e-'));
+        vi.spyOn(console, 'log').mockImplementation(() => {});
+
+        getSandboxConfig.mockImplementation((realm) => ({
+            siteTemplatesPath: `sites/site_template_${realm.toLowerCase()}`
+        }));
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        console.log.mockRestore();
+        vi.restoreAllMocks();
+    });
+
+    it('full workflow: plan → execute → verify files for single-realm deletion', () => {
+        // Setup: core has 3 attributes, realm has 1 attribute
+        const coreMetaDir = path.join(tmpDir, 'sites', 'site_template', 'meta');
+        const realmMetaDir = path.join(tmpDir, 'sites', 'site_template_eu05', 'meta');
+        fs.mkdirSync(coreMetaDir, { recursive: true });
+        fs.mkdirSync(realmMetaDir, { recursive: true });
+
+        const coreXml = createMetaXml(['coreKeep', 'coreDel', 'coreAlsoDel']);
+        fs.writeFileSync(path.join(coreMetaDir, 'meta.xml'), coreXml, 'utf-8');
+
+        const realmXml = createMetaXml(['realmDel']);
+        fs.writeFileSync(path.join(realmMetaDir, 'meta.xml'), realmXml, 'utf-8');
+
+        // Plan: delete coreDel, coreAlsoDel, and realmDel from EU05 (only realm)
+        const realmPreferenceMap = new Map([
+            ['EU05', ['c_coreDel', 'c_coreAlsoDel', 'c_realmDel']]
+        ]);
+
+        const plan = buildMetaCleanupPlan(tmpDir, realmPreferenceMap, ['EU05']);
+
+        // Execute
+        const result = executeMetaCleanupPlan(plan);
+        expect(result.errors).toEqual([]);
+
+        // Verify core file: coreKeep remains, coreDel and coreAlsoDel removed
+        const coreContent = fs.readFileSync(
+            path.join(coreMetaDir, 'meta.xml'), 'utf-8'
+        );
+        expect(coreContent).toContain('coreKeep');
+        expect(coreContent).not.toContain('coreDel');
+        expect(coreContent).not.toContain('coreAlsoDel');
+
+        // Verify realm file: deleted (only attribute was removed)
+        expect(fs.existsSync(path.join(realmMetaDir, 'meta.xml'))).toBe(false);
+    });
+
+    it('full workflow: partial realm deletion moves attribute to remaining realms', () => {
+        const coreMetaDir = path.join(tmpDir, 'sites', 'site_template', 'meta');
+        fs.mkdirSync(coreMetaDir, { recursive: true });
+
+        for (const realm of ['eu05', 'apac']) {
+            const realmMetaDir = path.join(tmpDir, 'sites', `site_template_${realm}`, 'meta');
+            fs.mkdirSync(realmMetaDir, { recursive: true });
+        }
+
+        // Core has attribute that EU05 wants to delete but APAC still needs
+        const coreXml = createMetaXml(['splitPref', 'bothDelete']);
+        fs.writeFileSync(path.join(coreMetaDir, 'meta.xml'), coreXml, 'utf-8');
+
+        // EU05 deletes splitPref; both delete bothDelete
+        const realmPreferenceMap = new Map([
+            ['EU05', ['c_splitPref', 'c_bothDelete']],
+            ['APAC', ['c_bothDelete']]
+        ]);
+
+        const plan = buildMetaCleanupPlan(tmpDir, realmPreferenceMap, ['EU05', 'APAC']);
+        const result = executeMetaCleanupPlan(plan);
+        expect(result.errors).toEqual([]);
+
+        // APAC should have received splitPref in a new realm file
+        const apacMetaPath = path.join(
+            tmpDir, 'sites', 'site_template_apac', 'meta', 'meta.xml'
+        );
+        expect(fs.existsSync(apacMetaPath)).toBe(true);
+        const apacContent = fs.readFileSync(apacMetaPath, 'utf-8');
+        expect(apacContent).toContain('attribute-id="splitPref"');
+        // The attribute definition for bothDelete should NOT be in the APAC file
+        // (only splitPref's definition was extracted)
+        expect(apacContent).not.toContain(
+            '<attribute-definition attribute-id="bothDelete"'
+        );
+
+        // Core file should be deleted (both splitPref and bothDelete removed,
+        // leaving it empty — the executor deletes empty meta files)
+        expect(fs.existsSync(path.join(coreMetaDir, 'meta.xml'))).toBe(false);
+    });
+
+    it('full workflow: cross-realm mode removes from core without moving', () => {
+        const coreMetaDir = path.join(tmpDir, 'sites', 'site_template', 'meta');
+        fs.mkdirSync(coreMetaDir, { recursive: true });
+
+        for (const realm of ['eu05', 'apac']) {
+            const realmMetaDir = path.join(tmpDir, 'sites', `site_template_${realm}`, 'meta');
+            fs.mkdirSync(realmMetaDir, { recursive: true });
+        }
+
+        const coreXml = createMetaXml(['crossRealmAttr', 'keepThis']);
+        fs.writeFileSync(path.join(coreMetaDir, 'meta.xml'), coreXml, 'utf-8');
+
+        // Only EU05 listed but crossRealm=true treats it as all
+        const realmPreferenceMap = new Map([
+            ['EU05', ['c_crossRealmAttr']]
+        ]);
+
+        const plan = buildMetaCleanupPlan(
+            tmpDir, realmPreferenceMap, ['EU05', 'APAC'], { crossRealm: true }
+        );
+        const result = executeMetaCleanupPlan(plan);
+        expect(result.errors).toEqual([]);
+
+        // No file created in APAC
+        const apacMetaPath = path.join(
+            tmpDir, 'sites', 'site_template_apac', 'meta', 'meta.xml'
+        );
+        expect(fs.existsSync(apacMetaPath)).toBe(false);
+
+        // Core file modified: crossRealmAttr removed, keepThis preserved
+        const coreContent = fs.readFileSync(
+            path.join(coreMetaDir, 'meta.xml'), 'utf-8'
+        );
+        expect(coreContent).not.toContain('crossRealmAttr');
+        expect(coreContent).toContain('keepThis');
+    });
+});
