@@ -21,9 +21,11 @@ import {
     loadRealmPreferencesForDeletion,
     buildRealmPreferenceMapFromFiles,
     buildCrossRealmPreferenceMap,
+    openRealmDeletionFilesInEditor,
+    openCrossRealmFileInEditor,
     generateDeletionSummary
 } from '../../../src/commands/preferences/helpers/preferenceRemoval.js';
-import { ensureResultsDir } from '../../../src/io/util.js';
+import { ensureResultsDir, openFileInVSCode } from '../../../src/io/util.js';
 import { filterBlacklisted } from '../../../src/commands/setup/helpers/blacklistHelper.js';
 import { filterWhitelisted } from '../../../src/commands/setup/helpers/whitelistHelper.js';
 
@@ -360,5 +362,269 @@ describe('generateDeletionSummary', () => {
         const prefs = Array.from({ length: 50 }, (_, i) => `prefix${i}Value`);
         const summary = generateDeletionSummary(prefs);
         expect(summary.topPrefixes.length).toBeLessThanOrEqual(10);
+    });
+});
+
+// ============================================================================
+// buildCrossRealmPreferenceMap
+// ============================================================================
+
+describe('buildCrossRealmPreferenceMap', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cross-realm-'));
+        ensureResultsDir.mockReturnValue(tmpDir);
+        filterBlacklisted.mockImplementation((ids) => ({ allowed: ids, blocked: [] }));
+        filterWhitelisted.mockImplementation((ids) => ({ allowed: ids, blocked: [] }));
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        vi.restoreAllMocks();
+    });
+
+    it('returns empty map with missing realms when cross-realm file is absent', () => {
+        const result = buildCrossRealmPreferenceMap(['EU05', 'APAC'], 'development');
+
+        expect(result.realmPreferenceMap.get('EU05')).toEqual([]);
+        expect(result.realmPreferenceMap.get('APAC')).toEqual([]);
+        expect(result.missingRealms).toEqual(['EU05', 'APAC']);
+        expect(result.filePath).toBeNull();
+    });
+
+    it('maps same preferences to all selected realms', () => {
+        const content = [
+            '--- [P1] Safe to Delete on All Realms ---',
+            'c_globalPrefA',
+            'c_globalPrefB',
+            '',
+            '--- [P2] Likely Safe on All Realms ---',
+            'c_globalPrefC  |  has default value'
+        ].join('\n');
+
+        fs.writeFileSync(
+            path.join(tmpDir, 'development_cross_realm_deletion_candidates.txt'),
+            content, 'utf-8'
+        );
+
+        const result = buildCrossRealmPreferenceMap(['EU05', 'APAC', 'GB'], 'development');
+
+        // Same 3 preferences mapped to all 3 realms
+        expect(result.realmPreferenceMap.get('EU05')).toEqual(['c_globalPrefA', 'c_globalPrefB', 'c_globalPrefC']);
+        expect(result.realmPreferenceMap.get('APAC')).toEqual(['c_globalPrefA', 'c_globalPrefB', 'c_globalPrefC']);
+        expect(result.realmPreferenceMap.get('GB')).toEqual(['c_globalPrefA', 'c_globalPrefB', 'c_globalPrefC']);
+        expect(result.missingRealms).toEqual([]);
+        expect(result.filePath).not.toBeNull();
+    });
+
+    it('applies maxTier filtering to cross-realm file', () => {
+        const content = [
+            '--- [P1] Safe ---',
+            'c_p1Pref',
+            '',
+            '--- [P2] Likely Safe ---',
+            'c_p2Pref',
+            '',
+            '--- [P3] Deprecated ---',
+            'c_p3Pref'
+        ].join('\n');
+
+        fs.writeFileSync(
+            path.join(tmpDir, 'development_cross_realm_deletion_candidates.txt'),
+            content, 'utf-8'
+        );
+
+        const result = buildCrossRealmPreferenceMap(['EU05'], 'development', { maxTier: 'P1' });
+
+        expect(result.realmPreferenceMap.get('EU05')).toEqual(['c_p1Pref']);
+    });
+
+    it('applies blacklist filtering globally', () => {
+        const content = [
+            '--- [P1] Safe ---',
+            'c_allowed',
+            'c_blocked'
+        ].join('\n');
+
+        fs.writeFileSync(
+            path.join(tmpDir, 'development_cross_realm_deletion_candidates.txt'),
+            content, 'utf-8'
+        );
+
+        filterBlacklisted.mockImplementation((ids) => ({
+            allowed: ids.filter(id => id !== 'c_blocked'),
+            blocked: ['c_blocked']
+        }));
+
+        const result = buildCrossRealmPreferenceMap(['EU05', 'APAC'], 'development');
+
+        expect(result.realmPreferenceMap.get('EU05')).toEqual(['c_allowed']);
+        expect(result.realmPreferenceMap.get('APAC')).toEqual(['c_allowed']);
+        expect(result.blockedByBlacklist).toEqual(['c_blocked']);
+    });
+
+    it('applies whitelist filtering globally', () => {
+        const content = [
+            '--- [P1] Safe ---',
+            'c_kept',
+            'c_skipped'
+        ].join('\n');
+
+        fs.writeFileSync(
+            path.join(tmpDir, 'development_cross_realm_deletion_candidates.txt'),
+            content, 'utf-8'
+        );
+
+        filterWhitelisted.mockImplementation((ids) => ({
+            allowed: ids.filter(id => id !== 'c_skipped'),
+            blocked: ['c_skipped']
+        }));
+
+        const result = buildCrossRealmPreferenceMap(['EU05'], 'development');
+
+        expect(result.realmPreferenceMap.get('EU05')).toEqual(['c_kept']);
+        expect(result.skippedByWhitelist).toEqual(['c_skipped']);
+    });
+
+    it('returns empty preferences with no missing realms when file has no preferences', () => {
+        const content = [
+            'Header line',
+            '',
+            '========================='
+        ].join('\n');
+
+        fs.writeFileSync(
+            path.join(tmpDir, 'development_cross_realm_deletion_candidates.txt'),
+            content, 'utf-8'
+        );
+
+        const result = buildCrossRealmPreferenceMap(['EU05'], 'development');
+
+        expect(result.realmPreferenceMap.get('EU05')).toEqual([]);
+        expect(result.missingRealms).toEqual([]);
+        expect(result.filePath).not.toBeNull();
+    });
+
+    it('gives each realm an independent copy of the preference list', () => {
+        const content = [
+            '--- [P1] Safe ---',
+            'c_sharedPref'
+        ].join('\n');
+
+        fs.writeFileSync(
+            path.join(tmpDir, 'development_cross_realm_deletion_candidates.txt'),
+            content, 'utf-8'
+        );
+
+        const result = buildCrossRealmPreferenceMap(['EU05', 'APAC'], 'development');
+
+        // Modifying one realm's list should not affect the other
+        result.realmPreferenceMap.get('EU05').push('c_extra');
+        expect(result.realmPreferenceMap.get('APAC')).toEqual(['c_sharedPref']);
+    });
+});
+
+// ============================================================================
+// openRealmDeletionFilesInEditor
+// ============================================================================
+
+describe('openRealmDeletionFilesInEditor', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'open-editor-'));
+        ensureResultsDir.mockReturnValue(tmpDir);
+        openFileInVSCode.mockReset();
+        openFileInVSCode.mockResolvedValue(undefined);
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        vi.restoreAllMocks();
+    });
+
+    it('opens each realm deletion file in VS Code', async () => {
+        for (const realm of ['EU05', 'APAC']) {
+            fs.writeFileSync(
+                path.join(tmpDir, `${realm}_preferences_for_deletion.txt`),
+                'content', 'utf-8'
+            );
+        }
+
+        const result = await openRealmDeletionFilesInEditor(['EU05', 'APAC'], 'development');
+
+        expect(openFileInVSCode).toHaveBeenCalledTimes(2);
+        expect(result).toHaveLength(2);
+    });
+
+    it('skips realms where deletion file does not exist', async () => {
+        fs.writeFileSync(
+            path.join(tmpDir, 'EU05_preferences_for_deletion.txt'),
+            'content', 'utf-8'
+        );
+        // APAC file does not exist
+
+        const result = await openRealmDeletionFilesInEditor(['EU05', 'APAC'], 'development');
+
+        expect(openFileInVSCode).toHaveBeenCalledTimes(1);
+        expect(result).toHaveLength(1);
+    });
+
+    it('returns empty array when no files exist', async () => {
+        const result = await openRealmDeletionFilesInEditor(['EU05', 'APAC'], 'development');
+
+        expect(openFileInVSCode).not.toHaveBeenCalled();
+        expect(result).toEqual([]);
+    });
+
+    it('returns the paths of opened files', async () => {
+        fs.writeFileSync(
+            path.join(tmpDir, 'EU05_preferences_for_deletion.txt'),
+            'content', 'utf-8'
+        );
+
+        const result = await openRealmDeletionFilesInEditor(['EU05'], 'development');
+
+        expect(result[0]).toContain('EU05_preferences_for_deletion.txt');
+    });
+});
+
+// ============================================================================
+// openCrossRealmFileInEditor
+// ============================================================================
+
+describe('openCrossRealmFileInEditor', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'open-cross-'));
+        ensureResultsDir.mockReturnValue(tmpDir);
+        openFileInVSCode.mockReset();
+        openFileInVSCode.mockResolvedValue(undefined);
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        vi.restoreAllMocks();
+    });
+
+    it('opens the cross-realm file in VS Code', async () => {
+        fs.writeFileSync(
+            path.join(tmpDir, 'development_cross_realm_deletion_candidates.txt'),
+            'content', 'utf-8'
+        );
+
+        const result = await openCrossRealmFileInEditor('development');
+
+        expect(openFileInVSCode).toHaveBeenCalledTimes(1);
+        expect(result).toContain('development_cross_realm_deletion_candidates.txt');
+    });
+
+    it('returns null when cross-realm file does not exist', async () => {
+        const result = await openCrossRealmFileInEditor('development');
+
+        expect(openFileInVSCode).not.toHaveBeenCalled();
+        expect(result).toBeNull();
     });
 });

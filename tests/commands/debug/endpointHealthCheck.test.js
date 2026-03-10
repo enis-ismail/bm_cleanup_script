@@ -380,6 +380,7 @@ describe('buildHealthReport', () => {
         const results = [{
             realm: 'GB',
             hostname: 'gb.test.com',
+            clientId: 'gb-client-id',
             authStatus: 'AUTH_FAILED',
             authMessage: 'OAuth failed (HTTP 403). Verify clientId and clientSecret.',
             endpoints: []
@@ -390,13 +391,14 @@ describe('buildHealthReport', () => {
         expect(report).toContain('Authentication: FAILED');
         expect(report).toContain('OAuth failed');
         expect(actionItems).toHaveLength(1);
-        expect(actionItems[0]).toContain('[GB]');
+        expect(actionItems[0]).toContain('[GB | clientId: gb-client-id]');
     });
 
     it('builds report with forbidden endpoints and action items', () => {
         const results = [{
             realm: 'APAC',
             hostname: 'apac.test.com',
+            clientId: 'apac-client-id',
             authStatus: 'OK',
             authMessage: null,
             endpoints: [
@@ -426,6 +428,7 @@ describe('buildHealthReport', () => {
         expect(actionItems).toHaveLength(1);
         expect(actionItems[0]).toContain('Attr Groups');
         expect(actionItems[0]).toContain('Add GET permission');
+        expect(actionItems[0]).toContain('[APAC | clientId: apac-client-id]');
     });
 
     it('builds summary across multiple realms', () => {
@@ -460,6 +463,7 @@ describe('buildHealthReport', () => {
         const results = [{
             realm: 'PNA',
             hostname: 'pna.test.com',
+            clientId: 'pna-client-id',
             authStatus: 'OK',
             authMessage: null,
             endpoints: [
@@ -476,7 +480,7 @@ describe('buildHealthReport', () => {
         const { actionItems } = buildHealthReport(results);
 
         expect(actionItems).toHaveLength(1);
-        expect(actionItems[0]).toContain('[PNA]');
+        expect(actionItems[0]).toContain('[PNA | clientId: pna-client-id]');
         expect(actionItems[0]).toContain('Server error');
     });
 

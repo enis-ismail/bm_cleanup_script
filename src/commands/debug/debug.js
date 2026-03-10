@@ -1003,6 +1003,7 @@ async function checkApiEndpoints(options) {
         console.log(
             'Tip: Copy the resource configuration from src/config/ocapi_config.json'
             + ' into your BM OCAPI Data API settings for each failing endpoint.\n'
+            + ' make sure these are added for the correct credentials in the realm.\n'
         );
     }
 }

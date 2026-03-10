@@ -321,16 +321,18 @@ export async function checkRealmEndpoints(realmName) {
     const result = {
         realm: realmName,
         hostname: null,
+        clientId: null,
         authStatus: null,
         authMessage: null,
         endpoints: []
     };
 
-    // Step 1: Load realm config â€” catch missing/invalid config
+    // Step 1: Load realm config â€" catch missing/invalid config
     let sandbox;
     try {
         sandbox = getSandboxConfig(realmName);
         result.hostname = sandbox.hostname;
+        result.clientId = sandbox.clientId || null;
     } catch (configError) {
         result.authStatus = STATUS.ERROR;
         result.authMessage = `Config error: ${configError.message}`;
@@ -393,10 +395,13 @@ export async function checkAllRealmEndpoints() {
  */
 function formatRealmResult(realmResult) {
     const lines = [];
-    const { realm, hostname, authStatus, authMessage, endpoints } = realmResult;
+    const { realm, hostname, clientId, authStatus, authMessage, endpoints } = realmResult;
 
     lines.push(SEPARATOR);
     lines.push(`Realm: ${chalk.bold(realm)}  (${hostname || 'unknown host'})`);
+    if (clientId) {
+        lines.push(`  Client ID: ${chalk.dim(clientId)}`);
+    }
     lines.push(SEPARATOR);
 
     // Auth status
@@ -452,6 +457,7 @@ function formatRealmResult(realmResult) {
 export function buildHealthReport(results) {
     const lines = [];
     const actionItems = [];
+    const groupedActionItems = [];
 
     lines.push('');
     lines.push('OCAPI Endpoint Health Check');
@@ -461,24 +467,27 @@ export function buildHealthReport(results) {
 
     for (const realmResult of results) {
         lines.push(...formatRealmResult(realmResult));
+        const realmLabel = realmResult.clientId
+            ? `[${realmResult.realm} | clientId: ${realmResult.clientId}]`
+            : `[${realmResult.realm}]`;
+        const realmItems = [];
 
         // Collect action items
         if (realmResult.authStatus === STATUS.AUTH_FAILED) {
-            actionItems.push(
-                `[${realmResult.realm}] Fix authentication: ${realmResult.authMessage}`
-            );
+            realmItems.push(`Fix authentication: ${realmResult.authMessage}`);
         }
 
         for (const ep of realmResult.endpoints) {
             if (ep.status === STATUS.FORBIDDEN) {
-                actionItems.push(
-                    `[${realmResult.realm}] ${ep.name}: ${ep.bmHint}`
-                );
+                realmItems.push(`${ep.name}: ${ep.bmHint}`);
             } else if (ep.status === STATUS.ERROR) {
-                actionItems.push(
-                    `[${realmResult.realm}] ${ep.name}: ${ep.message}`
-                );
+                realmItems.push(`${ep.name}: ${ep.message}`);
             }
+        }
+
+        if (realmItems.length > 0) {
+            groupedActionItems.push({ realmLabel, items: realmItems });
+            actionItems.push(...realmItems.map(item => `${realmLabel} ${item}`));
         }
     }
 
@@ -503,8 +512,11 @@ export function buildHealthReport(results) {
     if (actionItems.length > 0) {
         lines.push('');
         lines.push(chalk.red('Action Items:'));
-        actionItems.forEach((item, i) => {
-            lines.push(chalk.red(`  ${i + 1}. ${item}`));
+        groupedActionItems.forEach((group, i) => {
+            lines.push(chalk.red(`  ${i + 1}. ${group.realmLabel}:`));
+            group.items.forEach((item) => {
+                lines.push(chalk.red(`     ${item}`));
+            });
         });
     } else {
         lines.push('');

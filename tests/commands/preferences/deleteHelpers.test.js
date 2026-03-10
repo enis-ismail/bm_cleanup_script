@@ -31,9 +31,12 @@ vi.mock('../../../src/commands/preferences/helpers/backupHelpers.js', async (imp
 import {
     getBackupFilePath,
     classifyRealmBackupStatus,
-    deletePreferencesForRealms
+    deletePreferencesForRealms,
+    restorePreferencesFromBackups
 } from '../../../src/commands/preferences/helpers/deleteHelpers.js';
 import { updateAttributeDefinitionById } from '../../../src/api/api.js';
+import { loadBackupFile } from '../../../src/io/backupUtils.js';
+import { restorePreferencesForRealm } from '../../../src/commands/preferences/helpers/restoreHelper.js';
 
 // ============================================================================
 // getBackupFilePath
@@ -239,6 +242,239 @@ describe('deletePreferencesForRealms', () => {
             'delete',
             null,
             'EU05'
+        );
+    });
+});
+
+// ============================================================================
+// restorePreferencesFromBackups
+// ============================================================================
+
+describe('restorePreferencesFromBackups', () => {
+    let tmpDir;
+    let originalCwd;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'restore-backup-'));
+        originalCwd = process.cwd();
+        process.chdir(tmpDir);
+        vi.spyOn(console, 'log').mockImplementation(() => {});
+        loadBackupFile.mockReset();
+        restorePreferencesForRealm.mockReset();
+    });
+
+    afterEach(() => {
+        process.chdir(originalCwd);
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        console.log.mockRestore();
+        vi.restoreAllMocks();
+    });
+
+    it('restores preferences from backup for each realm', async () => {
+        const today = new Date().toISOString().split('T')[0];
+        const backupDir = path.join(tmpDir, 'backup', 'development');
+        fs.mkdirSync(backupDir, { recursive: true });
+
+        const backupData = {
+            attributes: [
+                { id: 'c_prefA', display_name: { default: 'Pref A' }, value_type: 'boolean' },
+                { id: 'c_prefB', display_name: { default: 'Pref B' }, value_type: 'string' }
+            ]
+        };
+
+        // Create backup files for both realms
+        for (const realm of ['EU05', 'APAC']) {
+            fs.writeFileSync(
+                path.join(backupDir, `${realm}_SitePreferences_backup_${today}.json`),
+                JSON.stringify(backupData)
+            );
+        }
+
+        loadBackupFile.mockResolvedValue(backupData);
+        restorePreferencesForRealm.mockResolvedValue({ restored: 2, failed: 0 });
+
+        const result = await restorePreferencesFromBackups({
+            realmsToProcess: ['EU05', 'APAC'],
+            preferences: ['c_prefA', 'c_prefB'],
+            objectType: 'SitePreferences',
+            instanceType: 'development'
+        });
+
+        expect(result.totalRestored).toBe(4);
+        expect(result.totalFailed).toBe(0);
+        expect(restorePreferencesForRealm).toHaveBeenCalledTimes(2);
+    });
+
+    it('passes correct parameters to restorePreferencesForRealm', async () => {
+        const today = new Date().toISOString().split('T')[0];
+        const backupDir = path.join(tmpDir, 'backup', 'development');
+        fs.mkdirSync(backupDir, { recursive: true });
+
+        const backupData = {
+            attributes: [
+                { id: 'c_prefA', display_name: { default: 'Pref A' }, value_type: 'boolean' }
+            ]
+        };
+
+        fs.writeFileSync(
+            path.join(backupDir, `EU05_SitePreferences_backup_${today}.json`),
+            JSON.stringify(backupData)
+        );
+
+        loadBackupFile.mockResolvedValue(backupData);
+        restorePreferencesForRealm.mockResolvedValue({ restored: 1, failed: 0 });
+
+        await restorePreferencesFromBackups({
+            realmsToProcess: ['EU05'],
+            preferences: ['c_prefA'],
+            objectType: 'SitePreferences',
+            instanceType: 'development'
+        });
+
+        expect(restorePreferencesForRealm).toHaveBeenCalledWith({
+            preferenceIds: ['c_prefA'],
+            backup: backupData,
+            objectType: 'SitePreferences',
+            instanceType: 'development',
+            realm: 'EU05'
+        });
+    });
+
+    it('skips realm when backup file does not exist', async () => {
+        // No backup file created on disk
+
+        const result = await restorePreferencesFromBackups({
+            realmsToProcess: ['EU05'],
+            preferences: ['c_prefA'],
+            objectType: 'SitePreferences',
+            instanceType: 'development'
+        });
+
+        expect(result.totalRestored).toBe(0);
+        expect(result.totalFailed).toBe(0);
+        expect(loadBackupFile).not.toHaveBeenCalled();
+        expect(restorePreferencesForRealm).not.toHaveBeenCalled();
+    });
+
+    it('applies backup validation and uses corrected backup when needed', async () => {
+        const today = new Date().toISOString().split('T')[0];
+        const backupDir = path.join(tmpDir, 'backup', 'development');
+        fs.mkdirSync(backupDir, { recursive: true });
+
+        // Backup with string display_name that needs correction
+        const rawBackup = {
+            attributes: [
+                { id: 'c_prefA', display_name: 'Raw String Name', value_type: 'string' }
+            ]
+        };
+
+        fs.writeFileSync(
+            path.join(backupDir, `EU05_SitePreferences_backup_${today}.json`),
+            JSON.stringify(rawBackup)
+        );
+
+        loadBackupFile.mockResolvedValue(rawBackup);
+        restorePreferencesForRealm.mockResolvedValue({ restored: 1, failed: 0 });
+
+        await restorePreferencesFromBackups({
+            realmsToProcess: ['EU05'],
+            preferences: ['c_prefA'],
+            objectType: 'SitePreferences',
+            instanceType: 'development'
+        });
+
+        // The backup passed to restorePreferencesForRealm should have corrected display_name
+        const calledBackup = restorePreferencesForRealm.mock.calls[0][0].backup;
+        expect(calledBackup.attributes[0].display_name).toEqual({ default: 'Raw String Name' });
+    });
+
+    it('accumulates restored and failed counts across realms', async () => {
+        const today = new Date().toISOString().split('T')[0];
+        const backupDir = path.join(tmpDir, 'backup', 'development');
+        fs.mkdirSync(backupDir, { recursive: true });
+
+        const backupData = {
+            attributes: [{ id: 'c_prefA', value_type: 'string' }]
+        };
+
+        for (const realm of ['EU05', 'APAC', 'GB']) {
+            fs.writeFileSync(
+                path.join(backupDir, `${realm}_SitePreferences_backup_${today}.json`),
+                JSON.stringify(backupData)
+            );
+        }
+
+        loadBackupFile.mockResolvedValue(backupData);
+        restorePreferencesForRealm
+            .mockResolvedValueOnce({ restored: 3, failed: 1 })
+            .mockResolvedValueOnce({ restored: 2, failed: 0 })
+            .mockResolvedValueOnce({ restored: 1, failed: 2 });
+
+        const result = await restorePreferencesFromBackups({
+            realmsToProcess: ['EU05', 'APAC', 'GB'],
+            preferences: ['c_prefA', 'c_prefB', 'c_prefC'],
+            objectType: 'SitePreferences',
+            instanceType: 'development'
+        });
+
+        expect(result.totalRestored).toBe(6);
+        expect(result.totalFailed).toBe(3);
+    });
+
+    it('continues processing remaining realms when one backup is missing', async () => {
+        const today = new Date().toISOString().split('T')[0];
+        const backupDir = path.join(tmpDir, 'backup', 'development');
+        fs.mkdirSync(backupDir, { recursive: true });
+
+        const backupData = {
+            attributes: [{ id: 'c_prefA', value_type: 'string' }]
+        };
+
+        // Only create backup for APAC, not for EU05
+        fs.writeFileSync(
+            path.join(backupDir, `APAC_SitePreferences_backup_${today}.json`),
+            JSON.stringify(backupData)
+        );
+
+        loadBackupFile.mockResolvedValue(backupData);
+        restorePreferencesForRealm.mockResolvedValue({ restored: 1, failed: 0 });
+
+        const result = await restorePreferencesFromBackups({
+            realmsToProcess: ['EU05', 'APAC'],
+            preferences: ['c_prefA'],
+            objectType: 'SitePreferences',
+            instanceType: 'development'
+        });
+
+        // EU05 skipped (no backup), APAC restored
+        expect(result.totalRestored).toBe(1);
+        expect(restorePreferencesForRealm).toHaveBeenCalledTimes(1);
+        expect(restorePreferencesForRealm).toHaveBeenCalledWith(
+            expect.objectContaining({ realm: 'APAC' })
+        );
+    });
+
+    it('uses today\'s date for backup file path', async () => {
+        const today = new Date().toISOString().split('T')[0];
+        const backupDir = path.join(tmpDir, 'backup', 'development');
+        fs.mkdirSync(backupDir, { recursive: true });
+
+        const backupData = { attributes: [] };
+        const expectedFilename = `EU05_SitePreferences_backup_${today}.json`;
+        fs.writeFileSync(path.join(backupDir, expectedFilename), JSON.stringify(backupData));
+
+        loadBackupFile.mockResolvedValue(backupData);
+        restorePreferencesForRealm.mockResolvedValue({ restored: 0, failed: 0 });
+
+        await restorePreferencesFromBackups({
+            realmsToProcess: ['EU05'],
+            preferences: [],
+            objectType: 'SitePreferences',
+            instanceType: 'development'
+        });
+
+        expect(loadBackupFile).toHaveBeenCalledWith(
+            expect.stringContaining(expectedFilename)
         );
     });
 });
