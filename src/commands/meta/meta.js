@@ -9,6 +9,7 @@ import {
     deletionSourcePrompt,
     confirmExecutionPrompt,
     uncommittedChangesPrompt,
+    branchStrategyPrompt,
     baseBranchPrompt,
     branchNamePrompt,
     consolidateMetaPrompt,
@@ -37,7 +38,7 @@ import {
 } from '../preferences/helpers/preferenceRemoval.js';
 import {
     getInstanceType,
-    getAvailableRealms
+    getRealmsByInstanceType
 } from '../../config/helpers/helpers.js';
 import { TIER_DESCRIPTIONS } from '../../config/constants.js';
 import {
@@ -139,9 +140,9 @@ async function testMetaCleanup(options) {
 
     // --- STEP 6: Build cleanup plan ---
     console.log('\n  Building meta file cleanup plan...');
-    const allConfiguredRealms = getAvailableRealms();
+    const allInstanceRealms = getRealmsByInstanceType(instanceType);
     const plan = buildMetaCleanupPlan(
-        repoPath, realmPreferenceMap, allConfiguredRealms, { crossRealm: useCrossRealm }
+        repoPath, realmPreferenceMap, allInstanceRealms, { crossRealm: useCrossRealm }
     );
 
     // --- STEP 7: Display the plan ---
@@ -228,13 +229,7 @@ async function metaCleanup() {
         }
     }
 
-    // --- STEP 3: Select base branch ---
-    const branches = listBranches(repoPath);
-    const { baseBranch } = await inquirer.prompt(
-        baseBranchPrompt(branches, currentBranch)
-    );
-
-    // --- STEP 4: Select realms & tier ---
+    // --- STEP 3: Select realms ---
     const { realmList, instanceTypeOverride } = await resolveRealmScopeSelection(
         (questions) => inquirer.prompt(questions)
     );
@@ -246,31 +241,14 @@ async function metaCleanup() {
 
     const instanceType = instanceTypeOverride || getInstanceType(realmList[0]);
 
+    // --- STEP 4: Select deletion tier & source ---
     const tierAnswers = await inquirer.prompt(deletionLevelPrompt());
     const maxTier = tierAnswers.deletionLevel;
 
     const { deletionSource } = await inquirer.prompt(deletionSourcePrompt());
     const useCrossRealm = deletionSource === 'cross-realm';
 
-    // --- STEP 5: Generate branch name ---
-    const suggestedName = generateCleanupBranchName(
-        `${maxTier}-${instanceType}`
-    );
-
-    const { branchName } = await inquirer.prompt(
-        branchNamePrompt(suggestedName, branches)
-    );
-
-    // --- STEP 6: Create branch ---
-    console.log(`\n  Creating branch ${branchName} from ${baseBranch}...`);
-
-    const branchCreated = createAndCheckoutBranch(repoPath, branchName.trim(), baseBranch);
-    if (!branchCreated) {
-        console.log('  ✗ Failed to create branch. Aborting.\n');
-        return;
-    }
-
-    // --- STEP 7: Load preferences & build plan ---
+    // --- STEP 5: Load preferences & build plan ---
     console.log(`\n  Loading deletion candidates up to tier ${maxTier}...`);
     console.log(`  Source: ${useCrossRealm ? 'Cross-realm intersection' : 'Per-realm files'}`);
     console.log(`  Realms: ${realmList.join(', ')}`);
@@ -281,14 +259,13 @@ async function metaCleanup() {
     });
 
     if (totalPrefs === 0) {
-        console.log('\n  No preferences to process. Run analyze-preferences first.');
-        console.log('  Branch was created but no changes were made.\n');
+        console.log('\n  No preferences to process. Run analyze-preferences first.\n');
         return;
     }
 
-    const allConfiguredRealms = getAvailableRealms();
+    const allInstanceRealms = getRealmsByInstanceType(instanceType);
     const plan = buildMetaCleanupPlan(
-        repoPath, realmPreferenceMap, allConfiguredRealms, { crossRealm: useCrossRealm }
+        repoPath, realmPreferenceMap, allInstanceRealms, { crossRealm: useCrossRealm }
     );
 
     console.log(formatCleanupPlan(plan));
@@ -296,11 +273,44 @@ async function metaCleanup() {
     if (plan.actions.length === 0) {
         console.log('  No meta file changes needed.');
         runCrossRealmScanIfNeeded({ useCrossRealm, repoPath, selectedPreferenceIds });
-        console.log('  Branch was created but no changes were made.\n');
         return;
     }
 
-    // --- STEP 8: Confirm and execute ---
+    // --- STEP 6: Branch strategy ---
+    const { branchStrategy } = await inquirer.prompt(
+        branchStrategyPrompt(currentBranch)
+    );
+    const useCurrentBranch = branchStrategy === 'current';
+
+    let branchName = currentBranch;
+
+    if (!useCurrentBranch) {
+        const branches = listBranches(repoPath);
+        const { baseBranch } = await inquirer.prompt(
+            baseBranchPrompt(branches, currentBranch)
+        );
+
+        const suggestedName = generateCleanupBranchName(
+            `${maxTier}-${instanceType}`
+        );
+
+        const { branchName: newBranchName } = await inquirer.prompt(
+            branchNamePrompt(suggestedName, branches)
+        );
+        branchName = newBranchName;
+
+        console.log(`\n  Creating branch ${branchName} from ${baseBranch}...`);
+
+        const branchCreated = createAndCheckoutBranch(repoPath, branchName.trim(), baseBranch);
+        if (!branchCreated) {
+            console.log('  ✗ Failed to create branch. Aborting.\n');
+            return;
+        }
+    } else {
+        console.log(`\n  Applying changes to current branch: ${currentBranch}`);
+    }
+
+    // --- STEP 7: Confirm and execute ---
     const { confirm: confirmExecute } = await inquirer.prompt(
         confirmExecutionPrompt({
             actionCount: plan.actions.length,
@@ -309,7 +319,7 @@ async function metaCleanup() {
     );
 
     if (!confirmExecute) {
-        console.log('\n  Aborted. Branch exists but no files were modified.\n');
+        console.log('\n  Aborted. No files were modified.\n');
         return;
     }
 

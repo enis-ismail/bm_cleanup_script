@@ -34,6 +34,7 @@ Reads attribute definitions + groups from BM metadata XML instead of individual 
 - [ ] **TEST:** Compare output between OCAPI and metadata modes
 - [ ] Migrate `analyze-preferences` to use metadata mode by default (once validated)
 - [ ] Add metadata freshness checking (prompt to refresh if > 7 days old)
+- [ ] check if the is a way to label prefercnes per cartridge to be able to assign them to a dedecitaed meta folder for each cartridge. core meta = puma meta
 
 ### Deprecation Logic (Decision Pending)
 
@@ -59,6 +60,7 @@ Per-realm tracking infrastructure is in place (`buildPerRealmValueMap`, `buildPe
 
 - [ ] Auto-create PR from cleanup branch to develop (pre-filled with removed preference list)
 - [ ] Hook meta cleanup into `remove-preferences` workflow (after OCAPI deletion step)
+- [ ] add option to aply changes without creating a new branch (for small cleanups or when branch creation fails)
 
 ### Other
 

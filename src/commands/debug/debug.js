@@ -174,7 +174,15 @@ async function getAttributeGroup() {
     const instanceType = getInstanceType(realm);
     const objectTypeAnswers = await inquirer.prompt(objectTypePrompt('SitePreferences'));
     const objectType = objectTypeAnswers.objectType;
-    const groupAnswers = await inquirer.prompt(groupIdPrompt());
+
+    const groups = await getAttributeGroups(objectType, realm);
+    if (!groups || groups.length === 0) {
+        console.log('No attribute groups found.');
+        return;
+    }
+
+    const groupIds = groups.map(g => g.id);
+    const groupAnswers = await inquirer.prompt(groupIdPrompt(groupIds));
 
     const group = await getAttributeGroupById(objectType, groupAnswers.groupId, realm);
     if (!group) {

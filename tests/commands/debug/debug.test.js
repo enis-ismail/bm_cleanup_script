@@ -287,6 +287,7 @@ describe('getAttributeGroup', () => {
             display_name: 'Test',
             attribute_definitions: [{ id: 'attr1' }]
         };
+        getAttributeGroups.mockResolvedValue([{ id: 'testGroup' }, { id: 'otherGroup' }]);
         getAttributeGroupById.mockResolvedValue(mockGroup);
 
         inquirer.prompt
@@ -296,13 +297,28 @@ describe('getAttributeGroup', () => {
 
         await triggerCommand('get-attribute-group');
 
+        expect(getAttributeGroups).toHaveBeenCalledWith('SitePreferences', 'EU05');
         expect(getAttributeGroupById).toHaveBeenCalledWith(
             'SitePreferences', 'testGroup', 'EU05'
         );
         expect(fs.writeFileSync).toHaveBeenCalled();
     });
 
+    it('exits early when no groups available', async () => {
+        getAttributeGroups.mockResolvedValue([]);
+
+        inquirer.prompt
+            .mockResolvedValueOnce({ realm: 'EU05' })
+            .mockResolvedValueOnce({ objectType: 'SitePreferences' });
+
+        await triggerCommand('get-attribute-group');
+
+        expect(getAttributeGroupById).not.toHaveBeenCalled();
+        expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
+
     it('exits early when group not found', async () => {
+        getAttributeGroups.mockResolvedValue([{ id: 'nonexistent' }]);
         getAttributeGroupById.mockResolvedValue(null);
 
         inquirer.prompt

@@ -422,11 +422,11 @@ describe('commonPrompts', () => {
 
 describe('debugPrompts', () => {
     describe('groupIdPrompt', () => {
-        it('returns input prompt with validation', () => {
-            const result = groupIdPrompt();
+        it('returns list prompt with provided group IDs', () => {
+            const result = groupIdPrompt(['group1', 'group2']);
             expect(result[0].name).toBe('groupId');
-            expect(result[0].validate('')).not.toBe(true);
-            expect(result[0].validate('test-group')).toBe(true);
+            expect(result[0].type).toBe('list');
+            expect(result[0].choices).toEqual(['group1', 'group2']);
         });
     });
 });
@@ -471,6 +471,12 @@ describe('metaPrompts', () => {
     });
 
     describe('branchNamePrompt', () => {
+        it('uses suggested name as default', () => {
+            const result = branchNamePrompt('cleanup/test', ['main']);
+            expect(result[0].type).toBe('input');
+            expect(result[0].default).toBe('cleanup/test');
+        });
+
         it('validates empty input', () => {
             const result = branchNamePrompt('cleanup/test', ['main']);
             expect(result[0].validate('')).not.toBe(true);
@@ -516,6 +522,7 @@ describe('metaPrompts', () => {
     describe('commitMessagePrompt', () => {
         it('uses suggested message as default', () => {
             const result = commitMessagePrompt('chore: cleanup');
+            expect(result[0].type).toBe('input');
             expect(result[0].default).toBe('chore: cleanup');
         });
     });
