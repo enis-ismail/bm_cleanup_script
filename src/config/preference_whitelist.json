@@ -1,6 +1,3 @@
 {
-  "description": "Backup-based test whitelist for remove-preferences dry-run/validation.",
-  "whitelist": [
-   
-  ]
+  "whitelist": []
 }

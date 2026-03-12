@@ -409,6 +409,20 @@ export function buildMetaCleanupPlan(repoPath, realmPreferenceMap, allConfigured
 
     const coreMetaDir = getCoreMetaDir(repoPath);
 
+    // Build a map of physical directory → realms sharing that directory.
+    // Multiple realms can share the same siteTemplatesPath (e.g., EU05 and GB
+    // both use sites/site_template_eu_eu05). When removing an attribute from
+    // a shared directory, we must check that ALL sharing realms agree.
+    const dirToRealms = new Map();
+    for (const realm of allConfiguredRealms) {
+        const config = getSandboxConfig(realm);
+        const metaDir = getRealmMetaDir(repoPath, config.siteTemplatesPath);
+        if (!dirToRealms.has(metaDir)) {
+            dirToRealms.set(metaDir, new Set());
+        }
+        dirToRealms.get(metaDir).add(realm);
+    }
+
     // Collect all unique attribute IDs and which realms want them deleted
     const attrToDeletedRealms = new Map();
 
@@ -431,10 +445,32 @@ export function buildMetaCleanupPlan(repoPath, realmPreferenceMap, allConfigured
             || allConfiguredRealms.every(r => deletedRealms.has(r));
         const remainingRealms = allConfiguredRealms.filter(r => !deletedRealms.has(r));
 
-        // Step 1: Check realm-specific meta directories
+        // Step 1: Check realm-specific meta directories (deduplicated by physical path)
+        const processedDirs = new Set();
+
         for (const realm of deletedRealms) {
             const realmConfig = getSandboxConfig(realm);
             const realmMetaDir = getRealmMetaDir(repoPath, realmConfig.siteTemplatesPath);
+
+            // Skip if we already processed this physical directory
+            if (processedDirs.has(realmMetaDir)) {
+                continue;
+            }
+            processedDirs.add(realmMetaDir);
+
+            // Check if ANY remaining realm shares this physical directory.
+            // If so, we cannot remove the attribute — the remaining realm still needs it.
+            const sharingRealms = dirToRealms.get(realmMetaDir) || new Set();
+            const hasRemainingRealmInDir = [...sharingRealms].some(
+                r => !deletedRealms.has(r)
+            );
+
+            if (hasRemainingRealmInDir) {
+                // A non-deleted realm shares this directory — do NOT remove.
+                // The remaining realm already has access to the attribute here.
+                continue;
+            }
+
             const realmFiles = findFilesContainingAttribute(realmMetaDir, bareId);
 
             for (const filePath of realmFiles) {
@@ -474,16 +510,28 @@ export function buildMetaCleanupPlan(repoPath, realmPreferenceMap, allConfigured
                 });
             }
         } else if (remainingRealms.length >= 1) {
-            // Deleted from some realms but not all → move from core to remaining realm folders
+            // Deleted from some realms but not all → move from core to remaining realm folders.
+            // Deduplicate by physical directory so we don't create the same file twice
+            // when multiple remaining realms share a directory.
+            const copiedDirs = new Set();
+
             for (const coreFilePath of coreFiles) {
                 const coreFileName = path.basename(coreFilePath);
 
                 for (const remainingRealm of remainingRealms) {
                     const remainingConfig = getSandboxConfig(remainingRealm);
                     const remainingMetaDir = getRealmMetaDir(repoPath, remainingConfig.siteTemplatesPath);
+
+                    // Skip if we already created a file in this physical directory
+                    const dirKey = `${remainingMetaDir}:${bareId}`;
+                    if (copiedDirs.has(dirKey)) {
+                        continue;
+                    }
+                    copiedDirs.add(dirKey);
+
                     const targetFilePath = path.join(remainingMetaDir, coreFileName);
 
-                    // Check if the remaining realm already has this file
+                    // Check if the remaining realm already has this attribute
                     const realmAlreadyHas = findFilesContainingAttribute(remainingMetaDir, bareId);
 
                     if (realmAlreadyHas.length === 0) {
@@ -688,7 +736,11 @@ function createRealmMetaFile(coreFilePath, targetFilePath, attributeId) {
     }
 
     if (groupBlock) {
-        const reindentedGroup = reindentBlock(groupBlock, '            ');
+        // Build a minimal group with only the target attribute's assignment.
+        // extractContainingGroup returns the full group (all attribute refs),
+        // which would reference attributes without definitions — invalid XML.
+        const minimalGroup = buildMinimalGroupBlock(groupBlock, attributeId);
+        const reindentedGroup = reindentBlock(minimalGroup, '            ');
         newContent += '        <group-definitions>\n'
             + `${reindentedGroup}\n`
             + '        </group-definitions>\n';
@@ -762,6 +814,29 @@ function extractContainingGroup(xmlContent, attributeId) {
 }
 
 /**
+ * Build a minimal group block from a full group, keeping only one attribute assignment.
+ * Strips all `<attribute attribute-id="..."/>` lines and inserts only the target one.
+ *
+ * @param {string} fullGroupBlock - Complete `<attribute-group>...</attribute-group>` XML
+ * @param {string} attributeId - The single attribute ID to keep
+ * @returns {string} Group block with only the target attribute reference
+ * @private
+ */
+function buildMinimalGroupBlock(fullGroupBlock, attributeId) {
+    // Remove all existing attribute assignment lines
+    const stripped = fullGroupBlock.replace(
+        /[ \t]*<attribute\s+attribute-id="[^"]+"\s*\/>[ \t]*\r?\n?/g,
+        ''
+    );
+
+    // Insert just the target attribute before the closing </attribute-group> tag
+    return stripped.replace(
+        /([ \t]*)<\/attribute-group>/,
+        `$1    <attribute attribute-id="${attributeId}"/>\n$1</attribute-group>`
+    );
+}
+
+/**
  * Append an attribute definition and group assignment into an existing realm meta file.
  *
  * @param {string} targetFilePath - The existing realm meta file
@@ -771,6 +846,16 @@ function extractContainingGroup(xmlContent, attributeId) {
  */
 function appendAttributeToExistingFile(targetFilePath, sourceContent, attributeId) {
     let targetContent = fs.readFileSync(targetFilePath, 'utf-8');
+
+    // Skip if this attribute already exists in the target file (prevent duplicates)
+    const alreadyExists = new RegExp(
+        `<attribute-definition\\s+attribute-id="${escapeRegex(attributeId)}"`, 'i'
+    ).test(targetContent);
+
+    if (alreadyExists) {
+        return;
+    }
+
     const extractedDef = extractAttributeDefinition(sourceContent, attributeId);
     const extractedGrp = extractGroupAssignment(sourceContent, attributeId);
 
@@ -788,18 +873,24 @@ function appendAttributeToExistingFile(targetFilePath, sourceContent, attributeI
         }
     }
 
-    // Insert group assignment before the last </attribute-group>
+    // Insert group assignment before the last </attribute-group> (only if not already present)
     if (extractedGrp) {
-        const grpClosePattern = /([ \t]*)<\/attribute-group>(?![\s\S]*<\/attribute-group>)/;
-        const grpMatch = targetContent.match(grpClosePattern);
-        if (grpMatch) {
-            const grpIndent = grpMatch[1]; // indentation of </attribute-group>
-            const attrIndent = grpIndent + '    '; // one level deeper
-            const trimmedGrp = extractedGrp.trim();
-            targetContent = targetContent.replace(
-                grpClosePattern,
-                `${attrIndent}${trimmedGrp}\n${grpIndent}</attribute-group>`
-            );
+        const grpAlreadyExists = new RegExp(
+            `<attribute\\s+attribute-id="${escapeRegex(attributeId)}"\\s*/>`, 'i'
+        ).test(targetContent);
+
+        if (!grpAlreadyExists) {
+            const grpClosePattern = /([ \t]*)<\/attribute-group>(?![\s\S]*<\/attribute-group>)/;
+            const grpMatch = targetContent.match(grpClosePattern);
+            if (grpMatch) {
+                const grpIndent = grpMatch[1]; // indentation of </attribute-group>
+                const attrIndent = grpIndent + '    '; // one level deeper
+                const trimmedGrp = extractedGrp.trim();
+                targetContent = targetContent.replace(
+                    grpClosePattern,
+                    `${attrIndent}${trimmedGrp}\n${grpIndent}</attribute-group>`
+                );
+            }
         }
     }
 

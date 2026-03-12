@@ -16,6 +16,7 @@ vi.mock('../../../src/commands/prompts/index.js', () => ({
     deletionSourcePrompt: vi.fn(() => [{ name: 'deletionSource', type: 'list', choices: [] }]),
     confirmExecutionPrompt: vi.fn(() => [{ name: 'confirm', type: 'confirm' }]),
     uncommittedChangesPrompt: vi.fn(() => [{ name: 'proceed', type: 'confirm' }]),
+    branchStrategyPrompt: vi.fn(() => [{ name: 'branchStrategy', type: 'list', choices: [] }]),
     baseBranchPrompt: vi.fn(() => [{ name: 'baseBranch', type: 'list', choices: [] }]),
     branchNamePrompt: vi.fn(() => [{ name: 'branchName', type: 'input' }]),
     consolidateMetaPrompt: vi.fn(() => [{ name: 'consolidate', type: 'confirm' }]),
@@ -67,7 +68,7 @@ vi.mock('../../../src/commands/preferences/helpers/preferenceRemoval.js', () => 
 
 vi.mock('../../../src/config/helpers/helpers.js', () => ({
     getInstanceType: vi.fn(() => 'development'),
-    getAvailableRealms: vi.fn(() => ['EU05', 'APAC'])
+    getRealmsByInstanceType: vi.fn(() => ['EU05', 'APAC'])
 }));
 
 vi.mock('../../../src/config/constants.js', () => ({
@@ -108,7 +109,7 @@ import {
     buildRealmPreferenceMapFromFiles,
     buildCrossRealmPreferenceMap
 } from '../../../src/commands/preferences/helpers/preferenceRemoval.js';
-import { getAvailableRealms, getInstanceType } from '../../../src/config/helpers/helpers.js';
+import { getRealmsByInstanceType, getInstanceType } from '../../../src/config/helpers/helpers.js';
 import {
     getCurrentBranch,
     hasUncommittedChanges,
@@ -175,7 +176,7 @@ function setupDefaults() {
     });
 
     getInstanceType.mockReturnValue('development');
-    getAvailableRealms.mockReturnValue(['EU05', 'APAC']);
+    getRealmsByInstanceType.mockReturnValue(['EU05', 'APAC']);
 
     getCurrentBranch.mockReturnValue('main');
     listBranches.mockReturnValue(['main', 'develop']);
@@ -279,7 +280,7 @@ describe('testMetaCleanup', () => {
             ['EU05'], 'development', { maxTier: 'P3' }
         );
         expect(buildMetaCleanupPlan).toHaveBeenCalled();
-        expect(getAvailableRealms).toHaveBeenCalled();
+        expect(getRealmsByInstanceType).toHaveBeenCalledWith('development');
     });
 
     it('calls buildCrossRealmPreferenceMap when cross-realm source selected', async () => {
@@ -512,14 +513,15 @@ describe('metaCleanup', () => {
         hasUncommittedChanges.mockReturnValue(false);
 
         inquirer.prompt
-            .mockResolvedValueOnce({ repository: 'repo-a' })     // repositoryPrompt
-            .mockResolvedValueOnce({ baseBranch: 'main' })        // baseBranchPrompt
-            .mockResolvedValueOnce({ deletionLevel: 'P3' })       // deletionLevelPrompt
+            .mockResolvedValueOnce({ repository: 'repo-a' })        // repositoryPrompt
+            .mockResolvedValueOnce({ deletionLevel: 'P3' })         // deletionLevelPrompt
             .mockResolvedValueOnce({ deletionSource: 'per-realm' }) // deletionSourcePrompt
-            .mockResolvedValueOnce({ branchName: 'cleanup/test' }) // branchNamePrompt
-            .mockResolvedValueOnce({ confirm: true })              // confirmExecutionPrompt
-            .mockResolvedValueOnce({ consolidate: false })         // consolidateMetaPrompt
-            .mockResolvedValueOnce({ confirmCommit: true })        // confirmCommitPrompt
+            .mockResolvedValueOnce({ branchStrategy: 'new' })       // branchStrategyPrompt
+            .mockResolvedValueOnce({ baseBranch: 'main' })          // baseBranchPrompt
+            .mockResolvedValueOnce({ branchName: 'cleanup/test' })  // branchNamePrompt
+            .mockResolvedValueOnce({ confirm: true })               // confirmExecutionPrompt
+            .mockResolvedValueOnce({ consolidate: false })          // consolidateMetaPrompt
+            .mockResolvedValueOnce({ confirmCommit: true })         // confirmCommitPrompt
             .mockResolvedValueOnce({ commitMsg: 'chore: cleanup' }); // commitMessagePrompt
 
         resolveRealmScopeSelection.mockResolvedValue({
@@ -531,6 +533,7 @@ describe('metaCleanup', () => {
         expect(createAndCheckoutBranch).toHaveBeenCalledWith(
             expect.any(String), 'cleanup/test', 'main'
         );
+        expect(getRealmsByInstanceType).toHaveBeenCalledWith('development');
         expect(executeMetaCleanupPlan).toHaveBeenCalled();
         expect(stageAllChanges).toHaveBeenCalled();
         expect(commitChanges).toHaveBeenCalled();
@@ -543,9 +546,10 @@ describe('metaCleanup', () => {
 
         inquirer.prompt
             .mockResolvedValueOnce({ repository: 'repo-a' })
-            .mockResolvedValueOnce({ baseBranch: 'main' })
             .mockResolvedValueOnce({ deletionLevel: 'P1' })
             .mockResolvedValueOnce({ deletionSource: 'per-realm' })
+            .mockResolvedValueOnce({ branchStrategy: 'new' })
+            .mockResolvedValueOnce({ baseBranch: 'main' })
             .mockResolvedValueOnce({ branchName: 'test-branch' });
 
         resolveRealmScopeSelection.mockResolvedValue({
@@ -563,9 +567,10 @@ describe('metaCleanup', () => {
 
         inquirer.prompt
             .mockResolvedValueOnce({ repository: 'repo-a' })
-            .mockResolvedValueOnce({ baseBranch: 'main' })
             .mockResolvedValueOnce({ deletionLevel: 'P3' })
             .mockResolvedValueOnce({ deletionSource: 'per-realm' })
+            .mockResolvedValueOnce({ branchStrategy: 'new' })
+            .mockResolvedValueOnce({ baseBranch: 'main' })
             .mockResolvedValueOnce({ branchName: 'cleanup/test' })
             .mockResolvedValueOnce({ confirm: true })
             .mockResolvedValueOnce({ consolidate: true })
@@ -597,9 +602,10 @@ describe('metaCleanup', () => {
 
         inquirer.prompt
             .mockResolvedValueOnce({ repository: 'repo-a' })
-            .mockResolvedValueOnce({ baseBranch: 'main' })
             .mockResolvedValueOnce({ deletionLevel: 'P3' })
             .mockResolvedValueOnce({ deletionSource: 'per-realm' })
+            .mockResolvedValueOnce({ branchStrategy: 'new' })
+            .mockResolvedValueOnce({ baseBranch: 'main' })
             .mockResolvedValueOnce({ branchName: 'cleanup/test' })
             .mockResolvedValueOnce({ confirm: true })
             .mockResolvedValueOnce({ consolidate: false });
@@ -620,9 +626,10 @@ describe('metaCleanup', () => {
 
         inquirer.prompt
             .mockResolvedValueOnce({ repository: 'repo-a' })
-            .mockResolvedValueOnce({ baseBranch: 'main' })
             .mockResolvedValueOnce({ deletionLevel: 'P3' })
             .mockResolvedValueOnce({ deletionSource: 'per-realm' })
+            .mockResolvedValueOnce({ branchStrategy: 'new' })
+            .mockResolvedValueOnce({ baseBranch: 'main' })
             .mockResolvedValueOnce({ branchName: 'cleanup/test' })
             .mockResolvedValueOnce({ confirm: true })
             .mockResolvedValueOnce({ consolidate: false })
@@ -643,9 +650,10 @@ describe('metaCleanup', () => {
 
         inquirer.prompt
             .mockResolvedValueOnce({ repository: 'repo-a' })
-            .mockResolvedValueOnce({ baseBranch: 'main' })
             .mockResolvedValueOnce({ deletionLevel: 'P3' })
             .mockResolvedValueOnce({ deletionSource: 'per-realm' })
+            .mockResolvedValueOnce({ branchStrategy: 'new' })
+            .mockResolvedValueOnce({ baseBranch: 'main' })
             .mockResolvedValueOnce({ branchName: 'cleanup/test' })
             .mockResolvedValueOnce({ confirm: false });
 
@@ -664,9 +672,10 @@ describe('metaCleanup', () => {
 
         inquirer.prompt
             .mockResolvedValueOnce({ repository: 'repo-a' })
-            .mockResolvedValueOnce({ baseBranch: 'main' })
             .mockResolvedValueOnce({ deletionLevel: 'P3' })
             .mockResolvedValueOnce({ deletionSource: 'per-realm' })
+            .mockResolvedValueOnce({ branchStrategy: 'new' })
+            .mockResolvedValueOnce({ baseBranch: 'main' })
             .mockResolvedValueOnce({ branchName: 'cleanup/test' })
             .mockResolvedValueOnce({ confirm: true })
             .mockResolvedValueOnce({ consolidate: false })
@@ -700,10 +709,8 @@ describe('metaCleanup', () => {
 
         inquirer.prompt
             .mockResolvedValueOnce({ repository: 'repo-a' })
-            .mockResolvedValueOnce({ baseBranch: 'main' })
             .mockResolvedValueOnce({ deletionLevel: 'P1' })
-            .mockResolvedValueOnce({ deletionSource: 'per-realm' })
-            .mockResolvedValueOnce({ branchName: 'cleanup/test' });
+            .mockResolvedValueOnce({ deletionSource: 'per-realm' });
 
         resolveRealmScopeSelection.mockResolvedValue({
             realmList: ['EU05'], instanceTypeOverride: null
@@ -724,9 +731,10 @@ describe('metaCleanup', () => {
 
         inquirer.prompt
             .mockResolvedValueOnce({ repository: 'repo-a' })
-            .mockResolvedValueOnce({ baseBranch: 'main' })
             .mockResolvedValueOnce({ deletionLevel: 'P3' })
             .mockResolvedValueOnce({ deletionSource: 'per-realm' })
+            .mockResolvedValueOnce({ branchStrategy: 'new' })
+            .mockResolvedValueOnce({ baseBranch: 'main' })
             .mockResolvedValueOnce({ branchName: 'cleanup/test' })
             .mockResolvedValueOnce({ confirm: true })
             .mockResolvedValueOnce({ consolidate: true })
@@ -752,9 +760,10 @@ describe('metaCleanup', () => {
 
         inquirer.prompt
             .mockResolvedValueOnce({ repository: 'repo-a' })
-            .mockResolvedValueOnce({ baseBranch: 'main' })
             .mockResolvedValueOnce({ deletionLevel: 'P3' })
             .mockResolvedValueOnce({ deletionSource: 'per-realm' })
+            .mockResolvedValueOnce({ branchStrategy: 'new' })
+            .mockResolvedValueOnce({ baseBranch: 'main' })
             .mockResolvedValueOnce({ branchName: 'cleanup/test' })
             .mockResolvedValueOnce({ confirm: true })
             .mockResolvedValueOnce({ consolidate: true })
