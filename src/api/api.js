@@ -701,11 +701,18 @@ export async function getAttributeGroupById(objectType, groupId, realm) {
     try {
         const sandbox = getSandboxConfig(realm);
         const token = await getOAuthToken(sandbox);
-        const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_groups/${encodeURIComponent(groupId)}/attribute_definitions/*`;
+        const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_groups/${encodeURIComponent(groupId)}`;
         const headers = buildApiHeaders(token);
         const response = await axios.get(url, { headers });
         return response.data;
     } catch (error) {
+        const status = error.response?.status;
+
+        // 404 is expected when checking if a group exists — not an error
+        if (status === 404) {
+            return null;
+        }
+
         const msg = error.response?.data?.message || error.message;
         logError(`Failed to fetch attribute group ${groupId}: ${msg}`);
         console.error('Full error response:', error.response?.data || error);
@@ -731,7 +738,7 @@ export async function createOrUpdateAttributeGroup(
         const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_groups/${encodeURIComponent(groupId)}`;
         const headers = buildApiHeaders(token);
         const response = await executeOcapiWrite(url, 'put', groupPayload, headers, resolved);
-        return response?.data ?? true;
+        return response?.data || true;
     } catch (error) {
         const msg = error.response?.data?.message || error.message;
         logError(`Failed to create/update attribute group ${groupId}: ${msg}`);
@@ -756,7 +763,7 @@ export async function assignAttributeToGroup(objectType, groupId, attributeId, r
         const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_groups/${encodeURIComponent(groupId)}/attribute_definitions/${encodeURIComponent(attributeId)}`;
         const headers = buildApiHeaders(token);
         const response = await executeOcapiWrite(url, 'put', null, headers, resolved);
-        return response?.data ?? true;
+        return response?.data || true;
     } catch (error) {
         const status = error.response?.status;
         const sandbox = getSandboxConfig(realm);
@@ -772,6 +779,24 @@ export async function assignAttributeToGroup(objectType, groupId, attributeId, r
                 + 'PUT on /system_object_definitions/*/attribute_groups/*/attribute_definitions/*.'
             );
             return null;
+        }
+
+        // SFCC returns 400 (or 409) when the attribute is already assigned to the group.
+        // The error message varies by SFCC version — may say "already", "is a member",
+        // or use fault type "AttributeGroupAttributeDefinitionAlreadyExistException".
+        // Treat any of these as success — the assignment exists, which is the desired state.
+        const msgLower = msg?.toLowerCase() || '';
+        const faultType = error.response?.data?.fault?.type || '';
+        const isAlreadyAssigned = (status === 400 || status === 409)
+            && (msgLower.includes('already')
+                || msgLower.includes('is a member')
+                || msgLower.includes('already exist')
+                || msgLower.includes('member of')
+                || faultType.toLowerCase().includes('alreadyexist')
+                || faultType.toLowerCase().includes('attributegroupattributedefinition'));
+
+        if (isAlreadyAssigned) {
+            return true;
         }
 
         logError(`Failed to assign attribute ${attributeId} to group ${groupId}: ${msg}`);
