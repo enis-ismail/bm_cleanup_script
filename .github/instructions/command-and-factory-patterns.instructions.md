@@ -16,6 +16,9 @@ Every command domain follows the same `register___Commands(program)` pattern:
 src/commands/
 ├── <domain>/
 │   ├── <domain>.js          ← registerXxxCommands(program) exported here
+│   ├── actions/              ← Command function files (for large domains)
+│   │   ├── <command>.js      ← One exported async function per command
+│   │   └── shared.js         ← Functions shared across action files
 │   └── helpers/
 │       ├── <helper>.js       ← Business logic, OCAPI calls, file I/O
 │       └── ...

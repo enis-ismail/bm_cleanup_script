@@ -147,7 +147,10 @@ This document defines the AI agents and their capabilities for the Cleanup-Scrip
   - Blacklist/whitelist filtering
 
 - **Files:**
-  - [src/commands/preferences/preferences.js](src/commands/preferences/preferences.js) - Main remove/restore command flow
+  - [src/commands/preferences/preferences.js](src/commands/preferences/preferences.js) - Command registration (extracted layout)
+  - [src/commands/preferences/actions/removePreferences.js](src/commands/preferences/actions/removePreferences.js) - Remove command flow
+  - [src/commands/preferences/actions/restorePreferences.js](src/commands/preferences/actions/restorePreferences.js) - Restore command flow
+  - [src/commands/preferences/actions/shared.js](src/commands/preferences/actions/shared.js) - Shared action utilities
   - [src/commands/preferences/helpers/deleteHelpers.js](src/commands/preferences/helpers/deleteHelpers.js) - OCAPI DELETE operations
   - [src/commands/preferences/helpers/restoreHelper.js](src/commands/preferences/helpers/restoreHelper.js) - Preference restoration
   - [src/commands/preferences/helpers/preferenceRemoval.js](src/commands/preferences/helpers/preferenceRemoval.js) - Deletion file loading & summary

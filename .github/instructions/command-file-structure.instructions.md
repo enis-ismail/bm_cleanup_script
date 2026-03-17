@@ -4,13 +4,20 @@ applyTo: "src/commands/**"
 # Command File Structure
 
 Rules for how `src/commands/<domain>/<domain>.js` files must be organized.
-The reference implementation is `src/commands/preferences/preferences.js`.
+
+Two layouts are supported:
+- **Inline layout** (default) — command functions live in the same file as the registration block. Use for small domains (≤3 commands or ≤200 total lines).
+- **Extracted layout** — command functions are moved to individual files in `<domain>/actions/`. Use when the domain file exceeds ~300 lines or has 4+ commands.
+
+The reference implementations are:
+- **Inline:** `src/commands/debug/debug.js`
+- **Extracted:** `src/commands/preferences/preferences.js` + `src/commands/preferences/actions/`
 
 ---
 
 ## File Layout (top to bottom)
 
-Every command file follows this exact section order:
+### Inline Layout (sections top to bottom)
 
 ```
 1. Imports
@@ -18,6 +25,16 @@ Every command file follows this exact section order:
 3. Command implementations (named functions, one per command)
 4. Private helper functions (shared by commands in this file)
 ```
+
+### Extracted Layout (sections top to bottom)
+
+```
+1. Imports (action functions from ./actions/)
+2. Registration function (compact command index)
+```
+
+Command implementations and their private helpers live in separate files
+under `<domain>/actions/` (see § 5 below).
 
 Each section is separated by a full-width comment banner:
 
@@ -249,25 +266,95 @@ function processInput(input) {
 
 ---
 
+## 5. Extracted Actions Layout
+
+When a domain file grows large (300+ lines, 4+ commands), extract each command
+function into its own file under `<domain>/actions/`.
+
+### Directory Structure
+
+```
+src/commands/<domain>/
+├── <domain>.js              ← Registration only (imports + command wiring)
+├── actions/
+│   ├── <commandA>.js        ← One exported async function per command
+│   ├── <commandB>.js        ← Private helpers specific to this command stay here
+│   └── shared.js            ← Functions shared across multiple action files
+└── helpers/
+    └── ...                  ← Business logic helpers (unchanged)
+```
+
+### Registration File (extracted layout)
+
+```javascript
+import { analyzePreferences } from './actions/analyzePreferences.js';
+import { removePreferences } from './actions/removePreferences.js';
+import { restorePreferences } from './actions/restorePreferences.js';
+
+// ============================================================================
+// <DOMAIN> COMMANDS REGISTRATION
+// Register all <domain>-related commands with the CLI program
+// ============================================================================
+
+export function register<Domain>Commands(program) {
+    program
+        .command('analyze-preferences')
+        .description('Full preference analysis workflow')
+        .action(analyzePreferences);
+
+    program
+        .command('remove-preferences')
+        .description('Remove preferences marked for deletion')
+        .option('--dry-run', 'Simulate deletion without making changes')
+        .action(removePreferences);
+}
+```
+
+### Action File Rules
+
+1. **One exported function per file** — the function name matches the command.
+2. Each action file has its own imports (only what it needs).
+3. **Private helpers** specific to one command stay in that command's action file.
+4. **Shared helpers** used by multiple action files go in `actions/shared.js`.
+5. Action files follow the same section header convention as inline commands.
+6. Multi-step commands still use numbered step comments (`// --- STEP 1: ... ---`).
+
+### When to Extract
+
+| Condition | Action |
+|---|---|
+| Domain file < 300 lines, ≤3 commands | Keep inline |
+| Domain file > 300 lines or 4+ commands | Extract to `actions/` |
+| Adding a 4th command to an inline file | Consider extracting all to `actions/` |
+
+---
+
 ## When to Apply These Rules
 
 | Scenario | Action |
 |---|---|
-| **Creating a new command file** | Follow the template above exactly |
+| **Creating a new command file** | Follow the inline template for small domains |
 | **Adding a command to an existing file** | Add a named function + entry in registration block |
 | **Refactoring an existing file** | Extract inline `.action()` logic into named functions; reorder sections to match the layout |
 | **Command logic exceeds ~80 lines** | Extract sub-steps into helpers in `<domain>/helpers/` |
+| **Domain file exceeds ~300 lines** | Extract command functions to `<domain>/actions/` |
 
 ---
 
 ## Existing Files & Compliance Status
 
-| File | Status | Notes |
-|---|---|---|
-| `preferences/preferences.js` | **Reference** | Follows all rules — use as the model |
-| `setup/setup.js` | Compliant | Small file, simple commands |
-| `setup/blacklist.js` | Compliant | Uses factory pattern |
-| `setup/whitelist.js` | Compliant | Uses factory pattern |
-| `cartridges/cartridges.js` | Compliant | Registration at top, named function refs, helpers at bottom |
-| `meta/meta.js` | Compliant | Registration at top, 2 named command functions, shared helpers extracted |
-| `debug/debug.js` | Compliant | Registration at top, 14 named command functions, helpers at bottom |
+| File | Layout | Status | Notes |
+|---|---|---|---|
+| `preferences/preferences.js` | **Extracted** | **Reference** | Registration only — actions in `actions/` |
+| `preferences/actions/analyzePreferences.js` | Action | Compliant | Full analysis workflow |
+| `preferences/actions/removePreferences.js` | Action | Compliant | Deletion workflow + private helpers |
+| `preferences/actions/restorePreferences.js` | Action | Compliant | Standalone restore |
+| `preferences/actions/backupSitePreferences.js` | Action | Compliant | Backup job trigger |
+| `preferences/actions/inspectPreference.js` | Action | Compliant | Preference inspection |
+| `preferences/actions/shared.js` | Shared | Compliant | `loadAndValidateBackup` |
+| `setup/setup.js` | Inline | Compliant | Small file, simple commands |
+| `setup/blacklist.js` | Inline | Compliant | Uses factory pattern |
+| `setup/whitelist.js` | Inline | Compliant | Uses factory pattern |
+| `cartridges/cartridges.js` | Inline | Compliant | Registration at top, named function refs |
+| `meta/meta.js` | Inline | Compliant | Registration at top, 2 named command functions |
+| `debug/debug.js` | Inline | Compliant | Registration at top, 14 named command functions |
