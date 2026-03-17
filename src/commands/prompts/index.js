@@ -45,6 +45,7 @@ export {
 export {
     confirmExecutionPrompt,
     uncommittedChangesPrompt,
+    branchStrategyPrompt,
     baseBranchPrompt,
     branchNamePrompt,
     consolidateMetaPrompt,

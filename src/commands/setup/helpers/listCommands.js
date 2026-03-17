@@ -44,9 +44,16 @@ export function createListCommands({
 
     /**
      * Interactive prompt: add an entry to the list.
+     * @param {string} pattern - The preference ID or pattern to add
      * @private
      */
-    async function addCommand() {
+    async function addCommand(pattern) {
+        if (!pattern || !pattern.trim()) {
+            console.log(`${LOG_PREFIX.ERROR} Pattern is required.`
+                + ` Usage: add-to-${listName} <pattern>`);
+            return;
+        }
+
         const typeAnswer = await inquirer.prompt([{
             type: 'list',
             name: 'type',
@@ -58,24 +65,21 @@ export function createListCommands({
             ]
         }]);
 
-        const patternPrompt = typeAnswer.type === 'exact'
-            ? 'Enter the preference ID:'
-            : `Enter the ${typeAnswer.type} pattern:`;
+        const reasonAnswer = await inquirer.prompt([{
+            type: 'list',
+            name: 'reason',
+            message: `Reason for adding to ${listName}:`,
+            choices: [
+                { name: 'No reason', value: '' },
+                { name: 'No longer needed', value: 'No longer needed' },
+                { name: 'Deprecated', value: 'Deprecated' },
+                { name: 'Security risk', value: 'Security risk' },
+                { name: 'Test only', value: 'Test only' },
+                { name: 'Duplicate', value: 'Duplicate' }
+            ]
+        }]);
 
-        const answers = await inquirer.prompt([
-            {
-                type: 'input',
-                name: 'pattern',
-                message: patternPrompt,
-                validate: (input) => input.trim().length > 0 || 'Pattern cannot be empty'
-            },
-            {
-                type: 'input',
-                name: 'reason',
-                message: `Reason for adding to ${listName} (optional):`,
-                default: ''
-            }
-        ]);
+        const answers = { pattern: pattern.trim(), reason: reasonAnswer.reason };
 
         const availableRealms = getAvailableRealms();
         const realmAnswer = await inquirer.prompt([{
@@ -225,7 +229,7 @@ export function createListCommands({
      */
     function registerCommands(program) {
         program
-            .command(`add-to-${listName}`)
+            .command(`add-to-${listName} <pattern>`)
             .description(descriptions.add)
             .action(addCommand);
 

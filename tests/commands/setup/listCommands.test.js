@@ -94,7 +94,7 @@ describe('createListCommands', () => {
             registerCommands(mockProgram);
 
             expect(mockProgram.command).toHaveBeenCalledTimes(3);
-            expect(registeredNames).toContain('add-to-testlist');
+            expect(registeredNames).toContain('add-to-testlist <pattern>');
             expect(registeredNames).toContain('remove-from-testlist');
             expect(registeredNames).toContain('list-testlist');
         });
@@ -155,7 +155,7 @@ describe('createListCommands', () => {
                 command: vi.fn((name) => ({
                     description: vi.fn().mockReturnValue({
                         action: vi.fn((fn) => {
-                            if (name === 'add-to-testlist') {
+                            if (name === 'add-to-testlist <pattern>') {
                                 handler = fn;
                             }
                         })
@@ -166,14 +166,24 @@ describe('createListCommands', () => {
             return handler;
         }
 
+        it('prints error when pattern is missing', async () => {
+            const handler = getAddHandler();
+            await handler();
+
+            expect(console.log).toHaveBeenCalledWith(
+                expect.stringContaining('Pattern is required')
+            );
+            expect(addToListMock).not.toHaveBeenCalled();
+        });
+
         it('adds exact entry via interactive prompts', async () => {
             mockPrompt
                 .mockResolvedValueOnce({ type: 'exact' })
-                .mockResolvedValueOnce({ pattern: 'c_newPref', reason: 'Test reason' })
+                .mockResolvedValueOnce({ reason: 'Test reason' })
                 .mockResolvedValueOnce({ realmScope: 'all' });
 
             const handler = getAddHandler();
-            await handler();
+            await handler('c_newPref');
 
             expect(addToListMock).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -187,12 +197,12 @@ describe('createListCommands', () => {
         it('adds entry with specific realms', async () => {
             mockPrompt
                 .mockResolvedValueOnce({ type: 'wildcard' })
-                .mockResolvedValueOnce({ pattern: 'c_test*', reason: '' })
+                .mockResolvedValueOnce({ reason: '' })
                 .mockResolvedValueOnce({ realmScope: 'select' })
                 .mockResolvedValueOnce({ realms: ['EU05', 'GB'] });
 
             const handler = getAddHandler();
-            await handler();
+            await handler('c_test*');
 
             expect(addToListMock).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -208,11 +218,11 @@ describe('createListCommands', () => {
 
             mockPrompt
                 .mockResolvedValueOnce({ type: 'exact' })
-                .mockResolvedValueOnce({ pattern: 'c_existing', reason: '' })
+                .mockResolvedValueOnce({ reason: '' })
                 .mockResolvedValueOnce({ realmScope: 'all' });
 
             const handler = getAddHandler();
-            await handler();
+            await handler('c_existing');
 
             expect(console.log).toHaveBeenCalledWith(
                 expect.stringContaining('already exists')

@@ -36,6 +36,24 @@ export const uncommittedChangesPrompt = () => ([{
 }]);
 
 /**
+ * Ask whether to apply changes to the current branch or create a new one.
+ * Defaults to current branch for simplicity — select "Create a new branch"
+ * when you want an isolated cleanup branch for a pull request.
+ * @param {string} currentBranch - Currently checked-out branch
+ * @returns {Object[]} Inquirer prompt config — answer key: `branchStrategy`
+ */
+export const branchStrategyPrompt = (currentBranch) => ([{
+    name: 'branchStrategy',
+    type: 'list',
+    message: 'Where should changes be applied?',
+    choices: [
+        { name: `Current branch (${currentBranch})`, value: 'current' },
+        { name: 'Create a new branch', value: 'new' }
+    ],
+    default: 'current'
+}]);
+
+/**
  * Select the base branch for the cleanup.
  * @param {string[]} branches - Available branch names
  * @param {string} currentBranch - Currently checked-out branch

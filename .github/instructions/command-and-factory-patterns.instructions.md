@@ -168,7 +168,31 @@ To add a new list (e.g., `greylist`):
 
 ---
 
-## 4. When Creating New Commands
+## 4. Prompt Accessibility Rules
+
+Prefer selection-based prompts over free-text prompts wherever possible.
+
+### When to use each type
+
+| Type | Use Case |
+|------|----------|
+| `list` | Choosing from known options (e.g., realms, tiers, groups) |
+| `rawlist` | Choosing from numbered options |
+| `confirm` | Yes/no decisions — **always** use this instead of asking the user to type "yes" or "no" |
+| `checkbox` | Multi-selection from known options |
+| `input` | Genuinely free-text values where the user may want to customize (e.g., branch name, commit message). **Always** provide a sensible `default` so the user can just press Enter. |
+
+### Rules
+
+1. **A 2-choice decision must never be `input`** — use `confirm` or `list`.
+2. **When options can be fetched or derived**, use `list` or `checkbox` — never ask the user to type a value that could be selected from a known set.
+3. **When a value can be accepted as a CLI argument** (e.g., `add-to-blacklist <pattern>`), prefer that over an interactive `input` prompt.
+4. **Every `input` prompt must have a `default`** — the user should always be able to press Enter without typing.
+5. **Never use `type: 'editor'`** for interactive prompts.
+
+---
+
+## 5. When Creating New Commands
 
 1. Create the domain directory: `src/commands/<domain>/`
 2. Create helpers subdirectory: `src/commands/<domain>/helpers/`

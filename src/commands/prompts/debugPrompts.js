@@ -6,12 +6,13 @@
  */
 
 /**
- * Input an attribute group ID.
+ * Select an attribute group ID from available groups.
+ * @param {string[]} groupIds - Available group IDs to choose from
  * @returns {Object[]} Inquirer prompt config — answer key: `groupId`
  */
-export const groupIdPrompt = () => ([{
+export const groupIdPrompt = (groupIds = []) => ([{
     name: 'groupId',
-    type: 'input',
-    message: 'Attribute Group ID?',
-    validate: (input) => input && input.trim().length > 0 ? true : 'Group ID is required'
+    type: 'list',
+    message: 'Select Attribute Group:',
+    choices: groupIds
 }]);

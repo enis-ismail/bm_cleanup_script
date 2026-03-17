@@ -636,6 +636,54 @@ describe('executeMetaCleanupPlan', () => {
         expect(content).toContain('movePref');
     });
 
+    it('creates realm file with only the moved attribute — no extra group refs', () => {
+        const coreDir = path.join(tmpDir, 'core', 'meta');
+        const realmDir = path.join(tmpDir, 'realm', 'meta');
+        fs.mkdirSync(coreDir, { recursive: true });
+        fs.mkdirSync(realmDir, { recursive: true });
+
+        // Core file has MULTIPLE attributes in the same group
+        const coreXml = createMetaXml(['keepAttr', 'deleteAttrA', 'deleteAttrB']);
+        const coreFilePath = path.join(coreDir, 'meta.xml');
+        fs.writeFileSync(coreFilePath, coreXml, 'utf-8');
+
+        const targetFilePath = path.join(realmDir, 'meta.xml');
+
+        const plan = {
+            actions: [{
+                type: 'create-realm-file',
+                attributeId: 'keepAttr',
+                filePath: coreFilePath,
+                targetFilePath,
+                realm: 'APAC',
+                reason: 'move to remaining realm'
+            }],
+            warnings: [], skipped: [],
+            realmPreferenceMap: new Map(), repoPath: tmpDir
+        };
+
+        const result = executeMetaCleanupPlan(plan);
+
+        expect(result.filesCreated).toHaveLength(1);
+        const content = fs.readFileSync(targetFilePath, 'utf-8');
+
+        // Should contain ONLY the moved attribute's definition
+        expect(content).toContain('attribute-id="keepAttr"');
+
+        // Should NOT contain the other attributes' definitions or group refs
+        expect(content).not.toContain('deleteAttrA');
+        expect(content).not.toContain('deleteAttrB');
+
+        // Group should still reference the kept attribute
+        const groupAssignmentMatches = content.match(/<attribute\s+attribute-id="keepAttr"\s*\/>/g);
+        expect(groupAssignmentMatches).toHaveLength(1);
+
+        // Valid XML structure
+        expect(content).toContain('<custom-attribute-definitions>');
+        expect(content).toContain('<group-definitions>');
+        expect(content).toContain('group-id="TestGroup"');
+    });
+
     it('processes multiple removes on the same file efficiently', () => {
         const metaDir = path.join(tmpDir, 'meta');
         fs.mkdirSync(metaDir, { recursive: true });
@@ -1649,6 +1697,196 @@ describe('buildMetaCleanupPlan — additional scenarios', () => {
 });
 
 // ============================================================================
+// buildMetaCleanupPlan — shared directory handling
+// ============================================================================
+
+describe('buildMetaCleanupPlan — shared directories', () => {
+    let tmpDir;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'meta-shared-'));
+        vi.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        console.log.mockRestore();
+        vi.restoreAllMocks();
+    });
+
+    it('does NOT remove from shared directory when a remaining realm uses it', () => {
+        // EU05 and GB share the same siteTemplatesPath
+        getSandboxConfig.mockImplementation((realm) => {
+            if (realm === 'EU05' || realm === 'GB') {
+                return { siteTemplatesPath: 'sites/site_template_eu' };
+            }
+            return { siteTemplatesPath: `sites/site_template_${realm.toLowerCase()}` };
+        });
+
+        const sharedMetaDir = path.join(tmpDir, 'sites', 'site_template_eu', 'meta');
+        const coreMetaDir = path.join(tmpDir, 'sites', 'site_template', 'meta');
+        fs.mkdirSync(sharedMetaDir, { recursive: true });
+        fs.mkdirSync(coreMetaDir, { recursive: true });
+
+        const xml = createMetaXml(['euOnlyAttr']);
+        fs.writeFileSync(path.join(sharedMetaDir, 'meta.xml'), xml, 'utf-8');
+
+        // GB wants to delete euOnlyAttr, but EU05 does NOT
+        const realmPreferenceMap = new Map([
+            ['GB', ['c_euOnlyAttr']]
+        ]);
+
+        const plan = buildMetaCleanupPlan(tmpDir, realmPreferenceMap, ['EU05', 'GB']);
+
+        // Should NOT create any remove actions — EU05 still needs the attribute
+        // in the shared directory
+        const removeActions = plan.actions.filter(a => a.type === 'remove');
+        expect(removeActions).toEqual([]);
+    });
+
+    it('removes from shared directory when ALL sharing realms want deletion', () => {
+        getSandboxConfig.mockImplementation((realm) => {
+            if (realm === 'EU05' || realm === 'GB') {
+                return { siteTemplatesPath: 'sites/site_template_eu' };
+            }
+            return { siteTemplatesPath: `sites/site_template_${realm.toLowerCase()}` };
+        });
+
+        const sharedMetaDir = path.join(tmpDir, 'sites', 'site_template_eu', 'meta');
+        const coreMetaDir = path.join(tmpDir, 'sites', 'site_template', 'meta');
+        fs.mkdirSync(sharedMetaDir, { recursive: true });
+        fs.mkdirSync(coreMetaDir, { recursive: true });
+
+        const xml = createMetaXml(['sharedAttr']);
+        fs.writeFileSync(path.join(sharedMetaDir, 'meta.xml'), xml, 'utf-8');
+
+        // Both EU05 and GB want to delete sharedAttr
+        const realmPreferenceMap = new Map([
+            ['EU05', ['c_sharedAttr']],
+            ['GB', ['c_sharedAttr']]
+        ]);
+
+        const plan = buildMetaCleanupPlan(tmpDir, realmPreferenceMap, ['EU05', 'GB']);
+
+        // Should remove — both sharing realms agree
+        const removeActions = plan.actions.filter(a => a.type === 'remove');
+        expect(removeActions.length).toBe(1);
+        expect(removeActions[0].attributeId).toBe('sharedAttr');
+    });
+
+    it('deduplicates remove actions for shared directories', () => {
+        getSandboxConfig.mockImplementation((realm) => {
+            if (realm === 'EU05' || realm === 'GB') {
+                return { siteTemplatesPath: 'sites/site_template_eu' };
+            }
+            return { siteTemplatesPath: `sites/site_template_${realm.toLowerCase()}` };
+        });
+
+        const sharedMetaDir = path.join(tmpDir, 'sites', 'site_template_eu', 'meta');
+        const coreMetaDir = path.join(tmpDir, 'sites', 'site_template', 'meta');
+        fs.mkdirSync(sharedMetaDir, { recursive: true });
+        fs.mkdirSync(coreMetaDir, { recursive: true });
+
+        const xml = createMetaXml(['dupAttr']);
+        fs.writeFileSync(path.join(sharedMetaDir, 'meta.xml'), xml, 'utf-8');
+
+        // Both realms want to delete — should produce only ONE remove action
+        const realmPreferenceMap = new Map([
+            ['EU05', ['c_dupAttr']],
+            ['GB', ['c_dupAttr']]
+        ]);
+
+        const plan = buildMetaCleanupPlan(tmpDir, realmPreferenceMap, ['EU05', 'GB']);
+
+        const removeActions = plan.actions.filter(
+            a => a.type === 'remove' && a.attributeId === 'dupAttr'
+        );
+        // Only one remove action for the physical file, not two
+        expect(removeActions.length).toBe(1);
+    });
+
+    it('deduplicates create-realm-file for remaining realms sharing a directory', () => {
+        // EU05 and GB share the same siteTemplatesPath
+        getSandboxConfig.mockImplementation((realm) => {
+            if (realm === 'EU05' || realm === 'GB') {
+                return { siteTemplatesPath: 'sites/site_template_eu' };
+            }
+            return { siteTemplatesPath: `sites/site_template_${realm.toLowerCase()}` };
+        });
+
+        const coreMetaDir = path.join(tmpDir, 'sites', 'site_template', 'meta');
+        const sharedMetaDir = path.join(tmpDir, 'sites', 'site_template_eu', 'meta');
+        const apacMetaDir = path.join(tmpDir, 'sites', 'site_template_apac', 'meta');
+        fs.mkdirSync(coreMetaDir, { recursive: true });
+        fs.mkdirSync(sharedMetaDir, { recursive: true });
+        fs.mkdirSync(apacMetaDir, { recursive: true });
+
+        const coreXml = createMetaXml(['coreAttr']);
+        fs.writeFileSync(path.join(coreMetaDir, 'meta.xml'), coreXml, 'utf-8');
+
+        // APAC deletes coreAttr; EU05 and GB (sharing dir) don't
+        const realmPreferenceMap = new Map([
+            ['APAC', ['c_coreAttr']]
+        ]);
+
+        const plan = buildMetaCleanupPlan(
+            tmpDir, realmPreferenceMap, ['EU05', 'GB', 'APAC']
+        );
+
+        // Should create only ONE realm file for the shared EU05/GB directory
+        const createActions = plan.actions.filter(a => a.type === 'create-realm-file');
+        expect(createActions.length).toBe(1);
+        expect(createActions[0].targetFilePath).toContain('site_template_eu');
+
+        // Should also remove from core
+        const coreRemoves = plan.actions.filter(a => a.realm === 'CORE');
+        expect(coreRemoves.length).toBe(1);
+    });
+
+    it('mixed scenario: shared dir + separate dir + core attribute', () => {
+        // EU05 and GB share; APAC and PNA are separate
+        getSandboxConfig.mockImplementation((realm) => {
+            if (realm === 'EU05' || realm === 'GB') {
+                return { siteTemplatesPath: 'sites/site_template_eu' };
+            }
+            return { siteTemplatesPath: `sites/site_template_${realm.toLowerCase()}` };
+        });
+
+        const coreMetaDir = path.join(tmpDir, 'sites', 'site_template', 'meta');
+        const sharedMetaDir = path.join(tmpDir, 'sites', 'site_template_eu', 'meta');
+        const apacMetaDir = path.join(tmpDir, 'sites', 'site_template_apac', 'meta');
+        const pnaMetaDir = path.join(tmpDir, 'sites', 'site_template_pna', 'meta');
+        fs.mkdirSync(coreMetaDir, { recursive: true });
+        fs.mkdirSync(sharedMetaDir, { recursive: true });
+        fs.mkdirSync(apacMetaDir, { recursive: true });
+        fs.mkdirSync(pnaMetaDir, { recursive: true });
+
+        // Attribute only in EU/GB shared dir
+        const euXml = createMetaXml(['euOnlyAttr']);
+        fs.writeFileSync(path.join(sharedMetaDir, 'meta.xml'), euXml, 'utf-8');
+
+        // APAC, GB, PNA want to delete euOnlyAttr but EU05 does NOT
+        const realmPreferenceMap = new Map([
+            ['APAC', ['c_euOnlyAttr']],
+            ['GB', ['c_euOnlyAttr']],
+            ['PNA', ['c_euOnlyAttr']]
+        ]);
+
+        const plan = buildMetaCleanupPlan(
+            tmpDir, realmPreferenceMap, ['EU05', 'GB', 'APAC', 'PNA']
+        );
+
+        // Shared dir has EU05 (remaining) → do NOT remove
+        const removeActions = plan.actions.filter(a => a.type === 'remove');
+        expect(removeActions).toEqual([]);
+
+        // Attribute not in core → no create-realm-file needed
+        const createActions = plan.actions.filter(a => a.type === 'create-realm-file');
+        expect(createActions).toEqual([]);
+    });
+});
+
+// ============================================================================
 // scanSitesForRemainingPreferences — additional coverage
 // ============================================================================
 
@@ -1885,5 +2123,218 @@ describe('End-to-end meta cleanup workflow', () => {
         );
         expect(coreContent).not.toContain('crossRealmAttr');
         expect(coreContent).toContain('keepThis');
+    });
+
+    it('P1+P2 deleted from all realms, P5 realm-specific moved to remaining realm', () => {
+        // Scenario:
+        //   SimpleUnusedAttribute (P1) — all 4 realms delete → removed from core
+        //   ThisTestAttribute     (P2) — all 4 realms delete → removed from core
+        //   EUOnlyAttribute       (P5) — APAC/GB/PNA delete, EU05 keeps
+        //     → moved from core to EU05 realm meta so it survives deployment
+        const coreMetaDir = path.join(tmpDir, 'sites', 'site_template', 'meta');
+        fs.mkdirSync(coreMetaDir, { recursive: true });
+
+        const allRealms = ['EU05', 'APAC', 'GB', 'PNA'];
+
+        for (const realm of allRealms) {
+            const realmMetaDir = path.join(
+                tmpDir, 'sites', `site_template_${realm.toLowerCase()}`, 'meta'
+            );
+            fs.mkdirSync(realmMetaDir, { recursive: true });
+        }
+
+        // Core meta file has all 3 attributes
+        const coreXml = createMetaXml(
+            ['SimpleUnusedAttribute', 'ThisTestAttribute', 'EUOnlyAttribute']
+        );
+        fs.writeFileSync(path.join(coreMetaDir, 'meta.xml'), coreXml, 'utf-8');
+
+        // Build realmPreferenceMap as the deletion files would produce:
+        //   EU05  deletes P1+P2 only (EUOnlyAttribute is NOT a candidate for EU05)
+        //   APAC  deletes P1+P2+P5
+        //   GB    deletes P1+P2+P5
+        //   PNA   deletes P1+P2+P5
+        const realmPreferenceMap = new Map([
+            ['EU05', ['c_SimpleUnusedAttribute', 'c_ThisTestAttribute']],
+            ['APAC', ['c_SimpleUnusedAttribute', 'c_ThisTestAttribute', 'c_EUOnlyAttribute']],
+            ['GB', ['c_SimpleUnusedAttribute', 'c_ThisTestAttribute', 'c_EUOnlyAttribute']],
+            ['PNA', ['c_SimpleUnusedAttribute', 'c_ThisTestAttribute', 'c_EUOnlyAttribute']]
+        ]);
+
+        // ---- Plan phase ----
+        const plan = buildMetaCleanupPlan(tmpDir, realmPreferenceMap, allRealms);
+
+        // P1 (SimpleUnusedAttribute): deleted from ALL → core remove
+        const p1CoreRemoves = plan.actions.filter(
+            a => a.attributeId === 'SimpleUnusedAttribute' && a.realm === 'CORE'
+        );
+        expect(p1CoreRemoves).toHaveLength(1);
+        expect(p1CoreRemoves[0].type).toBe('remove');
+
+        // P2 (ThisTestAttribute): deleted from ALL → core remove
+        const p2CoreRemoves = plan.actions.filter(
+            a => a.attributeId === 'ThisTestAttribute' && a.realm === 'CORE'
+        );
+        expect(p2CoreRemoves).toHaveLength(1);
+        expect(p2CoreRemoves[0].type).toBe('remove');
+
+        // P5 (EUOnlyAttribute): deleted from APAC/GB/PNA but NOT EU05
+        //   → create-realm-file to copy to EU05, then remove from core
+        const p5CreateActions = plan.actions.filter(
+            a => a.attributeId === 'EUOnlyAttribute' && a.type === 'create-realm-file'
+        );
+        expect(p5CreateActions).toHaveLength(1);
+        expect(p5CreateActions[0].realm).toBe('EU05');
+
+        const p5CoreRemoves = plan.actions.filter(
+            a => a.attributeId === 'EUOnlyAttribute' && a.realm === 'CORE'
+        );
+        expect(p5CoreRemoves).toHaveLength(1);
+        expect(p5CoreRemoves[0].type).toBe('remove');
+
+        // No create-realm-file for APAC/GB/PNA (they are deleting it)
+        const nonEu05Creates = plan.actions.filter(
+            a => a.attributeId === 'EUOnlyAttribute'
+                && a.type === 'create-realm-file'
+                && a.realm !== 'EU05'
+        );
+        expect(nonEu05Creates).toEqual([]);
+
+        // ---- Execute phase ----
+        const result = executeMetaCleanupPlan(plan);
+        expect(result.errors).toEqual([]);
+
+        // Core meta file should be deleted (all 3 attributes removed → empty)
+        expect(fs.existsSync(path.join(coreMetaDir, 'meta.xml'))).toBe(false);
+
+        // EU05 realm should now contain EUOnlyAttribute (moved from core)
+        const eu05MetaPath = path.join(
+            tmpDir, 'sites', 'site_template_eu05', 'meta', 'meta.xml'
+        );
+        expect(fs.existsSync(eu05MetaPath)).toBe(true);
+        const eu05Content = fs.readFileSync(eu05MetaPath, 'utf-8');
+        expect(eu05Content).toContain('attribute-id="EUOnlyAttribute"');
+
+        // EU05 realm file should NOT contain the deleted P1/P2 attributes
+        expect(eu05Content).not.toContain('SimpleUnusedAttribute');
+        expect(eu05Content).not.toContain('ThisTestAttribute');
+
+        // APAC/GB/PNA should NOT have any new meta files created
+        for (const realm of ['apac', 'gb', 'pna']) {
+            const realmMetaPath = path.join(
+                tmpDir, 'sites', `site_template_${realm}`, 'meta', 'meta.xml'
+            );
+            expect(fs.existsSync(realmMetaPath)).toBe(false);
+        }
+    });
+
+    it('P5 realm-specific attribute skips create when realm already has it', () => {
+        // Same scenario but EU05 already has EUOnlyAttribute in its realm meta
+        const coreMetaDir = path.join(tmpDir, 'sites', 'site_template', 'meta');
+        fs.mkdirSync(coreMetaDir, { recursive: true });
+
+        const allRealms = ['EU05', 'APAC'];
+
+        for (const realm of allRealms) {
+            const realmMetaDir = path.join(
+                tmpDir, 'sites', `site_template_${realm.toLowerCase()}`, 'meta'
+            );
+            fs.mkdirSync(realmMetaDir, { recursive: true });
+        }
+
+        const coreXml = createMetaXml(['EUOnlyAttribute']);
+        fs.writeFileSync(path.join(coreMetaDir, 'meta.xml'), coreXml, 'utf-8');
+
+        // EU05 already has the attribute in its own realm folder
+        const eu05Xml = createMetaXml(['EUOnlyAttribute']);
+        fs.writeFileSync(
+            path.join(tmpDir, 'sites', 'site_template_eu05', 'meta', 'meta.xml'),
+            eu05Xml, 'utf-8'
+        );
+
+        // Only APAC deletes — EU05 keeps
+        const realmPreferenceMap = new Map([
+            ['APAC', ['c_EUOnlyAttribute']]
+        ]);
+
+        const plan = buildMetaCleanupPlan(tmpDir, realmPreferenceMap, allRealms);
+
+        // No create-realm-file needed — EU05 already has it
+        const createActions = plan.actions.filter(a => a.type === 'create-realm-file');
+        expect(createActions).toEqual([]);
+
+        // Should still remove from core
+        const coreRemoves = plan.actions.filter(a => a.realm === 'CORE');
+        expect(coreRemoves).toHaveLength(1);
+
+        // Execute and verify EU05 file is untouched
+        const result = executeMetaCleanupPlan(plan);
+        expect(result.errors).toEqual([]);
+
+        const eu05Content = fs.readFileSync(
+            path.join(tmpDir, 'sites', 'site_template_eu05', 'meta', 'meta.xml'),
+            'utf-8'
+        );
+        expect(eu05Content).toContain('attribute-id="EUOnlyAttribute"');
+    });
+
+    it('multiple P5 attributes route to different remaining realms', () => {
+        // EUOnlyAttribute: active on EU05 only → APAC/PNA delete, move to EU05
+        // APACOnlyAttribute: active on APAC only → EU05/PNA delete, move to APAC
+        const coreMetaDir = path.join(tmpDir, 'sites', 'site_template', 'meta');
+        fs.mkdirSync(coreMetaDir, { recursive: true });
+
+        const allRealms = ['EU05', 'APAC', 'PNA'];
+
+        for (const realm of allRealms) {
+            const realmMetaDir = path.join(
+                tmpDir, 'sites', `site_template_${realm.toLowerCase()}`, 'meta'
+            );
+            fs.mkdirSync(realmMetaDir, { recursive: true });
+        }
+
+        const coreXml = createMetaXml(
+            ['EUOnlyAttribute', 'APACOnlyAttribute', 'GlobalDelete']
+        );
+        fs.writeFileSync(path.join(coreMetaDir, 'meta.xml'), coreXml, 'utf-8');
+
+        const realmPreferenceMap = new Map([
+            ['EU05', ['c_APACOnlyAttribute', 'c_GlobalDelete']],
+            ['APAC', ['c_EUOnlyAttribute', 'c_GlobalDelete']],
+            ['PNA', ['c_EUOnlyAttribute', 'c_APACOnlyAttribute', 'c_GlobalDelete']]
+        ]);
+
+        const plan = buildMetaCleanupPlan(tmpDir, realmPreferenceMap, allRealms);
+        const result = executeMetaCleanupPlan(plan);
+        expect(result.errors).toEqual([]);
+
+        // EU05 should have EUOnlyAttribute
+        const eu05Path = path.join(
+            tmpDir, 'sites', 'site_template_eu05', 'meta', 'meta.xml'
+        );
+        expect(fs.existsSync(eu05Path)).toBe(true);
+        const eu05Content = fs.readFileSync(eu05Path, 'utf-8');
+        expect(eu05Content).toContain('attribute-id="EUOnlyAttribute"');
+        expect(eu05Content).not.toContain('APACOnlyAttribute');
+        expect(eu05Content).not.toContain('GlobalDelete');
+
+        // APAC should have APACOnlyAttribute
+        const apacPath = path.join(
+            tmpDir, 'sites', 'site_template_apac', 'meta', 'meta.xml'
+        );
+        expect(fs.existsSync(apacPath)).toBe(true);
+        const apacContent = fs.readFileSync(apacPath, 'utf-8');
+        expect(apacContent).toContain('attribute-id="APACOnlyAttribute"');
+        expect(apacContent).not.toContain('EUOnlyAttribute');
+        expect(apacContent).not.toContain('GlobalDelete');
+
+        // PNA should have NO new meta file (it deletes everything)
+        const pnaPath = path.join(
+            tmpDir, 'sites', 'site_template_pna', 'meta', 'meta.xml'
+        );
+        expect(fs.existsSync(pnaPath)).toBe(false);
+
+        // Core should be deleted (all attributes either removed or moved out)
+        expect(fs.existsSync(path.join(coreMetaDir, 'meta.xml'))).toBe(false);
     });
 });

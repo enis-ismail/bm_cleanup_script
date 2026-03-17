@@ -301,6 +301,8 @@ For complete interactive prompts, output files, and config requirements for each
 
 After removing preferences via OCAPI, you also need to remove their XML definitions from the sibling SFCC repository's meta files — otherwise, redeployment would recreate them.
 
+Both commands use the same plan-building engine. The plan reads deletion files from `results/`, scans the repository's meta XML files (located via `siteTemplatesPath` and `coreSiteTemplatePath` in `config.json`), and decides per attribute whether to remove it entirely or move it from core to remaining realm directories.
+
 ### 4. **test-meta-cleanup** — Preview Changes
 
 Dry-run by default. Scans meta XML files in the sibling repo and shows what would be removed.
@@ -310,34 +312,40 @@ node src/main.js test-meta-cleanup              # preview only (default)
 node src/main.js test-meta-cleanup --execute     # actually modify files
 ```
 
-**What it does:**
-1. Select sibling SFCC repository & realms
-2. Load deletion candidates (per-realm or cross-realm intersection)
-3. Build a cleanup plan (attribute definitions, group assignments, preference values)
-4. Show the plan — optionally execute
-5. Run residual scan to catch any remaining references
+**Interactive flow:**
+1. Select sibling SFCC repository
+2. Select realm scope (single / instance type / all) and deletion tier (P1–P5)
+3. Choose deletion source — per-realm files or cross-realm intersection
+4. Review the cleanup plan showing every planned action
+5. Confirm execution (dry-run by default — files not changed unless `--execute`)
+
+**Plan logic:**
+- Attributes deleted from **all** realms → removed from core and realm meta directories
+- Attributes deleted from **some** realms → moved from core to remaining realms' directories
+- Shared physical directories (e.g., EU05+GB) are handled safely — removal only happens when all sharing realms agree
+- After plan execution, orphaned `<preference>` values are removed from `preferences.xml` files
 
 ### 5. **meta-cleanup** — Full Git Workflow
 
-End-to-end: creates a branch, removes definitions, cleans up preference values, optionally consolidates to single meta file, stages and commits.
+End-to-end: creates a branch, removes definitions, cleans up preference values, optionally consolidates to single meta file per realm, stages and commits.
 
 ```bash
 node src/main.js meta-cleanup
 ```
 
-**Workflow:**
+**Interactive flow:**
 1. Select sibling repo, check for uncommitted changes
-2. Select base branch (e.g., `develop`)
-3. Select realms, deletion tier (P1–P5), and source (per-realm or cross-realm)
-4. Create a new branch (e.g., `chore/cleanup-P2-development-2026-03-06`)
-5. Build and execute cleanup plan
-6. Remove orphaned `<preference preference-id="X">` entries from `preferences.xml` files
-7. Optional: consolidate to single meta file per realm (triggers BM backup job)
-8. Stage all changes and commit with descriptive message + full attribute list
+2. Select realms, deletion tier (P1–P5), and source (per-realm or cross-realm)
+3. Choose branch strategy — apply to current branch or create a new one
+4. Build and execute cleanup plan (same logic as `test-meta-cleanup`)
+5. *(Optional)* Consolidate meta files — triggers BM backup job to download canonical XML
+6. Stage all changes and commit with descriptive message + full attribute list
 
 **Commit output includes:**
 - Subject: `chore: remove N unused site preference definition(s) — P2 development`
 - Body: source type, tier level + description, and list of all removed attribute IDs
+
+For the full prompt-by-prompt reference, plan-building logic, file path sources, and shared-directory handling details, see [COMMANDS.md — test-meta-cleanup](COMMANDS.md#4-test-meta-cleanup) and [COMMANDS.md — meta-cleanup](COMMANDS.md#5-meta-cleanup).
 
 ---
 
