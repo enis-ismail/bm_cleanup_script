@@ -2,7 +2,6 @@ import inquirer from 'inquirer';
 import path from 'path';
 import fs from 'fs';
 import {
-    getInstanceType,
     getRealmsByInstanceType
 } from '../../../config/helpers/helpers.js';
 import { startTimer } from '../../../helpers/timer.js';

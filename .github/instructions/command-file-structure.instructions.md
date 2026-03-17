@@ -10,7 +10,7 @@ Two layouts are supported:
 - **Extracted layout** — command functions are moved to individual files in `<domain>/actions/`. Use when the domain file exceeds ~300 lines or has 4+ commands.
 
 The reference implementations are:
-- **Inline:** `src/commands/debug/debug.js`
+- **Inline:** `src/commands/cartridges/cartridges.js`
 - **Extracted:** `src/commands/preferences/preferences.js` + `src/commands/preferences/actions/`
 
 ---
@@ -356,5 +356,16 @@ export function register<Domain>Commands(program) {
 | `setup/blacklist.js` | Inline | Compliant | Uses factory pattern |
 | `setup/whitelist.js` | Inline | Compliant | Uses factory pattern |
 | `cartridges/cartridges.js` | Inline | Compliant | Registration at top, named function refs |
-| `meta/meta.js` | Inline | Compliant | Registration at top, 2 named command functions |
-| `debug/debug.js` | Inline | Compliant | Registration at top, 14 named command functions |
+| `meta/meta.js` | **Extracted** | Compliant | Registration only — actions in `actions/` |
+| `meta/actions/testMetaCleanup.js` | Action | Compliant | Test meta cleanup (dry-run/execute) |
+| `meta/actions/metaCleanup.js` | Action | Compliant | Full git workflow |
+| `meta/actions/shared.js` | Shared | Compliant | `promptForRepositoryPath`, `loadDeletionCandidates`, `runCrossRealmScanIfNeeded` |
+| `debug/debug.js` | **Extracted** | Compliant | Registration only — actions in `actions/` |
+| `debug/actions/attributeGroupActions.js` | Action | Compliant | `listAttributeGroups`, `getAttributeGroup` |
+| `debug/actions/attributeTestActions.js` | Action | Compliant | `testPatchAttribute`, `testPutAttribute`, `testDeleteAttribute`, `testSetSitePreference` |
+| `debug/actions/preferenceDiscovery.js` | Action | Compliant | `testActivePreferences`, `findPreferenceUsageCommand` |
+| `debug/actions/backupRestoreCycle.js` | Action | Compliant | `testBackupRestoreCycle` + private helpers |
+| `debug/actions/findAttributeGroupInMeta.js` | Action | Compliant | Meta XML search |
+| `debug/actions/testGenerateBackupJson.js` | Action | Compliant | Backup JSON generation test |
+| `debug/actions/progressTests.js` | Action | Compliant | `testConcurrentTimers`, `debugProgress` + private helpers |
+| `debug/actions/checkApiEndpoints.js` | Action | Compliant | Endpoint health check |
