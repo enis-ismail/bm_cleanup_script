@@ -52,6 +52,8 @@ export async function restorePreference({
         group.attributes.includes(preferenceId)
     );
 
+    const assignedGroups = new Set();
+
     for (const group of groupsToRestore) {
         const alreadyEnsured = ensuredGroups?.has(group.group_id) === true;
 
@@ -85,6 +87,7 @@ export async function restorePreference({
         );
         if (assigned) {
             console.log(`    ${LOG_PREFIX.INFO} Assigned to group: ${group.group_id}`);
+            assignedGroups.add(group.group_id);
         } else {
             console.log(`    ${LOG_PREFIX.ERROR} Failed to assign to group: ${group.group_id}`);
         }
@@ -95,18 +98,28 @@ export async function restorePreference({
 
     if (siteValueData?.siteValues && Object.keys(siteValueData.siteValues).length > 0) {
         const { groupId, siteValues } = siteValueData;
-        const attributeKey = preferenceId.startsWith(IDENTIFIERS.CUSTOM_ATTRIBUTE_PREFIX)
-            ? preferenceId
-            : `${IDENTIFIERS.CUSTOM_ATTRIBUTE_PREFIX}${preferenceId}`;
 
-        for (const [siteId, value] of Object.entries(siteValues)) {
-            const payload = { [attributeKey]: value };
-            const result = await patchSitePreferencesGroup(siteId, groupId, instanceType, payload, realm);
+        // Site values can only be patched if the attribute is assigned to the group.
+        // If assignment failed or the group wasn't in the restore list, skip.
+        if (!assignedGroups.has(groupId) && groupsToRestore.length > 0) {
+            console.log(
+                `    ${LOG_PREFIX.WARNING} Skipping site value restore: ${preferenceId} is not `
+                + `assigned to group ${groupId}`
+            );
+        } else {
+            const attributeKey = preferenceId.startsWith(IDENTIFIERS.CUSTOM_ATTRIBUTE_PREFIX)
+                ? preferenceId
+                : `${IDENTIFIERS.CUSTOM_ATTRIBUTE_PREFIX}${preferenceId}`;
 
-            if (result) {
-                console.log(`    ${LOG_PREFIX.INFO} Restored value for ${siteId}: "${value}"`);
-            } else {
-                console.log(`    ${LOG_PREFIX.ERROR} Failed to restore value for ${siteId}`);
+            for (const [siteId, value] of Object.entries(siteValues)) {
+                const payload = { [attributeKey]: value };
+                const result = await patchSitePreferencesGroup(siteId, groupId, instanceType, payload, realm);
+
+                if (result) {
+                    console.log(`    ${LOG_PREFIX.INFO} Restored value for ${siteId}: "${value}"`);
+                } else {
+                    console.log(`    ${LOG_PREFIX.ERROR} Failed to restore value for ${siteId}`);
+                }
             }
         }
     }
