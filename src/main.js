@@ -92,6 +92,7 @@ registerCartridgeCommands(program);
 //   - remove-preferences: Remove preferences marked for deletion
 //   - restore-preferences: Restore site preferences from backup
 //   - backup-site-preferences: Trigger backup job and download metadata
+//   - inspect-preference: Show detailed info about a single preference
 
 registerPreferenceCommands(program);
 

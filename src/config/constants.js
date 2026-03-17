@@ -109,7 +109,8 @@ export const FILE_PATTERNS = {
     SITE_CARTRIDGES_LIST: '_active_site_cartridges_list.csv',
     SITE_PREFERENCES_CSV: '_site_preferences.csv',
     SITE_XML_VALIDATION: '_site_xml_validation.txt',
-    BACKUP_SUFFIX: '_backup_'
+    BACKUP_SUFFIX: '_backup_',
+    PREFERENCE_REFERENCES: '_preference_references.json'
 };
 
 /**

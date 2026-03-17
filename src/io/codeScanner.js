@@ -114,7 +114,7 @@ function countScannableFiles(dirPath) {
     return total;
 }
 
-function collectMatchesInFile(filePath, preferenceId) {
+export function collectMatchesInFile(filePath, preferenceId) {
     const matches = [];
     const content = fs.readFileSync(filePath, 'utf-8');
     const lines = content.split(/\r?\n/);
@@ -133,7 +133,7 @@ function collectMatchesInFile(filePath, preferenceId) {
     return matches;
 }
 
-function collectAllFilePaths(dirPath, fileList = []) {
+export function collectAllFilePaths(dirPath, fileList = []) {
     const entries = fs.readdirSync(dirPath, { withFileTypes: true });
 
     for (const entry of entries) {
@@ -161,6 +161,7 @@ function collectAllFilePaths(dirPath, fileList = []) {
 
 async function searchMultiplePreferencesInFileAsync(filePath, preferenceIds) {
     const foundPreferences = new Set();
+    const referenceDetails = new Map();
 
     try {
         const content = await fsPromises.readFile(filePath, 'utf-8');
@@ -170,11 +171,29 @@ async function searchMultiplePreferencesInFileAsync(filePath, preferenceIds) {
                 foundPreferences.add(prefId);
             }
         }
+
+        // Collect line-level details for found preferences
+        if (foundPreferences.size > 0) {
+            const lines = content.split(/\r?\n/);
+            for (let i = 0; i < lines.length; i += 1) {
+                for (const prefId of foundPreferences) {
+                    if (lines[i].includes(prefId)) {
+                        if (!referenceDetails.has(prefId)) {
+                            referenceDetails.set(prefId, []);
+                        }
+                        referenceDetails.get(prefId).push({
+                            lineNumber: i + 1,
+                            lineText: lines[i].trim()
+                        });
+                    }
+                }
+            }
+        }
     } catch {
         // Ignore unreadable/binary files
     }
 
-    return foundPreferences;
+    return { foundPreferences, referenceDetails };
 }
 
 function searchDirectoryForPreference(dirPath, preferenceId, deprecatedCartridges, matches, state, isFirstSearch) {
@@ -366,6 +385,45 @@ function exportCartridgePreferenceMapping(results, instanceTypeOverride = null) 
     lines.push(`Total unique preferences used: ${results.filter(r => r.cartridges.length > 0).length}`);
 
     fs.writeFileSync(filePath, lines.join('\n'), 'utf-8');
+
+    return filePath;
+}
+
+/**
+ * Export per-preference code references to a JSON file.
+ * Each preference maps to its list of file+line references and cartridge tags.
+ * Consumed by inspect-preference to avoid re-scanning the codebase.
+ *
+ * @param {Map<string, Array<{file: string, line: number, text: string, cartridge: string|null}>>} preferenceReferences - Collected references
+ * @param {string} [instanceTypeOverride] - Optional instance type for output path scoping
+ * @returns {string|null} Path to the exported file, or null if no data
+ */
+function exportPreferenceReferences(preferenceReferences, instanceTypeOverride = null) {
+    if (preferenceReferences.size === 0) {
+        return null;
+    }
+
+    const dirName = instanceTypeOverride || IDENTIFIERS.ALL_REALMS;
+    const resultsDir = ensureResultsDir(IDENTIFIERS.ALL_REALMS, instanceTypeOverride);
+    const filename = `${dirName}${FILE_PATTERNS.PREFERENCE_REFERENCES}`;
+    const filePath = path.join(resultsDir, filename);
+
+    const output = {
+        generated: new Date().toISOString(),
+        totalPreferences: preferenceReferences.size,
+        preferences: {}
+    };
+
+    for (const [prefId, refs] of preferenceReferences) {
+        output.preferences[prefId] = refs.map(r => ({
+            file: r.file.replace(/\\/g, '/'),
+            line: r.line,
+            text: r.text,
+            cartridge: r.cartridge
+        }));
+    }
+
+    fs.writeFileSync(filePath, JSON.stringify(output, null, 2), 'utf-8');
 
     return filePath;
 }
@@ -2329,7 +2387,9 @@ export async function findAllActivePreferencesUsage(repositoryPathOrPaths, optio
         const repoName = path.basename(repoPath);
         const filesForRepo = collectAllFilePaths(repoPath);
         log(`  ${repoName}: ${filesForRepo.length} files`);
-        allFiles.push(...filesForRepo);
+        for (const fileInfo of filesForRepo) {
+            allFiles.push({ ...fileInfo, repoRoot: repoPath });
+        }
     }
     log(`Total files to scan: ${allFiles.length}\n`);
 
@@ -2339,6 +2399,9 @@ export async function findAllActivePreferencesUsage(repositoryPathOrPaths, optio
         active: new Set(),
         deprecated: new Set()
     }));
+
+    // Track per-preference code references (file, line, text, cartridge)
+    const preferenceReferences = new Map();
 
     const logEvery = options.logEvery || 100;
     let scannedFiles = 0;
@@ -2360,16 +2423,33 @@ export async function findAllActivePreferencesUsage(repositoryPathOrPaths, optio
 
     const scanTasks = allFiles.map(fileInfo =>
         limit(async () => {
-            const foundPrefs = await searchMultiplePreferencesInFileAsync(
-                fileInfo.path, activePreferences
-            );
+            const { foundPreferences, referenceDetails } =
+                await searchMultiplePreferencesInFileAsync(
+                    fileInfo.path, activePreferences
+                );
 
-            // Record cartridges for each found preference
-            foundPrefs.forEach(pref => {
+            // Record cartridges and file references for each found preference
+            foundPreferences.forEach(pref => {
                 if (fileInfo.cartridge) {
                     const isDeprecated = deprecatedCartridges.has(fileInfo.cartridge);
                     const category = isDeprecated ? 'deprecated' : 'active';
                     preferenceToCartridges.get(pref)[category].add(fileInfo.cartridge);
+                }
+
+                const lineDetails = referenceDetails.get(pref) || [];
+                if (!preferenceReferences.has(pref)) {
+                    preferenceReferences.set(pref, []);
+                }
+                const relativePath = path.relative(
+                    fileInfo.repoRoot, fileInfo.path
+                );
+                for (const detail of lineDetails) {
+                    preferenceReferences.get(pref).push({
+                        file: relativePath,
+                        line: detail.lineNumber,
+                        text: detail.lineText,
+                        cartridge: fileInfo.cartridge || null
+                    });
                 }
             });
 
@@ -2436,6 +2516,14 @@ export async function findAllActivePreferencesUsage(repositoryPathOrPaths, optio
     const deletionFile = generatePreferenceDeletionCandidates(instanceTypeOverride, results);
     if (deletionFile) {
         console.log(`✓ Preferences marked for deletion: ${deletionFile}`);
+    }
+
+    // Export per-preference code references (file, line, cartridge)
+    const referencesFile = exportPreferenceReferences(
+        preferenceReferences, instanceTypeOverride
+    );
+    if (referencesFile) {
+        console.log(`✓ Preference code references saved to: ${referencesFile}`);
     }
 
     console.log('');
