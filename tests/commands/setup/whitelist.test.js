@@ -14,7 +14,7 @@ vi.mock('../../../src/commands/setup/helpers/listCommands.js', () => ({
     createListCommands: vi.fn(() => vi.fn())
 }));
 
-import { registerWhitelistCommands } from '../../../src/commands/setup/whitelist.js';
+import { registerWhitelistCommands } from '../../../src/commands/setup/actions/whitelist.js';
 import { createListCommands } from '../../../src/commands/setup/helpers/listCommands.js';
 
 // ============================================================================

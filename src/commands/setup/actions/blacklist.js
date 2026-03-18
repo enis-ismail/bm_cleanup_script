@@ -4,12 +4,12 @@
  * Uses the shared createListCommands factory.
  */
 
-import { createListCommands } from './helpers/listCommands.js';
+import { createListCommands } from '../helpers/listCommands.js';
 import {
     addToBlacklist,
     removeFromBlacklist,
     listBlacklist
-} from './helpers/blacklistHelper.js';
+} from '../helpers/blacklistHelper.js';
 
 /**
  * Register blacklist management commands.

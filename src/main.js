@@ -23,8 +23,8 @@ import { registerDebugCommands } from './commands/debug/debug.js';
 import { registerPreferenceCommands } from './commands/preferences/preferences.js';
 import { registerCartridgeCommands } from './commands/cartridges/cartridges.js';
 import { registerSetupCommands } from './commands/setup/setup.js';
-import { registerBlacklistCommands } from './commands/setup/blacklist.js';
-import { registerWhitelistCommands } from './commands/setup/whitelist.js';
+import { registerBlacklistCommands } from './commands/setup/actions/blacklist.js';
+import { registerWhitelistCommands } from './commands/setup/actions/whitelist.js';
 import { registerMetaCommands } from './commands/meta/meta.js';
 
 // ============================================================================

@@ -4,12 +4,12 @@
  * Uses the shared createListCommands factory.
  */
 
-import { createListCommands } from './helpers/listCommands.js';
+import { createListCommands } from '../helpers/listCommands.js';
 import {
     addToWhitelist,
     removeFromWhitelist,
     listWhitelist
-} from './helpers/whitelistHelper.js';
+} from '../helpers/whitelistHelper.js';
 
 /**
  * Register whitelist management commands.
