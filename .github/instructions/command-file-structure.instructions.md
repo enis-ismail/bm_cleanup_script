@@ -355,7 +355,11 @@ export function register<Domain>Commands(program) {
 | `setup/setup.js` | Inline | Compliant | Small file, simple commands |
 | `setup/blacklist.js` | Inline | Compliant | Uses factory pattern |
 | `setup/whitelist.js` | Inline | Compliant | Uses factory pattern |
-| `cartridges/cartridges.js` | Inline | Compliant | Registration at top, named function refs |
+| `cartridges/cartridges.js` | **Extracted** | Compliant | Registration only — re-exports `execute*` functions |
+| `cartridges/actions/listSites.js` | Action | Compliant | `listSites` + `executeListSites` |
+| `cartridges/actions/validateCartridgesAll.js` | Action | Compliant | `validateCartridgesAll` + `executeValidateCartridgesAll` |
+| `cartridges/actions/validateSiteXml.js` | Action | Compliant | `validateSiteXml` + `executeValidateSiteXml` |
+| `cartridges/actions/shared.js` | Shared | Compliant | `promptForRepositoryPath` |
 | `meta/meta.js` | **Extracted** | Compliant | Registration only — actions in `actions/` |
 | `meta/actions/testMetaCleanup.js` | Action | Compliant | Test meta cleanup (dry-run/execute) |
 | `meta/actions/metaCleanup.js` | Action | Compliant | Full git workflow |
