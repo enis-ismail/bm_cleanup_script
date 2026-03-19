@@ -114,14 +114,42 @@ function countScannableFiles(dirPath) {
     return total;
 }
 
+/**
+ * Check whether a line contains a genuine preference access pattern for the given ID.
+ * Matches: string literals ('PrefId' / "PrefId"), dot access (.custom.PrefId),
+ * and bracket access (.custom['PrefId'] / .custom["PrefId"]).
+ * @param {string} line - Source line to test
+ * @param {string} preferenceId - Preference ID to look for
+ * @returns {boolean} True if the line contains a real preference access
+ */
+export function isPreferenceAccessMatch(line, preferenceId) {
+    // Escape special regex characters in the preference ID
+    const escaped = preferenceId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // Match: 'PrefId' | "PrefId" | .custom.PrefId (word boundary) | .custom['PrefId'] | .custom["PrefId"]
+    const pattern = new RegExp(
+        `['"]${escaped}['"]`
+        + `|\\.custom\\.${escaped}\\b`
+        + `|\\.custom\\[\\s*['"]${escaped}['"]\\s*\\]`
+    );
+
+    return pattern.test(line);
+}
+
 export function collectMatchesInFile(filePath, preferenceId) {
     const matches = [];
     const content = fs.readFileSync(filePath, 'utf-8');
+
+    // Fast pre-filter: skip file entirely if the preference ID string isn't present
+    if (!content.includes(preferenceId)) {
+        return matches;
+    }
+
     const lines = content.split(/\r?\n/);
 
     for (let i = 0; i < lines.length; i += 1) {
         const line = lines[i];
-        if (line.includes(preferenceId)) {
+        if (isPreferenceAccessMatch(line, preferenceId)) {
             matches.push({
                 filePath,
                 lineNumber: i + 1,
@@ -166,18 +194,21 @@ async function searchMultiplePreferencesInFileAsync(filePath, preferenceIds) {
     try {
         const content = await fsPromises.readFile(filePath, 'utf-8');
 
+        // Fast pre-filter: narrow down to preferences whose ID string appears in the file
+        const candidates = new Set();
         for (const prefId of preferenceIds) {
             if (content.includes(prefId)) {
-                foundPreferences.add(prefId);
+                candidates.add(prefId);
             }
         }
 
-        // Collect line-level details for found preferences
-        if (foundPreferences.size > 0) {
+        // Strict line-level check: only keep genuine preference access patterns
+        if (candidates.size > 0) {
             const lines = content.split(/\r?\n/);
             for (let i = 0; i < lines.length; i += 1) {
-                for (const prefId of foundPreferences) {
-                    if (lines[i].includes(prefId)) {
+                for (const prefId of candidates) {
+                    if (isPreferenceAccessMatch(lines[i], prefId)) {
+                        foundPreferences.add(prefId);
                         if (!referenceDetails.has(prefId)) {
                             referenceDetails.set(prefId, []);
                         }

@@ -37,9 +37,66 @@ vi.mock('../../src/io/csv.js', () => ({
 import {
     getActivePreferencesFromMatrices,
     findPreferenceUsage,
-    findAllActivePreferencesUsage
+    findAllActivePreferencesUsage,
+    isPreferenceAccessMatch
 } from '../../src/io/codeScanner.js';
 import { findAllMatrixFiles, ensureResultsDir } from '../../src/io/util.js';
+
+// ============================================================================
+// isPreferenceAccessMatch — strict preference pattern matching
+// ============================================================================
+
+describe('isPreferenceAccessMatch', () => {
+    // Positive matches — should return true
+    it('matches single-quoted string literal', () => {
+        expect(isPreferenceAccessMatch("getCustomPreferenceValue('enableSearch')", 'enableSearch')).toBe(true);
+    });
+
+    it('matches double-quoted string literal', () => {
+        expect(isPreferenceAccessMatch('getCustomPreferenceValue("enableSearch")', 'enableSearch')).toBe(true);
+    });
+
+    it('matches JSON key with double quotes', () => {
+        expect(isPreferenceAccessMatch('{"enableSearch": true}', 'enableSearch')).toBe(true);
+    });
+
+    it('matches .custom.PrefId dot access', () => {
+        expect(isPreferenceAccessMatch('Site.current.preferences.custom.enableSearch', 'enableSearch')).toBe(true);
+    });
+
+    it('matches .custom["PrefId"] bracket access with double quotes', () => {
+        expect(isPreferenceAccessMatch('prefs.custom["enableSearch"]', 'enableSearch')).toBe(true);
+    });
+
+    it("matches .custom['PrefId'] bracket access with single quotes", () => {
+        expect(isPreferenceAccessMatch("prefs.custom['enableSearch']", 'enableSearch')).toBe(true);
+    });
+
+    it('matches bracket access with spaces inside brackets', () => {
+        expect(isPreferenceAccessMatch('prefs.custom[ "enableSearch" ]', 'enableSearch')).toBe(true);
+    });
+
+    // Negative matches — should return false
+    it('rejects bare word in plain text', () => {
+        expect(isPreferenceAccessMatch('enableSearch is used here', 'enableSearch')).toBe(false);
+    });
+
+    it('rejects function name containing the preference ID', () => {
+        expect(isPreferenceAccessMatch('imageUtils.getPisaVideoHostname()', 'PisaVideoHostname')).toBe(false);
+    });
+
+    it('rejects variable assignment with same name', () => {
+        expect(isPreferenceAccessMatch('const enableSearch = true;', 'enableSearch')).toBe(false);
+    });
+
+    it('rejects partial match inside longer word', () => {
+        expect(isPreferenceAccessMatch('enableSearchAndFilter()', 'enableSearch')).toBe(false);
+    });
+
+    it('rejects comment mentioning preference name without quotes', () => {
+        expect(isPreferenceAccessMatch('// enable search feature via enableSearch', 'enableSearch')).toBe(false);
+    });
+});
 
 // ============================================================================
 // getActivePreferencesFromMatrices
@@ -231,10 +288,10 @@ describe('findPreferenceUsage', () => {
 
     it('skips deprecated cartridges', async () => {
         createCartridgeFiles(tmpDir, 'int_old_payment', {
-            'payment.js': 'enablePayment is used here'
+            'payment.js': 'Site.current.preferences.custom.enablePayment'
         });
         createCartridgeFiles(tmpDir, 'app_custom', {
-            'other.js': 'enablePayment is used here too'
+            'other.js': 'getCustomPreferenceValue("enablePayment")'
         });
 
         const comparisonFile = createComparisonFile(tmpDir, ['int_old_payment']);
@@ -291,7 +348,7 @@ describe('findPreferenceUsage', () => {
     });
 
     it('logs scan details on first search', async () => {
-        createCartridgeFiles(tmpDir, 'app_custom', { 'a.js': 'pref1' });
+        createCartridgeFiles(tmpDir, 'app_custom', { 'a.js': '"pref1"' });
 
         await findPreferenceUsage('pref1', tmpDir, {
             comparisonFilePath: '/nonexistent/comparison.txt',
@@ -302,7 +359,7 @@ describe('findPreferenceUsage', () => {
     });
 
     it('returns result with correct structure', async () => {
-        createCartridgeFiles(tmpDir, 'app_custom', { 'a.js': 'testPref' });
+        createCartridgeFiles(tmpDir, 'app_custom', { 'a.js': '"testPref"' });
 
         const result = await findPreferenceUsage('testPref', tmpDir, {
             comparisonFilePath: '/nonexistent/comparison.txt'
@@ -353,7 +410,7 @@ describe('findAllActivePreferencesUsage', () => {
         // Create cartridge with references to preferences
         createCartridgeFiles(tmpDir, 'app_custom', {
             'search.js': 'getCustomPreferenceValue("enableSearch")',
-            'banner.js': 'showBanner is referenced here'
+            'banner.js': 'Site.current.preferences.custom.showBanner'
         });
 
         const results = await findAllActivePreferencesUsage(tmpDir, {
@@ -373,8 +430,8 @@ describe('findAllActivePreferencesUsage', () => {
         const repo1 = path.join(tmpDir, 'repo1');
         const repo2 = path.join(tmpDir, 'repo2');
 
-        createCartridgeFiles(repo1, 'cart_a', { 'a.js': 'prefA' });
-        createCartridgeFiles(repo2, 'cart_b', { 'b.js': 'prefA' });
+        createCartridgeFiles(repo1, 'cart_a', { 'a.js': '"prefA"' });
+        createCartridgeFiles(repo2, 'cart_b', { 'b.js': '"prefA"' });
 
         const matrixCsv = 'preferenceId,defaultValue,site1\nprefA,,X';
         const matrixPath = path.join(tmpDir, 'matrix.csv');
@@ -399,8 +456,8 @@ describe('findAllActivePreferencesUsage', () => {
 
         const comparisonFile = createComparisonFile(tmpDir, ['int_old_lib']);
 
-        createCartridgeFiles(tmpDir, 'int_old_lib', { 'old.js': 'prefA' });
-        createCartridgeFiles(tmpDir, 'app_new', { 'new.js': 'prefA' });
+        createCartridgeFiles(tmpDir, 'int_old_lib', { 'old.js': '"prefA"' });
+        createCartridgeFiles(tmpDir, 'app_new', { 'new.js': '"prefA"' });
 
         findAllMatrixFiles.mockReturnValue([{ matrixFile: matrixPath }]);
         ensureResultsDir.mockReturnValue(tmpDir);
@@ -423,7 +480,7 @@ describe('findAllActivePreferencesUsage', () => {
         const matrixPath = path.join(tmpDir, 'matrix.csv');
         fs.writeFileSync(matrixPath, matrixCsv, 'utf-8');
 
-        createCartridgeFiles(tmpDir, 'app_custom', { 'a.js': 'prefA' });
+        createCartridgeFiles(tmpDir, 'app_custom', { 'a.js': '"prefA"' });
 
         findAllMatrixFiles.mockReturnValue([{ matrixFile: matrixPath }]);
         ensureResultsDir.mockReturnValue(tmpDir);
@@ -447,7 +504,7 @@ describe('findAllActivePreferencesUsage', () => {
         fs.writeFileSync(matrixPath, matrixCsv, 'utf-8');
 
         createCartridgeFiles(tmpDir, 'app_custom', {
-            'helper.js': 'usedPref is referenced'
+            'helper.js': 'Site.current.preferences.custom["usedPref"]'
         });
 
         findAllMatrixFiles.mockReturnValue([{ matrixFile: matrixPath }]);
