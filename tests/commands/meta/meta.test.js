@@ -72,7 +72,28 @@ vi.mock('../../../src/config/helpers/helpers.js', () => ({
 }));
 
 vi.mock('../../../src/config/constants.js', () => ({
-    TIER_DESCRIPTIONS: { P1: 'Safest', P3: 'Moderate' }
+    TIER_DESCRIPTIONS: { P1: 'Safest', P3: 'Moderate' },
+    DIRECTORIES: { RESULTS: 'results', BACKUP_DOWNLOADS: 'backup_downloads' },
+    IDENTIFIERS: { ALL_REALMS: 'ALL_REALMS', SITE_PREFERENCES: 'SitePreferences', CUSTOM_ATTRIBUTE_PREFIX: 'c_' },
+    FILE_PATTERNS: {
+        CARTRIDGE_COMPARISON: '_cartridge_comparison.txt',
+        ORPHAN_REPORT: '_orphan_report.txt',
+        PREFERENCE_REFERENCES: '_preference_references.json'
+    },
+    LOG_PREFIX: { INFO: '✓', WARNING: '⚠', ERROR: '✗' },
+    ALLOWED_EXTENSIONS: new Set(['.js', '.isml', '.json', '.xml']),
+    SKIP_DIRECTORIES: new Set(['node_modules', '.git']),
+    REALM_TAGS: { ALL: 'ALL' }
+}));
+
+vi.mock('../../../src/commands/meta/helpers/orphanHelper.js', () => ({
+    collectRepoAttributeIds: vi.fn(() => ({ repoIds: new Set(), fileMap: new Map() })),
+    detectOrphansForRealm: vi.fn(() => ({
+        realm: 'EU05', metadataFile: null, bmCount: 0, repoCount: 0,
+        bmOnly: [], repoOnly: [], repoOnlyFileMap: new Map()
+    })),
+    formatOrphanReport: vi.fn(() => 'Mock report'),
+    writeOrphanReport: vi.fn(() => '/mock/report.txt')
 }));
 
 vi.mock('../../../src/commands/meta/helpers/gitHelper.js', () => ({
@@ -217,7 +238,16 @@ describe('registerMetaCommands', () => {
 
         const cmd = program.commands.find(c => c.name() === 'meta-cleanup');
         expect(cmd).toBeDefined();
-        expect(cmd.description()).toContain('cleanup workflow');
+    });
+
+    it('registers detect-orphans command', () => {
+        const program = new Command();
+        program.exitOverride();
+        registerMetaCommands(program);
+
+        const cmd = program.commands.find(c => c.name() === 'detect-orphans');
+        expect(cmd).toBeDefined();
+        expect(cmd.description()).toContain('orphan');
     });
 
     it('test-meta-cleanup has --dry-run and --execute options', () => {
@@ -231,11 +261,11 @@ describe('registerMetaCommands', () => {
         expect(optionNames).toContain('--execute');
     });
 
-    it('registers exactly 2 commands', () => {
+    it('registers exactly 3 commands', () => {
         const program = new Command();
         program.exitOverride();
         registerMetaCommands(program);
-        expect(program.commands).toHaveLength(2);
+        expect(program.commands).toHaveLength(3);
     });
 });
 

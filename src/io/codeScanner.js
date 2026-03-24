@@ -892,7 +892,7 @@ function findDynamicPreferenceReferences(candidateIds, instanceTypeOverride = nu
  * @param {string} realm - Realm name (e.g. 'EU05', 'GB')
  * @returns {string|null} Absolute path to the latest metadata file, or null if none found
  */
-function findLatestMetadataFile(realm) {
+export function findLatestMetadataFile(realm) {
     // Try the expected path first (today's file via backupJob helper)
     try {
         const expectedPath = getMetadataBackupPathForRealm(realm);
@@ -933,7 +933,7 @@ function findLatestMetadataFile(realm) {
  * @param {string} xmlFilePath - Absolute path to the metadata backup XML file
  * @returns {Set<string>} Set of attribute definition IDs found under SitePreferences
  */
-function parseSitePreferencesFromMetadata(xmlFilePath) {
+export function parseSitePreferencesFromMetadata(xmlFilePath) {
     const attributeIds = new Set();
     const content = fs.readFileSync(xmlFilePath, 'utf-8');
     const lines = content.split(/\r?\n/);

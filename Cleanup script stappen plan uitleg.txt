@@ -1,0 +1,52 @@
+Cleanup script stappen plan uitleg:
+
+What:
+We noticed a huge amount of site preferences and had received a file from salesforce that haven't been adjusted in a while.
+having the large amount of preferences creates an overhead that maybe difficult to follow maintain and setup config.
+
+How:
+We created a script that retrieves all preferences/meta data. maps the info of preferences to files and reads the local repository for references to these preferences, keeping in mind of dynamic preferences (these are preferences that might mention each other)
+
+this mapping gives us a deletion candidate list that labels each preference with a Priority for deletion from 1-5
+these rankings are determined by assigned values to the preference, references to the code and dynamic references.
+
+so you end up with this list:
+
+Priority Legend:
+  [P1] No code references, no values — safest to remove
+  [P2] No code references, but has values/defaults — likely unused but verify
+  [P3] Only in deprecated cartridges, no values — probably safe
+  [P4] Only in deprecated cartridges, has values — needs careful review
+  [P5] Active code only in some realms — delete from non-covered realms
+
+further the tool is able to directly delete the given list from all selected realms. the user can adjust which preferences are deleted by adjusting the file, adding a whitelist or adding a blacklist. => these features give us control of what this tool can manage and ensure that nothing goes wrong.
+
+after deletion if we see anything that is wrong on an environment we can restore all preferences with the press of a button using the back up feature. (this can be run separately or as part of the remove command)
+
+lastly to make such changes permanent due to the deployment runs in GitHub the tool is able to create a new GitHub branch with adjusted metadata files where it removes and moves preferences from certain realms/locales. all removed items will be listed in the commit description so when creating a PR the removed items are displayed.
+
+Why:
+The reason as to why we chose for this solution is that this way we prevent user error by avoiding removing the wrong preferences/attributes. This allows for better maintainability of the site itself.
+
+for instance if in 2 years we have a features that have gone unused or don't know if these are being called by code anymore this script will be able to detect them and label the related cartridges as potentially deprecated => allowing for investigation by a dev to confirm.
+
+this tool further has shown us the possibility of how to automate setting up config for set preferences so when running a deploy to staging a dev does not have to configure this on the bm themselves and can use a tool instead => making it so configs are less prone to user errors.
+
+what to show:
+analyze-preferecnes => result not process
+remove-preferecnes => part of process [show starting the command and real time deletion]
+restore-preferecnes => show the test run replacing the preferences real time [for reassurance]
+meta-cleanup => automatic file adjustment [show a PR]
+
+
+what's next? (potential upgrades)
+
+custom attribute cleanup, automated config of preferences, automated imports of payment files through job executions
+automated reverts for RC creation => automatic RC
+detections and removal of deprecated cartridges => removal of not needed npm packages. 
+
+what does this all achieve? 
+
+less preferences => faster RC deploys => less time wasted on configs => less general bloat => better performance.
+in general this tool can help us understand what code/preferences are being used, which values are assigned to them (per locale).
+

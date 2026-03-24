@@ -364,6 +364,10 @@ Test responses are stored in [test-runs/](test-runs/) directory for reference an
 - `remove-preferences` - Remove preferences from per-realm deletion files via OCAPI DELETE
 - `restore-preferences` - Restore deleted preferences from backup files
 - `backup-site-preferences` - Trigger backup job and download metadata
+- `inspect-preference` - Show detailed info about a single preference (values, code refs, P-level)
+- `test-meta-cleanup` - Preview/execute removal of preference definitions from repo XML
+- `meta-cleanup` - Full git workflow: create branch → remove XML definitions → stage & commit
+- `detect-orphans` - Compare BM metadata backup XML against repo meta XMLs to find orphan preferences
 - `list-sites` - Export site cartridge paths to CSV
 - `add-realm` / `remove-realm` - Realm configuration management
 - `add-to-blacklist` / `remove-from-blacklist` / `list-blacklist` - Blacklist management
@@ -372,6 +376,34 @@ Test responses are stored in [test-runs/](test-runs/) directory for reference an
 ### Validation Commands
 - `validate-cartridges-all` - Multi-realm cartridge validation
 - `validate-site-xml` - Site.xml vs. live cartridge comparison
+
+---
+
+### 6. Meta File & Orphan Detection Agent
+**Capability:** Manage meta XML files and detect orphan preferences
+
+- **Scope:**
+  - Cleanup of preference definitions from repo XML files
+  - Git workflow integration (branch, stage, commit)
+  - Orphan detection: BM backup XML vs repo meta XML comparison
+  - Meta file consolidation across realms
+
+- **Files:**
+  - [src/commands/meta/meta.js](src/commands/meta/meta.js) - Command registration
+  - [src/commands/meta/actions/testMetaCleanup.js](src/commands/meta/actions/testMetaCleanup.js) - Preview/execute meta cleanup
+  - [src/commands/meta/actions/metaCleanup.js](src/commands/meta/actions/metaCleanup.js) - Full git workflow cleanup
+  - [src/commands/meta/actions/orphanDetection.js](src/commands/meta/actions/orphanDetection.js) - Orphan detection action
+  - [src/commands/meta/helpers/metaFileCleanup.js](src/commands/meta/helpers/metaFileCleanup.js) - XML manipulation & cleanup planning
+  - [src/commands/meta/helpers/orphanHelper.js](src/commands/meta/helpers/orphanHelper.js) - Orphan detection logic
+  - [src/commands/meta/helpers/metaConsolidation.js](src/commands/meta/helpers/metaConsolidation.js) - Meta file merging
+  - [src/commands/meta/helpers/gitHelper.js](src/commands/meta/helpers/gitHelper.js) - Git operations
+
+- **Key Functions:**
+  - `collectRepoAttributeIds()` - Scan all repo meta XMLs for attribute definitions
+  - `detectOrphansForRealm()` - Compare BM backup vs repo for a single realm
+  - `formatOrphanReport()` / `writeOrphanReport()` - Generate orphan report
+  - `buildMetaCleanupPlan()` - Plan XML attribute removal operations
+  - `executeMetaCleanupPlan()` - Execute planned XML modifications
 
 ---
 
@@ -384,8 +416,9 @@ When working on this project:
 3. **Preference Deletion:** Use Deletion & Restore Agent (OCAPI DELETE implemented)
 4. **Backup/Restore:** Use Deletion & Restore Agent + backupHelpers
 5. **Configuration:** Use Utility & Configuration Agent
+6. **Meta XML & Orphans:** Use Meta File & Orphan Detection Agent
 
 ---
 
-*Last Updated: March 5, 2026*
+*Last Updated: March 19, 2026*
 *Project Structure: Maintained by AI agents*

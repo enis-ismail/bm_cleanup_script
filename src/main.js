@@ -104,6 +104,7 @@ registerPreferenceCommands(program);
 //   - test-meta-cleanup: Preview/execute removal of preference definitions
 //     from sibling repo XML files (dry-run supported)
 //   - meta-cleanup: Full workflow — create branch, run cleanup, stage & commit
+//   - detect-orphans: Compare BM backup XML against repo meta XMLs to find orphans
 
 registerMetaCommands(program);
 

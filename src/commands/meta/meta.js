@@ -1,5 +1,6 @@
 import { testMetaCleanup } from './actions/testMetaCleanup.js';
 import { metaCleanup } from './actions/metaCleanup.js';
+import { detectOrphans } from './actions/orphanDetection.js';
 
 // ============================================================================
 // META COMMANDS REGISTRATION
@@ -22,4 +23,9 @@ export function registerMetaCommands(program) {
         .command('meta-cleanup')
         .description('Full meta cleanup workflow — create branch, remove preference definitions, stage & commit')
         .action(metaCleanup);
+
+    program
+        .command('detect-orphans')
+        .description('Compare BM metadata backup against repo meta XMLs to find orphan preferences')
+        .action(detectOrphans);
 }
