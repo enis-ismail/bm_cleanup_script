@@ -14,7 +14,11 @@ import {
     formatCleanupPlan,
     formatExecutionResults,
     formatSitesScanResults
-} from '../../../src/commands/preferences/helpers/metaFileCleanup.js';
+} from '../../../src/commands/meta/helpers/metaFileCleanup.js';
+import {
+    findLatestMetadataFile,
+    parseSitePreferencesFromMetadata
+} from '../../../src/io/codeScanner.js';
 
 // ============================================================================
 // Mocks
@@ -31,6 +35,11 @@ vi.mock('../../../src/config/helpers/helpers.js', () => ({
 
 vi.mock('../../../src/scripts/loggingScript/log.js', () => ({
     logError: vi.fn()
+}));
+
+vi.mock('../../../src/io/codeScanner.js', () => ({
+    findLatestMetadataFile: vi.fn(() => null),
+    parseSitePreferencesFromMetadata: vi.fn(() => new Set())
 }));
 
 // ============================================================================
@@ -278,6 +287,78 @@ describe('buildMetaCleanupPlan', () => {
 
         const coreRemoves = plan.actions.filter(a => a.realm === 'CORE');
         expect(coreRemoves.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('skips create-realm-file when BM backup confirms attribute not on realm', () => {
+        const coreMetaDir = path.join(tmpDir, 'sites', 'site_template', 'meta');
+        writeMetaFile(coreMetaDir, 'meta.xml', buildMetaXml({
+            definitions: ['realmOnlyPref'],
+            groupAssignments: ['realmOnlyPref']
+        }));
+
+        // BM backup for APAC does NOT contain the attribute
+        findLatestMetadataFile.mockImplementation(() => '/mock/backup.xml');
+        parseSitePreferencesFromMetadata.mockImplementation(
+            () => new Set(['someOtherPref', 'anotherPref'])
+        );
+
+        const realmPrefMap = new Map([['EU05', ['c_realmOnlyPref']]]);
+        const plan = buildMetaCleanupPlan(tmpDir, realmPrefMap, ['EU05', 'APAC']);
+
+        expect(findLatestMetadataFile).toHaveBeenCalledWith('APAC');
+
+        const createActions = plan.actions.filter(a => a.type === 'create-realm-file');
+        expect(createActions).toHaveLength(0);
+
+        expect(plan.warnings).toEqual(
+            expect.arrayContaining([
+                expect.stringContaining('realmOnlyPref: skipped create for APAC')
+            ])
+        );
+
+        // Core removal should still happen
+        const coreRemoves = plan.actions.filter(a => a.realm === 'CORE');
+        expect(coreRemoves.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('creates realm file when BM backup confirms attribute exists on realm', () => {
+        const coreMetaDir = path.join(tmpDir, 'sites', 'site_template', 'meta');
+        writeMetaFile(coreMetaDir, 'meta.xml', buildMetaXml({
+            definitions: ['sharedPref'],
+            groupAssignments: ['sharedPref']
+        }));
+
+        // BM backup for APAC contains the attribute
+        findLatestMetadataFile.mockReturnValue('/mock/backup.xml');
+        parseSitePreferencesFromMetadata.mockReturnValue(
+            new Set(['sharedPref', 'otherPref'])
+        );
+
+        const realmPrefMap = new Map([['EU05', ['c_sharedPref']]]);
+        const plan = buildMetaCleanupPlan(tmpDir, realmPrefMap, ['EU05', 'APAC']);
+
+        const createActions = plan.actions.filter(a => a.type === 'create-realm-file');
+        expect(createActions).toHaveLength(1);
+        expect(createActions[0].realm).toBe('APAC');
+    });
+
+    it('assumes attribute needed when no BM backup available', () => {
+        const coreMetaDir = path.join(tmpDir, 'sites', 'site_template', 'meta');
+        writeMetaFile(coreMetaDir, 'meta.xml', buildMetaXml({
+            definitions: ['noBackupPref'],
+            groupAssignments: ['noBackupPref']
+        }));
+
+        // No backup available
+        findLatestMetadataFile.mockReturnValue(null);
+
+        const realmPrefMap = new Map([['EU05', ['c_noBackupPref']]]);
+        const plan = buildMetaCleanupPlan(tmpDir, realmPrefMap, ['EU05', 'APAC']);
+
+        // Should create realm file (assume needed when backup unavailable)
+        const createActions = plan.actions.filter(a => a.type === 'create-realm-file');
+        expect(createActions).toHaveLength(1);
+        expect(createActions[0].realm).toBe('APAC');
     });
 });
 

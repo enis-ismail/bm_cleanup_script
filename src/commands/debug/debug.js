@@ -11,6 +11,8 @@ import { findAttributeGroupInMeta } from './actions/findAttributeGroupInMeta.js'
 import { testGenerateBackupJson } from './actions/testGenerateBackupJson.js';
 import { testConcurrentTimers, debugProgress } from './actions/progressTests.js';
 import { checkApiEndpoints } from './actions/checkApiEndpoints.js';
+import { setupDemo } from './actions/setupDemo.js';
+import { teardownDemo } from './actions/teardownDemo.js';
 
 // ============================================================================
 // DEBUG COMMANDS REGISTRATION
@@ -93,5 +95,15 @@ export function registerDebugCommands(program) {
         .description('Check OCAPI endpoint accessibility for all configured realms')
         .option('-r, --realm <realm>', 'Check a single realm instead of all')
         .action(async (options) => checkApiEndpoints(options));
+
+    program
+        .command('setup-demo')
+        .description('(Debug) Set up a demo scenario with test attributes, whitelist, and repo artifacts')
+        .action(setupDemo);
+
+    program
+        .command('teardown-demo')
+        .description('(Debug) Tear down the demo scenario and clean up all test data')
+        .action(teardownDemo);
 }
 

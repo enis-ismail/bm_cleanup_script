@@ -56,7 +56,8 @@ vi.mock('../../../src/commands/preferences/helpers/preferenceRemoval.js', () => 
         realmPreferenceMap: new Map([['EU05', ['c_prefA', 'c_prefB']]]),
         blockedByBlacklist: [],
         skippedByWhitelist: [],
-        missingRealms: []
+        missingRealms: [],
+        filteredOutRealms: []
     })),
     buildCrossRealmPreferenceMap: vi.fn(() => ({
         realmPreferenceMap: new Map([['EU05', ['c_prefA']]]),

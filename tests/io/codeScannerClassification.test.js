@@ -51,6 +51,7 @@ import { ensureResultsDir, findAllMatrixFiles, findAllUsageFiles, getResultsPath
 import { getRealmsByInstanceType } from '../../src/config/helpers/helpers.js';
 import { loadBlacklist, filterBlacklisted } from '../../src/commands/setup/helpers/blacklistHelper.js';
 import { parseCSVToNestedArray } from '../../src/io/csv.js';
+import { getMetadataBackupPathForRealm } from '../../src/helpers/backupJob.js';
 
 // ============================================================================
 // Test Helpers
@@ -387,6 +388,120 @@ describe('generatePreferenceDeletionCandidates', () => {
         expect(content).toContain('[P5]');
         expect(content).toContain('c_euOnlyPref');
         expect(content).toContain('active in: EU05');
+    });
+
+    it('P5 candidate bypasses BM backup metadata check for per-realm reclassification', () => {
+        writeFixture('development_unused_preferences.txt', buildUnusedPrefLines([]));
+        writeFixture('development_cartridge_preferences.txt', buildCartridgePrefLines({
+            'app_custom_eu': ['c_euOnlyPref']
+        }));
+
+        getRealmsByInstanceType.mockReturnValue(['EU05', 'APAC']);
+        getResultsPath.mockImplementation(() => tmpDir);
+
+        fs.writeFileSync(
+            path.join(tmpDir, 'EU05_active_site_cartridges_list.csv'),
+            'siteId,cartridges\nEU_site1,app_custom_eu:app_storefront_base', 'utf-8'
+        );
+        fs.writeFileSync(
+            path.join(tmpDir, 'APAC_active_site_cartridges_list.csv'),
+            'siteId,cartridges\nAPAC_site1,app_storefront_base', 'utf-8'
+        );
+
+        // Create BM backup XML for EU05 WITH the attribute, APAC WITHOUT it.
+        // Without the fix, the metadata cross-check would skip the P5
+        // candidate on APAC because it's not in APAC's BM backup.
+        const eu05Backup = path.join(tmpDir, 'EU05_backup.xml');
+        const apacBackup = path.join(tmpDir, 'APAC_backup.xml');
+        const xmlWithPref = [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<metadata>',
+            '  <type-extension type-id="SitePreferences">',
+            '    <custom-attribute-definitions>',
+            '      <attribute-definition attribute-id="c_euOnlyPref">',
+            '        <display-name>EU Only Pref</display-name>',
+            '      </attribute-definition>',
+            '    </custom-attribute-definitions>',
+            '  </type-extension>',
+            '</metadata>'
+        ].join('\n');
+        const xmlWithoutPref = [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<metadata>',
+            '  <type-extension type-id="SitePreferences">',
+            '    <custom-attribute-definitions>',
+            '      <attribute-definition attribute-id="someOtherPref">',
+            '        <display-name>Other</display-name>',
+            '      </attribute-definition>',
+            '    </custom-attribute-definitions>',
+            '  </type-extension>',
+            '</metadata>'
+        ].join('\n');
+        fs.writeFileSync(eu05Backup, xmlWithPref, 'utf-8');
+        fs.writeFileSync(apacBackup, xmlWithoutPref, 'utf-8');
+
+        getMetadataBackupPathForRealm.mockImplementation((realm) => {
+            if (realm === 'EU05') return eu05Backup;
+            if (realm === 'APAC') return apacBackup;
+            return '/nonexistent';
+        });
+
+        const codeResults = [{
+            preferenceId: 'c_euOnlyPref',
+            activeCartridges: ['app_custom_eu'],
+            deprecatedCartridges: []
+        }];
+
+        generatePreferenceDeletionCandidates('development', codeResults);
+
+        // P5 candidate should appear in APAC's per-realm file, reclassified
+        // as P1 (no code, no values on APAC)
+        const apacFile = path.join(tmpDir, 'APAC_preferences_for_deletion.txt');
+        expect(fs.existsSync(apacFile)).toBe(true);
+        const apacContent = fs.readFileSync(apacFile, 'utf-8');
+        expect(apacContent).toContain('c_euOnlyPref');
+        expect(apacContent).toContain('[P1]');
+
+        // EU05 should NOT have a deletion file for this pref (active code there)
+        const eu05File = path.join(tmpDir, 'EU05_preferences_for_deletion.txt');
+        expect(fs.existsSync(eu05File)).toBe(false);
+    });
+
+    it('non-P5 candidates are still filtered by BM backup metadata check', () => {
+        // c_missingPref: P1 globally, NOT in APAC's BM backup → should be skipped
+        writeFixture('development_unused_preferences.txt',
+            buildUnusedPrefLines(['c_missingPref']));
+        writeFixture('development_cartridge_preferences.txt', buildCartridgePrefLines({}));
+
+        getRealmsByInstanceType.mockReturnValue(['APAC']);
+        getResultsPath.mockImplementation(() => tmpDir);
+
+        fs.writeFileSync(
+            path.join(tmpDir, 'APAC_active_site_cartridges_list.csv'),
+            'siteId,cartridges\nAPAC_site1,app_storefront_base', 'utf-8'
+        );
+
+        const apacBackup = path.join(tmpDir, 'APAC_backup.xml');
+        fs.writeFileSync(apacBackup, [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<metadata>',
+            '  <type-extension type-id="SitePreferences">',
+            '    <custom-attribute-definitions>',
+            '      <attribute-definition attribute-id="someOtherPref">',
+            '        <display-name>Other</display-name>',
+            '      </attribute-definition>',
+            '    </custom-attribute-definitions>',
+            '  </type-extension>',
+            '</metadata>'
+        ].join('\n'), 'utf-8');
+
+        getMetadataBackupPathForRealm.mockReturnValue(apacBackup);
+
+        generatePreferenceDeletionCandidates('development', []);
+
+        // P1 candidate not in BM backup → should NOT appear in APAC deletion file
+        const apacFile = path.join(tmpDir, 'APAC_preferences_for_deletion.txt');
+        expect(fs.existsSync(apacFile)).toBe(false);
     });
 
     // -------------------------------------------------------------------

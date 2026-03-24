@@ -152,7 +152,54 @@ describe('loadRealmPreferencesForDeletion', () => {
         );
 
         const result = loadRealmPreferencesForDeletion('EU05', 'development');
-        expect(result).toBeNull();
+        expect(result).not.toBeNull();
+        expect(result.fileExists).toBe(true);
+        expect(result.totalInFile).toBe(0);
+        expect(result.allowed).toBeNull();
+    });
+
+    it('includes fileExists and totalInFile in result', () => {
+        const content = [
+            '--- [P1] Safe ---',
+            'c_prefA',
+            'c_prefB'
+        ].join('\n');
+
+        fs.writeFileSync(
+            path.join(tmpDir, 'EU05_preferences_for_deletion.txt'),
+            content, 'utf-8'
+        );
+
+        const result = loadRealmPreferencesForDeletion('EU05', 'development');
+
+        expect(result.fileExists).toBe(true);
+        expect(result.totalInFile).toBe(2);
+    });
+
+    it('returns fileExists with totalInFile when all filtered by whitelist', () => {
+        const content = [
+            '--- [P1] Safe ---',
+            'c_prefA',
+            'c_prefB'
+        ].join('\n');
+
+        fs.writeFileSync(
+            path.join(tmpDir, 'EU05_preferences_for_deletion.txt'),
+            content, 'utf-8'
+        );
+
+        filterWhitelisted.mockImplementation((ids) => ({
+            allowed: [],
+            blocked: ids
+        }));
+
+        const result = loadRealmPreferencesForDeletion('EU05', 'development');
+
+        expect(result).not.toBeNull();
+        expect(result.fileExists).toBe(true);
+        expect(result.totalInFile).toBe(2);
+        expect(result.allowed).toBeNull();
+        expect(result.skippedByWhitelist).toEqual(['c_prefA', 'c_prefB']);
     });
 
     it('stops at blacklist section header', () => {
@@ -286,6 +333,29 @@ describe('buildRealmPreferenceMapFromFiles', () => {
         expect(result.realmPreferenceMap.get('MISSING')).toEqual([]);
         expect(result.missingRealms).toContain('EU05');
         expect(result.missingRealms).toContain('MISSING');
+    });
+
+    it('separates filtered-out realms from missing realms', () => {
+        const content = [
+            '--- [P1] Safe ---',
+            'c_prefA'
+        ].join('\n');
+
+        fs.writeFileSync(
+            path.join(tmpDir, 'EU05_preferences_for_deletion.txt'),
+            content, 'utf-8'
+        );
+
+        filterWhitelisted.mockImplementation((ids) => ({
+            allowed: [],
+            blocked: ids
+        }));
+
+        const result = buildRealmPreferenceMapFromFiles(['EU05', 'MISSING'], 'development');
+
+        expect(result.filteredOutRealms).toEqual(['EU05']);
+        expect(result.missingRealms).toEqual(['MISSING']);
+        expect(result.realmPreferenceMap.get('EU05')).toEqual([]);
     });
 
     it('collects blacklisted IDs across all realms', () => {

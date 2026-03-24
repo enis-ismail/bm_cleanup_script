@@ -1701,8 +1701,15 @@ function generatePerRealmDeletionFiles({
             }
 
             // Cross-check: skip if metadata is available and this attribute
-            // does not exist on the realm (cannot delete what isn't there)
-            if (realmAttributes && !realmAttributes.has(candidate.id)) {
+            // does not exist on the realm (cannot delete what isn't there).
+            // Exception: P5 candidates originate from active code analysis
+            // and their definitions are typically shared across all realms
+            // via core meta XML. The BM backup may be stale or incomplete,
+            // so allow P5 through for per-realm reclassification. If the
+            // attribute truly does not exist on the realm, the OCAPI DELETE
+            // will return 404 which is handled gracefully downstream.
+            if (globalTier !== 5
+                && realmAttributes && !realmAttributes.has(candidate.id)) {
                 metadataSkipped++;
                 continue;
             }

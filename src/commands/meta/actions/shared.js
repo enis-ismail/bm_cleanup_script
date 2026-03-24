@@ -47,7 +47,8 @@ export function loadDeletionCandidates({ realmList, instanceType, maxTier, useCr
         realmPreferenceMap,
         blockedByBlacklist,
         skippedByWhitelist,
-        missingRealms
+        missingRealms,
+        filteredOutRealms
     } = useCrossRealm
         ? buildCrossRealmPreferenceMap(realmList, instanceType, { maxTier })
         : buildRealmPreferenceMapFromFiles(realmList, instanceType, { maxTier });
@@ -63,6 +64,9 @@ export function loadDeletionCandidates({ realmList, instanceType, maxTier, useCr
     }
     if (skippedByWhitelist.length > 0) {
         console.log(`    Skipped (not whitelisted): ${skippedByWhitelist.length}`);
+    }
+    if (filteredOutRealms?.length > 0) {
+        console.log(`    No candidates after filtering for: ${filteredOutRealms.join(', ')}`);
     }
     if (missingRealms.length > 0) {
         console.log(`    Missing deletion files for: ${missingRealms.join(', ')}`);

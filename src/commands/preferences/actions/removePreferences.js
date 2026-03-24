@@ -143,6 +143,16 @@ export async function removePreferences(options = {}) {
             realmsToProcess, instanceType, { maxTier: deletionLevel }
         );
 
+        // Report realms where file exists but all preferences were filtered out
+        if (perRealmResult.filteredOutRealms?.length > 0) {
+            console.log(
+                `\n${LOG_PREFIX.INFO} No preferences to remove for:`
+                + ` ${perRealmResult.filteredOutRealms.join(', ')}`
+                + ' (all filtered by whitelist/blacklist or no candidates at selected tier).'
+                + ' Skipping these realms.\n'
+            );
+        }
+
         if (perRealmResult.missingRealms.length > 0) {
             console.log(
                 `\n${LOG_PREFIX.WARNING} Per-realm deletion files not found for:`

@@ -94,7 +94,9 @@ function parseTieredPreferences(content, {
  * @returns {{
  *   allowed: Array<{id: string, tier: string}> | null,
  *   blocked: string[],
- *   skippedByWhitelist: string[]
+ *   skippedByWhitelist: string[],
+ *   fileExists: boolean,
+ *   totalInFile: number
  * } | null}
  */
 export function loadRealmPreferencesForDeletion(realm, instanceType, { maxTier } = {}) {
@@ -113,7 +115,7 @@ export function loadRealmPreferencesForDeletion(realm, instanceType, { maxTier }
     });
 
     if (preferences.length === 0) {
-        return null;
+        return { allowed: null, blocked: [], skippedByWhitelist: [], fileExists: true, totalInFile: 0 };
     }
 
     const allIds = preferences.map(p => p.id);
@@ -121,13 +123,13 @@ export function loadRealmPreferencesForDeletion(realm, instanceType, { maxTier }
     const { allowed: allowedIds, blocked } = filterBlacklisted(whitelistedIds, null, realm);
 
     if (allowedIds.length === 0) {
-        return { allowed: null, blocked, skippedByWhitelist };
+        return { allowed: null, blocked, skippedByWhitelist, fileExists: true, totalInFile: allIds.length };
     }
 
     const allowedSet = new Set(allowedIds);
     const allowed = preferences.filter(p => allowedSet.has(p.id));
 
-    return { allowed, blocked, skippedByWhitelist };
+    return { allowed, blocked, skippedByWhitelist, fileExists: true, totalInFile: allIds.length };
 }
 
 /**
@@ -142,7 +144,8 @@ export function loadRealmPreferencesForDeletion(realm, instanceType, { maxTier }
  *   realmPreferenceMap: Map<string, string[]>,
  *   blockedByBlacklist: string[],
  *   skippedByWhitelist: string[],
- *   missingRealms: string[]
+ *   missingRealms: string[],
+ *   filteredOutRealms: string[]
  * }}
  */
 export function buildRealmPreferenceMapFromFiles(selectedRealms, instanceType, { maxTier } = {}) {
@@ -150,13 +153,20 @@ export function buildRealmPreferenceMapFromFiles(selectedRealms, instanceType, {
     const allBlocked = new Set();
     const allSkipped = new Set();
     const missingRealms = [];
+    const filteredOutRealms = [];
 
     for (const realm of selectedRealms) {
         const result = loadRealmPreferencesForDeletion(realm, instanceType, { maxTier });
 
-        if (!result || !result.allowed) {
+        if (!result) {
             realmPreferenceMap.set(realm, []);
             missingRealms.push(realm);
+            continue;
+        }
+
+        if (!result.allowed) {
+            realmPreferenceMap.set(realm, []);
+            filteredOutRealms.push(realm);
             continue;
         }
 
@@ -174,7 +184,8 @@ export function buildRealmPreferenceMapFromFiles(selectedRealms, instanceType, {
         realmPreferenceMap,
         blockedByBlacklist: [...allBlocked],
         skippedByWhitelist: [...allSkipped],
-        missingRealms
+        missingRealms,
+        filteredOutRealms
     };
 }
 

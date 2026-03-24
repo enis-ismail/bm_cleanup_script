@@ -14,6 +14,11 @@ vi.mock('../../../src/scripts/loggingScript/log.js', () => ({
     logError: vi.fn()
 }));
 
+vi.mock('../../../src/io/codeScanner.js', () => ({
+    findLatestMetadataFile: vi.fn(() => null),
+    parseSitePreferencesFromMetadata: vi.fn(() => new Set())
+}));
+
 import {
     isMetaFileEmpty,
     stripCustomPrefix,

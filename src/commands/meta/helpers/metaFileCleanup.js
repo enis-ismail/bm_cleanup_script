@@ -20,6 +20,10 @@ import {
     getSandboxConfig,
     getCoreSiteTemplatePath
 } from '../../../config/helpers/helpers.js';
+import {
+    findLatestMetadataFile,
+    parseSitePreferencesFromMetadata
+} from '../../../io/codeScanner.js';
 
 /**
  * Regex to detect a SitePreferences type-extension block inside XML content.
@@ -409,6 +413,11 @@ export function buildMetaCleanupPlan(repoPath, realmPreferenceMap, allConfigured
 
     const coreMetaDir = getCoreMetaDir(repoPath);
 
+    // Cache of realm → Set<attributeId> from BM backup XMLs.
+    // Used to verify an attribute actually exists on a realm before
+    // creating a realm-specific meta file for it.
+    const bmAttributeCache = new Map();
+
     // Build a map of physical directory → realms sharing that directory.
     // Multiple realms can share the same siteTemplatesPath (e.g., EU05 and GB
     // both use sites/site_template_eu_eu05). When removing an attribute from
@@ -535,15 +544,36 @@ export function buildMetaCleanupPlan(repoPath, realmPreferenceMap, allConfigured
                     const realmAlreadyHas = findFilesContainingAttribute(remainingMetaDir, bareId);
 
                     if (realmAlreadyHas.length === 0) {
-                        // Need to create/copy file for this realm and add the attribute
-                        actions.push({
-                            type: 'create-realm-file',
-                            attributeId: bareId,
-                            filePath: coreFilePath,
-                            targetFilePath,
-                            realm: remainingRealm,
-                            reason: `Copy from core to ${remainingRealm} — attribute still needed there`
-                        });
+                        // Verify the attribute actually exists on this realm's SFCC instance
+                        // by checking the BM backup XML. If it doesn't exist there, creating
+                        // a realm-specific meta file would be incorrect.
+                        if (!bmAttributeCache.has(remainingRealm)) {
+                            const bmFile = findLatestMetadataFile(remainingRealm);
+                            bmAttributeCache.set(
+                                remainingRealm,
+                                bmFile
+                                    ? parseSitePreferencesFromMetadata(bmFile)
+                                    : null
+                            );
+                        }
+
+                        const bmIds = bmAttributeCache.get(remainingRealm);
+                        if (bmIds && !bmIds.has(bareId)) {
+                            warnings.push(
+                                `${bareId}: skipped create for ${remainingRealm}`
+                                + ' — attribute not found in BM backup'
+                            );
+                        } else {
+                            // BM backup confirms it exists (or no backup available — assume needed)
+                            actions.push({
+                                type: 'create-realm-file',
+                                attributeId: bareId,
+                                filePath: coreFilePath,
+                                targetFilePath,
+                                realm: remainingRealm,
+                                reason: `Copy from core to ${remainingRealm} — attribute still needed there`
+                            });
+                        }
                     }
                     // If realm already has the attribute, no action needed
                 }

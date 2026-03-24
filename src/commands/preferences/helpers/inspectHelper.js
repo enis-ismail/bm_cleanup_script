@@ -6,11 +6,15 @@
 
 import fs from 'fs';
 import path from 'path';
-import { getResultsPath, ensureResultsDir, findAllUsageFiles } from '../../../io/util.js';
+import {
+    getResultsPath, ensureResultsDir, findAllUsageFiles, findAllMatrixFiles
+} from '../../../io/util.js';
 import { parseCSVToNestedArray } from '../../../io/csv.js';
 import {
     FILE_PATTERNS, IDENTIFIERS, TIER_DESCRIPTIONS
 } from '../../../config/constants.js';
+import { isBlacklisted } from '../../setup/helpers/blacklistHelper.js';
+import { isWhitelisted } from '../../setup/helpers/whitelistHelper.js';
 
 /**
  * Output filename for the inspect-preference report.
@@ -117,6 +121,56 @@ function extractPreferenceFromUsageCSV(usageFilePath, preferenceId) {
 }
 
 /**
+ * Extract basic presence data for a preference from a matrix CSV file.
+ * Used as a fallback when the preference has no values and is absent from the usage CSV.
+ *
+ * @param {string} matrixFilePath - Path to matrix CSV
+ * @param {string} preferenceId - Preference ID to look up
+ * @returns {{ defaultValue: string, sitePresence: Object }|null}
+ */
+function extractPreferenceFromMatrixCSV(matrixFilePath, preferenceId) {
+    const csvData = parseCSVToNestedArray(matrixFilePath);
+
+    if (csvData.length <= 1) {
+        return null;
+    }
+
+    const headers = csvData[0];
+    const prefIdIndex = headers.indexOf('preferenceId');
+    const defaultValueIndex = headers.indexOf('defaultValue');
+
+    if (prefIdIndex === -1) {
+        return null;
+    }
+
+    for (let i = 1; i < csvData.length; i++) {
+        const row = csvData[i];
+        if (row[prefIdIndex] !== preferenceId) {
+            continue;
+        }
+
+        const sitePresence = {};
+        for (let col = 0; col < headers.length; col++) {
+            if (col === prefIdIndex || col === defaultValueIndex) {
+                continue;
+            }
+            const siteName = headers[col];
+            const marker = (row[col] || '').trim();
+            if (marker) {
+                sitePresence[siteName] = marker;
+            }
+        }
+
+        return {
+            defaultValue: defaultValueIndex !== -1 ? (row[defaultValueIndex] || '') : '',
+            sitePresence
+        };
+    }
+
+    return null;
+}
+
+/**
  * Load code references for a preference from the pre-generated references JSON.
  * @param {string} instanceType - Instance type
  * @param {string} preferenceId - Preference ID to look up
@@ -166,6 +220,16 @@ export function buildInspectionReport({ preferenceId, instanceType, realms }) {
     lines.push('');
 
     // ------------------------------------------------------------------
+    // 0. Whitelist / Blacklist status
+    // ------------------------------------------------------------------
+    const whitelisted = isWhitelisted(preferenceId);
+    const blacklisted = isBlacklisted(preferenceId);
+
+    lines.push(`  Whitelisted: ${whitelisted ? 'YES' : 'no'}`);
+    lines.push(`  Blacklisted: ${blacklisted ? 'YES (protected — will not be deleted)' : 'no'}`);
+    lines.push('');
+
+    // ------------------------------------------------------------------
     // 1. Per-realm data: usage CSV (description, type, default, values) + P-level
     // ------------------------------------------------------------------
     lines.push(separator);
@@ -178,9 +242,8 @@ export function buildInspectionReport({ preferenceId, instanceType, realms }) {
         lines.push(`  Realm: ${realm}`);
         lines.push(thinSeparator);
 
-        // 1a. Deletion tier (read first to decide whether missing usage is expected)
+        // 1a. Deletion tier
         const tier = getTierFromDeletionFile(realm, instanceType, preferenceId);
-        const noValuesTier = tier === 'P1' || tier === 'P3';
 
         // 1b. Attribute metadata from usage CSV (type, description, default)
         const usageFiles = findAllUsageFiles([realm]);
@@ -214,9 +277,41 @@ export function buildInspectionReport({ preferenceId, instanceType, realms }) {
             }
         }
 
-        if (!usageFound && !noValuesTier) {
+        // 1c. Fallback: check matrix CSV when usage CSV has no data
+        if (!usageFound) {
+            const matrixFiles = findAllMatrixFiles([realm]);
+            for (const { matrixFile } of matrixFiles) {
+                const matrixData = extractPreferenceFromMatrixCSV(
+                    matrixFile, preferenceId
+                );
+                if (!matrixData) {
+                    continue;
+                }
+
+                usageFound = true;
+                lines.push(
+                    `  Default Value: ${matrixData.defaultValue || '(none)'}`
+                );
+
+                const siteEntries = Object.entries(matrixData.sitePresence);
+                if (siteEntries.length === 0) {
+                    lines.push('  Site Values:   (no site-level values set)');
+                } else {
+                    lines.push('  Sites with values:');
+                    for (const [site] of siteEntries) {
+                        lines.push(`    ${site}: (has value)`);
+                    }
+                }
+                lines.push(
+                    '  [Source: matrix CSV — run analyze-preferences'
+                    + ' for full detail]'
+                );
+            }
+        }
+
+        if (!usageFound) {
             lines.push(
-                '  [Usage data not available'
+                '  [No data found in results files'
                 + ' — run analyze-preferences to generate]'
             );
         }

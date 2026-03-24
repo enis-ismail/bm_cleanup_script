@@ -101,7 +101,43 @@ vi.mock('../../../src/helpers/backupJob.js', () => ({
 
 vi.mock('../../../src/config/helpers/helpers.js', () => ({
     getInstanceType: vi.fn(() => 'development'),
-    getRealmsByInstanceType: vi.fn(() => [])
+    getRealmsByInstanceType: vi.fn(() => []),
+    getCoreSiteTemplatePath: vi.fn(() => 'sites/site_template')
+}));
+
+vi.mock('../../../src/commands/preferences/helpers/restoreHelper.js', () => ({
+    restorePreference: vi.fn(() => true),
+    restorePreferencesForRealm: vi.fn(() => ({ restored: 2, failed: 0 }))
+}));
+
+vi.mock('../../../src/commands/preferences/helpers/deleteHelpers.js', () => ({
+    deletePreferencesForRealms: vi.fn(() => ({ totalDeleted: 2, totalFailed: 0 })),
+    restorePreferencesFromBackups: vi.fn(),
+    getBackupFilePath: vi.fn(() => '/mock/backup.json'),
+    classifyRealmBackupStatus: vi.fn(() => ({ withBackups: [], withoutBackups: [] })),
+    runAnalyzePreferencesSubprocess: vi.fn()
+}));
+
+vi.mock('../../../src/commands/setup/helpers/whitelistHelper.js', () => ({
+    loadWhitelist: vi.fn(() => ({ whitelist: [] })),
+    saveWhitelist: vi.fn(),
+    addToWhitelist: vi.fn(() => true),
+    removeFromWhitelist: vi.fn(),
+    isWhitelisted: vi.fn(),
+    filterWhitelisted: vi.fn(),
+    listWhitelist: vi.fn(() => [])
+}));
+
+vi.mock('../../../src/commands/setup/helpers/blackAndWhiteListHelper.js', () => ({
+    createListHelper: vi.fn(() => ({
+        loadList: vi.fn(() => ({ whitelist: [] })),
+        saveList: vi.fn(),
+        isInList: vi.fn(),
+        filterByList: vi.fn(),
+        addToList: vi.fn(),
+        removeFromList: vi.fn(),
+        listEntries: vi.fn(() => [])
+    }))
 }));
 
 vi.mock('../../../src/commands/debug/helpers/endpointHealthCheck.js', () => ({
@@ -143,11 +179,11 @@ beforeEach(() => {
 // ============================================================================
 
 describe('registerDebugCommands', () => {
-    it('registers all 14 debug commands', () => {
+    it('registers all 16 debug commands', () => {
         const program = new Command();
         program.exitOverride();
         registerDebugCommands(program);
-        expect(program.commands).toHaveLength(14);
+        expect(program.commands).toHaveLength(16);
     });
 
     it('registers list-attribute-groups command', () => {
@@ -204,7 +240,9 @@ describe('registerDebugCommands', () => {
             'test-generate-backup-json',
             'test-concurrent-timers',
             'debug-progress',
-            'check-api-endpoints'
+            'check-api-endpoints',
+            'setup-demo',
+            'teardown-demo'
         ];
 
         const actualNames = program.commands.map(c => c.name());
