@@ -11,17 +11,24 @@ Tools for working with Salesforce Commerce Cloud (SFCC) OCAPI to analyze and man
 
 **Fast Track:**
 ```bash
-# 1. Add your realm to config
+# 1. Install dependencies
+npm install
+
+# 2. Add your realm to config
 node src/main.js add-realm
 # (Enter: realm name, hostname, clientId, clientSecret)
 
-# 2. Analyze preferences (15-30 min depending on realm size)
+# 3. Analyze preferences (15-30 min depending on realm size)
 node src/main.js analyze-preferences
 # (Select realm → repository → review deletion list in VS Code)
 
-# 3. Remove preferences (5 min)
+# 4. Remove preferences (5 min)
 node src/main.js remove-preferences
 # (Select realm → confirm → done!)
+
+# 5. Clean up meta XML definitions in sibling repo
+node src/main.js meta-cleanup
+# (Select repo → realms → creates branch → removes XML defs → commits)
 ```
 
 ---
@@ -33,7 +40,9 @@ node src/main.js remove-preferences
 - **VS Code** (recommended, for reviewing deletion list)
 - **SFCC Account Access** to obtain API credentials and configure Business Manager
 
-## Installation
+## Complete Setup Guide
+
+### Step 1: Install Dependencies
 
 1. Clone or download this repository
 2. Navigate to the project directory
@@ -44,9 +53,7 @@ npm install
 
 ---
 
-## Complete Setup Guide
-
-### Step 1: Obtain API Client Credentials
+### Step 2: Obtain API Client Credentials
 
 You need OAuth credentials for each realm/sandbox you want to analyze.
 
@@ -66,7 +73,7 @@ You need OAuth credentials for each realm/sandbox you want to analyze.
 
 ---
 
-### Step 2: Configure OCAPI Endpoints in Business Manager
+### Step 3: Configure OCAPI Endpoints in Business Manager
 
 Before running the analysis, you must add OCAPI resource permissions to your API client.
 
@@ -146,7 +153,7 @@ Copy the `resources` array from [src/config/ocapi_config.json](src/config/ocapi_
 
 ---
 
-### Step 3: Import Backup Job on Your Environment
+### Step 4: Import Backup Job on Your Environment
 
 The `remove-preferences` and `backup-site-preferences` commands trigger a server-side backup job before deleting any preferences. This job must exist on each SFCC instance you intend to run the script against.
 
@@ -164,7 +171,7 @@ The `remove-preferences` and `backup-site-preferences` commands trigger a server
 
 ---
 
-### Step 4: Add Realm Configuration
+### Step 5: Add Realm Configuration
 
 Once you have credentials, add them to the script via CLI (recommended) or manually.
 
