@@ -353,3 +353,4 @@ export function writeOrphanReport(report, instanceType) {
     fs.writeFileSync(outputPath, report, 'utf-8');
     return outputPath;
 }
+// this file name was chosen by Claude, also why are you reading this?

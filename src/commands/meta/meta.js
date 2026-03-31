@@ -1,4 +1,3 @@
-import { testMetaCleanup } from './actions/testMetaCleanup.js';
 import { metaCleanup } from './actions/metaCleanup.js';
 import { detectOrphans } from './actions/orphanDetection.js';
 
@@ -12,12 +11,6 @@ import { detectOrphans } from './actions/orphanDetection.js';
  * @param {import('commander').Command} program - Commander.js program instance
  */
 export function registerMetaCommands(program) {
-    program
-        .command('test-meta-cleanup')
-        .description('Test meta file cleanup — preview/execute removal of preference definitions from repo XML')
-        .option('--dry-run', 'Preview changes without modifying files (default)', true)
-        .option('--execute', 'Actually modify files (disables dry-run)')
-        .action(async (options) => testMetaCleanup(options));
 
     program
         .command('meta-cleanup')

@@ -48,7 +48,13 @@ vi.mock('../../../src/commands/setup/helpers/whitelistHelper.js', () => ({
     isWhitelisted: vi.fn(() => false)
 }));
 
-import { buildInspectionReport, writeInspectionReport } from
+import {
+    buildInspectionReport,
+    buildPreferenceGroupInspectionReport,
+    getInspectablePreferenceGroupIds,
+    writeInspectionReport,
+    writePreferenceGroupInspectionReport
+} from
     '../../../src/commands/preferences/helpers/inspectHelper.js';
 import {
     findAllUsageFiles, findAllMatrixFiles, ensureResultsDir, getResultsPath
@@ -428,6 +434,95 @@ describe('inspectHelper', () => {
     });
 
     // ====================================================================
+    // getInspectablePreferenceGroupIds
+    // ====================================================================
+
+    describe('getInspectablePreferenceGroupIds', () => {
+        it('returns sorted unique group IDs across selected realms', () => {
+            findAllUsageFiles
+                .mockReturnValueOnce([
+                    { realm: 'EU05', usageFile: '/mock/EU05_usage.csv' }
+                ])
+                .mockReturnValueOnce([
+                    { realm: 'APAC', usageFile: '/mock/APAC_usage.csv' }
+                ]);
+
+            parseCSVToNestedArray
+                .mockReturnValueOnce(buildUsageCSVData([
+                    ['zGroup', 'c_prefA', '', '', 'string', '', ''],
+                    ['SharedGroup', 'c_prefB', '', '', 'string', '', '']
+                ]))
+                .mockReturnValueOnce(buildUsageCSVData([
+                    ['aGroup', 'c_prefC', '', '', 'string', '', ''],
+                    ['SharedGroup', 'c_prefD', '', '', 'string', '', ''],
+                    ['', 'c_prefE', '', '', 'string', '', '']
+                ]));
+
+            const groupIds = getInspectablePreferenceGroupIds(['EU05', 'APAC']);
+
+            expect(groupIds).toEqual(['aGroup', 'SharedGroup', 'zGroup']);
+        });
+    });
+
+    // ====================================================================
+    // buildPreferenceGroupInspectionReport
+    // ====================================================================
+
+    describe('buildPreferenceGroupInspectionReport', () => {
+        it('builds a combined report for all preferences in the selected group', () => {
+            findAllUsageFiles.mockReturnValue([
+                { realm: 'EU05', usageFile: '/mock/EU05_usage.csv' }
+            ]);
+
+            parseCSVToNestedArray.mockImplementation((filePath) => {
+                if (filePath === '/mock/EU05_usage.csv') {
+                    return buildUsageCSVData([
+                        ['GroupA', 'c_prefA', 'defaultA', 'Pref A', 'string', 'valueA', ''],
+                        ['GroupA', 'c_prefB', '', 'Pref B', 'boolean', '', 'true'],
+                        ['OtherGroup', 'c_prefC', '', 'Pref C', 'string', '', '']
+                    ]);
+                }
+
+                return [];
+            });
+
+            const report = buildPreferenceGroupInspectionReport({
+                groupId: 'GroupA',
+                instanceType: 'development',
+                realms: ['EU05']
+            });
+
+            expect(report).toContain('PREFERENCE GROUP INSPECTION: GroupA');
+            expect(report).toContain('Preferences Found: 2');
+            expect(report).toContain('c_prefA');
+            expect(report).toContain('c_prefB');
+            expect(report).toContain('PREFERENCE 1 OF 2: c_prefA');
+            expect(report).toContain('PREFERENCE 2 OF 2: c_prefB');
+            expect(report).toContain('Description:   Pref A');
+            expect(report).toContain('Description:   Pref B');
+            expect(report).toContain('END OF GROUP REPORT');
+        });
+
+        it('shows an empty-state message when the group has no matching preferences', () => {
+            findAllUsageFiles.mockReturnValue([
+                { realm: 'EU05', usageFile: '/mock/EU05_usage.csv' }
+            ]);
+            parseCSVToNestedArray.mockReturnValue(buildUsageCSVData([
+                ['OtherGroup', 'c_prefA', '', '', 'string', '', '']
+            ]));
+
+            const report = buildPreferenceGroupInspectionReport({
+                groupId: 'MissingGroup',
+                instanceType: 'development',
+                realms: ['EU05']
+            });
+
+            expect(report).toContain('Preferences Found: 0');
+            expect(report).toContain('[No preferences found for this group');
+        });
+    });
+
+    // ====================================================================
     // writeInspectionReport
     // ====================================================================
 
@@ -444,6 +539,23 @@ describe('inspectHelper', () => {
             );
             expect(fs.readFileSync(outputPath, 'utf-8')).toBe(
                 'Test report content'
+            );
+        });
+
+        it('writes group inspection report to a group-specific file', () => {
+            ensureResultsDir.mockReturnValue(tmpDir);
+
+            const outputPath = writePreferenceGroupInspectionReport(
+                'Group report content',
+                'development',
+                'Group A'
+            );
+
+            expect(outputPath).toBe(
+                path.join(tmpDir, 'preference_group_inspection_Group_A.txt')
+            );
+            expect(fs.readFileSync(outputPath, 'utf-8')).toBe(
+                'Group report content'
             );
         });
     });

@@ -1,7 +1,7 @@
 /**
  * Preference Inspection Helper
  * Reads pre-generated results files to display comprehensive data
- * about a single preference. No OCAPI calls or live code scanning.
+ * about a single preference or all preferences within a group.
  */
 
 import fs from 'fs';
@@ -21,6 +21,7 @@ import { isWhitelisted } from '../../setup/helpers/whitelistHelper.js';
  * This file is reused (overwritten) on each invocation.
  */
 const INSPECT_OUTPUT_FILE = 'preference_inspection.txt';
+const GROUP_INSPECT_OUTPUT_PREFIX = 'preference_group_inspection';
 
 /**
  * Parse the per-realm deletion file and return the tier for a specific preference.
@@ -99,12 +100,14 @@ function extractPreferenceFromUsageCSV(usageFilePath, preferenceId) {
 
         const siteValues = {};
         for (let col = 0; col < headers.length; col++) {
-            if (headers[col].startsWith('value_')) {
-                const siteName = headers[col].replace('value_', '');
-                const value = row[col] || '';
-                if (value) {
-                    siteValues[siteName] = value;
-                }
+            if (!headers[col].startsWith('value_')) {
+                continue;
+            }
+
+            const siteName = headers[col].replace('value_', '');
+            const value = row[col] || '';
+            if (value) {
+                siteValues[siteName] = value;
             }
         }
 
@@ -123,7 +126,6 @@ function extractPreferenceFromUsageCSV(usageFilePath, preferenceId) {
 /**
  * Extract basic presence data for a preference from a matrix CSV file.
  * Used as a fallback when the preference has no values and is absent from the usage CSV.
- *
  * @param {string} matrixFilePath - Path to matrix CSV
  * @param {string} preferenceId - Preference ID to look up
  * @returns {{ defaultValue: string, sitePresence: Object }|null}
@@ -154,6 +156,7 @@ function extractPreferenceFromMatrixCSV(matrixFilePath, preferenceId) {
             if (col === prefIdIndex || col === defaultValueIndex) {
                 continue;
             }
+
             const siteName = headers[col];
             const marker = (row[col] || '').trim();
             if (marker) {
@@ -168,6 +171,92 @@ function extractPreferenceFromMatrixCSV(matrixFilePath, preferenceId) {
     }
 
     return null;
+}
+
+/**
+ * Collect all preference IDs that belong to a given group from a usage CSV file.
+ * @param {string} usageFilePath - Path to usage CSV
+ * @param {string} groupId - Group ID to filter on
+ * @returns {string[]} Matching preference IDs
+ */
+function getPreferenceIdsForGroupFromUsageCSV(usageFilePath, groupId) {
+    const csvData = parseCSVToNestedArray(usageFilePath);
+
+    if (csvData.length <= 1) {
+        return [];
+    }
+
+    const headers = csvData[0];
+    const groupIdIndex = headers.indexOf('groupId');
+    const prefIdIndex = headers.indexOf('preferenceId');
+
+    if (groupIdIndex === -1 || prefIdIndex === -1) {
+        return [];
+    }
+
+    return csvData
+        .slice(1)
+        .filter((row) => row[groupIdIndex] === groupId && row[prefIdIndex])
+        .map((row) => row[prefIdIndex]);
+}
+
+/**
+ * Collect all available preference group IDs from the selected realms.
+ * @param {string[]} realms - Realms to scan
+ * @returns {string[]} Sorted unique group IDs
+ */
+export function getInspectablePreferenceGroupIds(realms) {
+    const groupIds = new Set();
+
+    for (const realm of realms) {
+        const usageFiles = findAllUsageFiles([realm]);
+
+        for (const { usageFile } of usageFiles) {
+            const csvData = parseCSVToNestedArray(usageFile);
+
+            if (csvData.length <= 1) {
+                continue;
+            }
+
+            const headers = csvData[0];
+            const groupIdIndex = headers.indexOf('groupId');
+
+            if (groupIdIndex === -1) {
+                continue;
+            }
+
+            for (const row of csvData.slice(1)) {
+                const currentGroupId = row[groupIdIndex] || '';
+                if (currentGroupId) {
+                    groupIds.add(currentGroupId);
+                }
+            }
+        }
+    }
+
+    return [...groupIds].sort((left, right) => left.localeCompare(right));
+}
+
+/**
+ * Collect all unique preference IDs for a group across the selected realms.
+ * @param {Object} options - Group lookup options
+ * @param {string} options.groupId - Group ID to inspect
+ * @param {string[]} options.realms - Realms to scan
+ * @returns {string[]} Sorted unique preference IDs
+ */
+function getInspectablePreferenceIdsForGroup({ groupId, realms }) {
+    const preferenceIds = new Set();
+
+    for (const realm of realms) {
+        const usageFiles = findAllUsageFiles([realm]);
+
+        for (const { usageFile } of usageFiles) {
+            const ids = getPreferenceIdsForGroupFromUsageCSV(usageFile, groupId);
+            ids.forEach((preferenceId) => preferenceIds.add(preferenceId));
+        }
+    }
+
+    return [...preferenceIds].sort((left, right) => left.localeCompare(right));
 }
 
 /**
@@ -191,37 +280,43 @@ function loadCodeReferences(instanceType, preferenceId) {
     const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
     const refs = data.preferences?.[preferenceId] || [];
     const cartridges = [...new Set(
-        refs.map(r => r.cartridge).filter(Boolean)
+        refs.map((reference) => reference.cartridge).filter(Boolean)
     )].sort();
 
     return { references: refs, cartridges };
 }
 
 /**
- * Build the full inspection report for a single preference using results files only.
- *
- * @param {Object} params
- * @param {string} params.preferenceId - Preference ID
- * @param {string} params.instanceType - Instance type
- * @param {string[]} params.realms - Realms to inspect
- * @returns {string} Formatted report text
+ * Build the reusable report sections for a single preference.
+ * @param {Object} options - Report options
+ * @param {string} options.preferenceId - Preference ID
+ * @param {string} options.instanceType - Instance type
+ * @param {string[]} options.realms - Realms to inspect
+ * @param {boolean} [options.includeHeader=true] - Include the top report header
+ * @param {boolean} [options.includeFooter=true] - Include the final report footer
+ * @returns {string[]} Report lines for the preference
  */
-export function buildInspectionReport({ preferenceId, instanceType, realms }) {
+function buildPreferenceInspectionSections({
+    preferenceId,
+    instanceType,
+    realms,
+    includeHeader = true,
+    includeFooter = true
+}) {
     const lines = [];
     const separator = '='.repeat(80);
     const thinSeparator = '-'.repeat(80);
 
-    lines.push(separator);
-    lines.push(`  PREFERENCE INSPECTION: ${preferenceId}`);
-    lines.push(separator);
-    lines.push(`Generated: ${new Date().toISOString()}`);
-    lines.push(`Instance Type: ${instanceType}`);
-    lines.push(`Realms: ${realms.join(', ')}`);
-    lines.push('');
+    if (includeHeader) {
+        lines.push(separator);
+        lines.push(`  PREFERENCE INSPECTION: ${preferenceId}`);
+        lines.push(separator);
+        lines.push(`Generated: ${new Date().toISOString()}`);
+        lines.push(`Instance Type: ${instanceType}`);
+        lines.push(`Realms: ${realms.join(', ')}`);
+        lines.push('');
+    }
 
-    // ------------------------------------------------------------------
-    // 0. Whitelist / Blacklist status
-    // ------------------------------------------------------------------
     const whitelisted = isWhitelisted(preferenceId);
     const blacklisted = isBlacklisted(preferenceId);
 
@@ -229,9 +324,6 @@ export function buildInspectionReport({ preferenceId, instanceType, realms }) {
     lines.push(`  Blacklisted: ${blacklisted ? 'YES (protected — will not be deleted)' : 'no'}`);
     lines.push('');
 
-    // ------------------------------------------------------------------
-    // 1. Per-realm data: usage CSV (description, type, default, values) + P-level
-    // ------------------------------------------------------------------
     lines.push(separator);
     lines.push('  PER-REALM DATA');
     lines.push(separator);
@@ -242,10 +334,7 @@ export function buildInspectionReport({ preferenceId, instanceType, realms }) {
         lines.push(`  Realm: ${realm}`);
         lines.push(thinSeparator);
 
-        // 1a. Deletion tier
         const tier = getTierFromDeletionFile(realm, instanceType, preferenceId);
-
-        // 1b. Attribute metadata from usage CSV (type, description, default)
         const usageFiles = findAllUsageFiles([realm]);
         let usageFound = false;
 
@@ -260,7 +349,6 @@ export function buildInspectionReport({ preferenceId, instanceType, realms }) {
             lines.push(`  Description:   ${data.description || 'N/A'}`);
             lines.push(`  Default Value: ${data.defaultValue || 'N/A'}`);
             lines.push(`  Group:         ${data.groupId || 'N/A'}`);
-
             lines.push('');
             lines.push('  Site Values:');
 
@@ -277,12 +365,13 @@ export function buildInspectionReport({ preferenceId, instanceType, realms }) {
             }
         }
 
-        // 1c. Fallback: check matrix CSV when usage CSV has no data
         if (!usageFound) {
             const matrixFiles = findAllMatrixFiles([realm]);
+
             for (const { matrixFile } of matrixFiles) {
                 const matrixData = extractPreferenceFromMatrixCSV(
-                    matrixFile, preferenceId
+                    matrixFile,
+                    preferenceId
                 );
                 if (!matrixData) {
                     continue;
@@ -302,6 +391,7 @@ export function buildInspectionReport({ preferenceId, instanceType, realms }) {
                         lines.push(`    ${site}: (has value)`);
                     }
                 }
+
                 lines.push(
                     '  [Source: matrix CSV — run analyze-preferences'
                     + ' for full detail]'
@@ -316,7 +406,6 @@ export function buildInspectionReport({ preferenceId, instanceType, realms }) {
             );
         }
 
-        // 1c. P-level
         lines.push('');
         if (tier) {
             const desc = TIER_DESCRIPTIONS[tier] || '';
@@ -328,9 +417,6 @@ export function buildInspectionReport({ preferenceId, instanceType, realms }) {
         }
     }
 
-    // ------------------------------------------------------------------
-    // 2. Code references from pre-generated references file
-    // ------------------------------------------------------------------
     lines.push('');
     lines.push(separator);
     lines.push('  CODE REFERENCES');
@@ -356,8 +442,8 @@ export function buildInspectionReport({ preferenceId, instanceType, realms }) {
         lines.push(`  Total matches: ${codeData.references.length}`);
         lines.push('');
 
-        // Group references by cartridge
         const byCartridge = new Map();
+
         for (const ref of codeData.references) {
             const key = ref.cartridge || '(unknown)';
             if (!byCartridge.has(key)) {
@@ -368,19 +454,115 @@ export function buildInspectionReport({ preferenceId, instanceType, realms }) {
 
         for (const [cartridge, refs] of byCartridge) {
             lines.push(`  ${cartridge}:`);
-            for (const r of refs) {
-                lines.push(`    ${r.file}:${r.line}`);
-                lines.push(`      ${r.text}`);
+            for (const ref of refs) {
+                lines.push(`    ${ref.file}:${ref.line}`);
+                lines.push(`      ${ref.text}`);
             }
             lines.push('');
         }
     }
 
+    if (includeFooter) {
+        lines.push(separator);
+        lines.push('  END OF REPORT');
+        lines.push(separator);
+    }
+
+    return lines;
+}
+
+/**
+ * Build the full inspection report for a single preference using results files only.
+ * @param {Object} params - Report options
+ * @param {string} params.preferenceId - Preference ID
+ * @param {string} params.instanceType - Instance type
+ * @param {string[]} params.realms - Realms to inspect
+ * @returns {string} Formatted report text
+ */
+export function buildInspectionReport({ preferenceId, instanceType, realms }) {
+    return buildPreferenceInspectionSections({
+        preferenceId,
+        instanceType,
+        realms
+    }).join('\n');
+}
+
+/**
+ * Build a report for every preference that belongs to a selected group.
+ * @param {Object} options - Report options
+ * @param {string} options.groupId - Group ID to inspect
+ * @param {string} options.instanceType - Instance type
+ * @param {string[]} options.realms - Realms to inspect
+ * @returns {string} Formatted group report text
+ */
+export function buildPreferenceGroupInspectionReport({
+    groupId,
+    instanceType,
+    realms
+}) {
+    const lines = [];
+    const separator = '='.repeat(80);
+    const preferenceIds = getInspectablePreferenceIdsForGroup({ groupId, realms });
+
     lines.push(separator);
-    lines.push('  END OF REPORT');
+    lines.push(`  PREFERENCE GROUP INSPECTION: ${groupId}`);
+    lines.push(separator);
+    lines.push(`Generated: ${new Date().toISOString()}`);
+    lines.push(`Instance Type: ${instanceType}`);
+    lines.push(`Realms: ${realms.join(', ')}`);
+    lines.push(`Preferences Found: ${preferenceIds.length}`);
+    lines.push('');
+
+    if (preferenceIds.length === 0) {
+        lines.push('  [No preferences found for this group in the selected results files]');
+        lines.push(separator);
+        lines.push('  END OF GROUP REPORT');
+        lines.push(separator);
+        return lines.join('\n');
+    }
+
+    lines.push('  Preference IDs:');
+    for (const preferenceId of preferenceIds) {
+        lines.push(`    ${preferenceId}`);
+    }
+
+    for (const [index, preferenceId] of preferenceIds.entries()) {
+        lines.push('');
+        lines.push(separator);
+        lines.push(`  PREFERENCE ${index + 1} OF ${preferenceIds.length}: ${preferenceId}`);
+        lines.push(separator);
+        lines.push(
+            ...buildPreferenceInspectionSections({
+                preferenceId,
+                instanceType,
+                realms,
+                includeHeader: false,
+                includeFooter: false
+            })
+        );
+    }
+
+    lines.push('');
+    lines.push(separator);
+    lines.push('  END OF GROUP REPORT');
     lines.push(separator);
 
     return lines.join('\n');
+}
+
+/**
+ * Write a report file to the shared results directory.
+ * @param {string} report - Formatted report text
+ * @param {string} instanceType - Instance type
+ * @param {string} outputFileName - Output filename
+ * @returns {string} Path to the written report file
+ */
+function writeReportFile(report, instanceType, outputFileName) {
+    const resultsDir = ensureResultsDir(IDENTIFIERS.ALL_REALMS, instanceType);
+    const outputPath = path.join(resultsDir, outputFileName);
+
+    fs.writeFileSync(outputPath, report, 'utf-8');
+    return outputPath;
 }
 
 /**
@@ -391,9 +573,21 @@ export function buildInspectionReport({ preferenceId, instanceType, realms }) {
  * @returns {string} Path to the written report file
  */
 export function writeInspectionReport(report, instanceType) {
-    const resultsDir = ensureResultsDir(IDENTIFIERS.ALL_REALMS, instanceType);
-    const outputPath = path.join(resultsDir, INSPECT_OUTPUT_FILE);
+    return writeReportFile(report, instanceType, INSPECT_OUTPUT_FILE);
+}
 
-    fs.writeFileSync(outputPath, report, 'utf-8');
-    return outputPath;
+/**
+ * Write the group inspection report to the results directory.
+ * @param {string} report - Formatted report text
+ * @param {string} instanceType - Instance type
+ * @param {string} groupId - Group ID used to build the report
+ * @returns {string} Path to the written report file
+ */
+export function writePreferenceGroupInspectionReport(report, instanceType, groupId) {
+    const safeGroupId = groupId.replace(/[^a-zA-Z0-9_-]+/g, '_');
+    return writeReportFile(
+        report,
+        instanceType,
+        `${GROUP_INSPECT_OUTPUT_PREFIX}_${safeGroupId}.txt`
+    );
 }

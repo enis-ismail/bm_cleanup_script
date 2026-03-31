@@ -3,6 +3,7 @@ import { removePreferences } from './actions/removePreferences.js';
 import { restorePreferences } from './actions/restorePreferences.js';
 import { backupSitePreferences } from './actions/backupSitePreferences.js';
 import { inspectPreference } from './actions/inspectPreference.js';
+import { inspectPreferenceGroup } from './actions/inspectPreferenceGroup.js';
 
 // ============================================================================
 // PREFERENCE COMMANDS REGISTRATION
@@ -35,4 +36,9 @@ export function registerPreferenceCommands(program) {
         .command('inspect-preference')
         .description('Show detailed info about a single preference (values, code refs, P-level)')
         .action(inspectPreference);
+
+    program
+        .command('inspect-preference-group')
+        .description('Show detailed info for every preference in a selected preference group')
+        .action(inspectPreferenceGroup);
 }

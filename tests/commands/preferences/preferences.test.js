@@ -40,6 +40,7 @@ vi.mock('../../../src/commands/prompts/index.js', () => ({
     instanceTypePrompt: vi.fn(() => [{ name: 'instanceType' }]),
     realmPrompt: vi.fn(() => [{ name: 'realm' }]),
     objectTypePrompt: vi.fn(() => [{ name: 'objectType' }]),
+    groupIdPrompt: vi.fn(() => [{ name: 'groupId' }]),
     resolveRealmScopeSelection: vi.fn(),
     deletionLevelPrompt: vi.fn(() => [{ name: 'deletionLevel' }]),
     deletionSourcePrompt: vi.fn(() => [{ name: 'deletionSource' }]),
@@ -347,6 +348,14 @@ describe('registerPreferenceCommands', () => {
         const cmd = program.commands.find(c => c.name() === 'backup-site-preferences');
         expect(cmd).toBeDefined();
         expect(cmd.description()).toContain('backup');
+    });
+
+    it('registers inspect-preference-group command', () => {
+        const program = new Command();
+        registerPreferenceCommands(program);
+        const cmd = program.commands.find(c => c.name() === 'inspect-preference-group');
+        expect(cmd).toBeDefined();
+        expect(cmd.description()).toContain('group');
     });
 
     it('all commands have descriptions', () => {
