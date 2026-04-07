@@ -59,11 +59,11 @@ export async function inspectPreferenceGroup() {
 
     const outputPath = writePreferenceGroupInspectionReport(
         report,
-        instanceType,
         groupId
     );
 
     console.log(`\n${LOG_PREFIX.INFO} Report saved to: ${outputPath}`);
+    console.log(`${LOG_PREFIX.INFO} Press Ctrl+Shift+V in VS Code to open Markdown preview.`);
 
     try {
         await openFileInVSCode(outputPath);

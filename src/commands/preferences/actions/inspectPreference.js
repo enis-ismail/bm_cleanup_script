@@ -34,9 +34,10 @@ export async function inspectPreference() {
         realms
     });
 
-    const outputPath = writeInspectionReport(report, instanceType);
+    const outputPath = writeInspectionReport(report);
 
     console.log(`\n${LOG_PREFIX.INFO} Report saved to: ${outputPath}`);
+    console.log(`${LOG_PREFIX.INFO} Press Ctrl+Shift+V in VS Code to open Markdown preview.`);
 
     try {
         await openFileInVSCode(outputPath);

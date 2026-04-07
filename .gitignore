@@ -9,6 +9,7 @@ config.json
 # Generated realm folders with outputs
 /results
 /backup*
+/inspections
 
 # Environment files
 .env

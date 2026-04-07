@@ -143,9 +143,9 @@ describe('inspectHelper', () => {
                 realms: ['EU05', 'APAC']
             });
 
-            expect(report).toContain('PREFERENCE INSPECTION: c_testPref');
-            expect(report).toContain('Instance Type: development');
-            expect(report).toContain('Realms: EU05, APAC');
+            expect(report).toContain('# Preference Inspection: `c_testPref`');
+            expect(report).toContain('**Instance Type:** development');
+            expect(report).toContain('**Realms:** EU05, APAC');
         });
 
         it('shows whitelist status when whitelisted', () => {
@@ -157,8 +157,8 @@ describe('inspectHelper', () => {
                 realms: ['EU05']
             });
 
-            expect(report).toContain('Whitelisted: YES');
-            expect(report).toContain('Blacklisted: no');
+            expect(report).toContain('| Whitelisted | **YES** |');
+            expect(report).toContain('| Blacklisted | no |');
         });
 
         it('shows blacklist status when blacklisted', () => {
@@ -170,7 +170,7 @@ describe('inspectHelper', () => {
                 realms: ['EU05']
             });
 
-            expect(report).toContain('Blacklisted: YES (protected');
+            expect(report).toContain('| Blacklisted | **YES** (protected');
         });
 
         it('shows deletion tier from deletion file', () => {
@@ -192,7 +192,7 @@ describe('inspectHelper', () => {
                 realms: ['EU05']
             });
 
-            expect(report).toContain('Deletion Tier: [P2]');
+            expect(report).toContain('**Deletion Tier:** `P2`');
             expect(report).toContain('Likely Safe');
         });
 
@@ -204,7 +204,7 @@ describe('inspectHelper', () => {
             });
 
             expect(report).toContain(
-                'Deletion Tier: N/A (not a deletion candidate on this realm)'
+                '**Deletion Tier:** N/A *(not a deletion candidate on this realm)*'
             );
         });
 
@@ -225,11 +225,11 @@ describe('inspectHelper', () => {
                 realms: ['EU05']
             });
 
-            expect(report).toContain('Type:          string');
-            expect(report).toContain('Description:   A test pref');
-            expect(report).toContain('Default Value: myDefault');
-            expect(report).toContain('Group:         TestGroup');
-            expect(report).toContain('Site1: val1');
+            expect(report).toContain('| Type | `string` |');
+            expect(report).toContain('| Description | A test pref |');
+            expect(report).toContain('| Default Value | `myDefault` |');
+            expect(report).toContain('| Group | `TestGroup` |');
+            expect(report).toContain('| Site1 | `val1` |');
         });
 
         it('falls back to matrix CSV when usage CSV has no data', () => {
@@ -256,9 +256,9 @@ describe('inspectHelper', () => {
                 realms: ['EU05']
             });
 
-            expect(report).toContain('Default Value: (none)');
-            expect(report).toContain('Site2: (has value)');
-            expect(report).toContain('[Source: matrix CSV');
+            expect(report).toContain('**Default Value:** *(none)*');
+            expect(report).toContain('- Site2');
+            expect(report).toContain('*Source: matrix CSV');
         });
 
         it('shows matrix fallback with default value when present', () => {
@@ -283,8 +283,8 @@ describe('inspectHelper', () => {
                 realms: ['APAC']
             });
 
-            expect(report).toContain('Default Value: hello_default');
-            expect(report).toContain('(no site-level values set)');
+            expect(report).toContain('**Default Value:** `hello_default`');
+            expect(report).toContain('*(no site-level values set)*');
         });
 
         it('shows "no data" message when neither CSV has the preference', () => {
@@ -301,7 +301,7 @@ describe('inspectHelper', () => {
             });
 
             expect(report).toContain(
-                '[No data found in results files'
+                '*No data found in results files'
             );
         });
 
@@ -317,7 +317,7 @@ describe('inspectHelper', () => {
                 realms: ['EU05']
             });
 
-            expect(report).toContain('[No data found in results files');
+            expect(report).toContain('*No data found in results files');
         });
 
         it('shows code references grouped by cartridge', () => {
@@ -358,10 +358,10 @@ describe('inspectHelper', () => {
                 realms: ['EU05']
             });
 
-            expect(report).toContain('Cartridges: app_custom');
-            expect(report).toContain('Total matches: 2');
-            expect(report).toContain('app_custom:');
-            expect(report).toContain('scripts/test.js:10');
+            expect(report).toContain('**Cartridges:** `app_custom`');
+            expect(report).toContain('**Total matches:** 2');
+            expect(report).toContain('**`app_custom`:**');
+            expect(report).toContain('`scripts/test.js:10`');
         });
 
         it('shows no matches when code references file exists but pref not found', () => {
@@ -385,8 +385,8 @@ describe('inspectHelper', () => {
                 realms: ['EU05']
             });
 
-            expect(report).toContain('Cartridges: (none)');
-            expect(report).toContain('Total matches: 0');
+            expect(report).toContain('**Cartridges:** *(none)*');
+            expect(report).toContain('**Total matches:** 0');
         });
 
         it('shows references file not found message when missing', () => {
@@ -396,7 +396,7 @@ describe('inspectHelper', () => {
                 realms: ['EU05']
             });
 
-            expect(report).toContain('[References file not found');
+            expect(report).toContain('*References file not found');
         });
 
         it('handles multiple realms with different tiers', () => {
@@ -426,10 +426,10 @@ describe('inspectHelper', () => {
 
             expect(report).toContain('Realm: EU05');
             expect(report).toContain(
-                'Deletion Tier: N/A (not a deletion candidate on this realm)'
+                '**Deletion Tier:** N/A *(not a deletion candidate on this realm)*'
             );
             expect(report).toContain('Realm: APAC');
-            expect(report).toContain('Deletion Tier: [P1]');
+            expect(report).toContain('**Deletion Tier:** `P1`');
         });
     });
 
@@ -492,15 +492,15 @@ describe('inspectHelper', () => {
                 realms: ['EU05']
             });
 
-            expect(report).toContain('PREFERENCE GROUP INSPECTION: GroupA');
-            expect(report).toContain('Preferences Found: 2');
-            expect(report).toContain('c_prefA');
-            expect(report).toContain('c_prefB');
-            expect(report).toContain('PREFERENCE 1 OF 2: c_prefA');
-            expect(report).toContain('PREFERENCE 2 OF 2: c_prefB');
-            expect(report).toContain('Description:   Pref A');
-            expect(report).toContain('Description:   Pref B');
-            expect(report).toContain('END OF GROUP REPORT');
+            expect(report).toContain('# Preference Group Inspection: `GroupA`');
+            expect(report).toContain('**Preferences Found:** 2');
+            expect(report).toContain('`c_prefA`');
+            expect(report).toContain('`c_prefB`');
+            expect(report).toContain('Preference 1 of 2: `c_prefA`');
+            expect(report).toContain('Preference 2 of 2: `c_prefB`');
+            expect(report).toContain('| Description | Pref A |');
+            expect(report).toContain('| Description | Pref B |');
+            expect(report).toContain('*End of Group Report*');
         });
 
         it('shows an empty-state message when the group has no matching preferences', () => {
@@ -517,8 +517,8 @@ describe('inspectHelper', () => {
                 realms: ['EU05']
             });
 
-            expect(report).toContain('Preferences Found: 0');
-            expect(report).toContain('[No preferences found for this group');
+            expect(report).toContain('**Preferences Found:** 0');
+            expect(report).toContain('*No preferences found for this group');
         });
     });
 
@@ -527,15 +527,22 @@ describe('inspectHelper', () => {
     // ====================================================================
 
     describe('writeInspectionReport', () => {
-        it('writes report to file and returns path', () => {
-            ensureResultsDir.mockReturnValue(tmpDir);
+        let inspectionsDir;
 
-            const outputPath = writeInspectionReport(
-                'Test report content', 'development'
-            );
+        beforeEach(() => {
+            inspectionsDir = path.join(tmpDir, 'inspections');
+            vi.spyOn(process, 'cwd').mockReturnValue(tmpDir);
+        });
+
+        afterEach(() => {
+            vi.restoreAllMocks();
+        });
+
+        it('writes report to file and returns path', () => {
+            const outputPath = writeInspectionReport('Test report content');
 
             expect(outputPath).toBe(
-                path.join(tmpDir, 'preference_inspection.txt')
+                path.join(inspectionsDir, 'preference_inspection.md')
             );
             expect(fs.readFileSync(outputPath, 'utf-8')).toBe(
                 'Test report content'
@@ -543,20 +550,32 @@ describe('inspectHelper', () => {
         });
 
         it('writes group inspection report to a group-specific file', () => {
-            ensureResultsDir.mockReturnValue(tmpDir);
-
             const outputPath = writePreferenceGroupInspectionReport(
                 'Group report content',
-                'development',
                 'Group A'
             );
 
             expect(outputPath).toBe(
-                path.join(tmpDir, 'preference_group_inspection_Group_A.txt')
+                path.join(inspectionsDir, 'preference_group_inspection_Group_A.md')
             );
             expect(fs.readFileSync(outputPath, 'utf-8')).toBe(
                 'Group report content'
             );
+        });
+
+        it('clears previous inspections before writing', () => {
+            fs.mkdirSync(inspectionsDir, { recursive: true });
+            fs.writeFileSync(
+                path.join(inspectionsDir, 'old_file.md'),
+                'stale'
+            );
+
+            writeInspectionReport('Fresh report');
+
+            expect(fs.existsSync(path.join(inspectionsDir, 'old_file.md'))).toBe(false);
+            expect(fs.readFileSync(
+                path.join(inspectionsDir, 'preference_inspection.md'), 'utf-8'
+            )).toBe('Fresh report');
         });
     });
 });

@@ -20,7 +20,7 @@ import { isWhitelisted } from '../../setup/helpers/whitelistHelper.js';
  * Output filename for the inspect-preference report.
  * This file is reused (overwritten) on each invocation.
  */
-const INSPECT_OUTPUT_FILE = 'preference_inspection.txt';
+const INSPECT_OUTPUT_FILE = 'preference_inspection.md';
 const GROUP_INSPECT_OUTPUT_PREFIX = 'preference_group_inspection';
 
 /**
@@ -287,52 +287,42 @@ function loadCodeReferences(instanceType, preferenceId) {
 }
 
 /**
- * Build the reusable report sections for a single preference.
+ * Build the reusable Markdown report sections for a single preference.
  * @param {Object} options - Report options
  * @param {string} options.preferenceId - Preference ID
  * @param {string} options.instanceType - Instance type
  * @param {string[]} options.realms - Realms to inspect
- * @param {boolean} [options.includeHeader=true] - Include the top report header
- * @param {boolean} [options.includeFooter=true] - Include the final report footer
- * @returns {string[]} Report lines for the preference
+ * @param {number} [options.headingLevel=1] - Base heading level (1 = #, 2 = ##)
+ * @returns {string[]} Markdown report lines for the preference
  */
 function buildPreferenceInspectionSections({
     preferenceId,
     instanceType,
     realms,
-    includeHeader = true,
-    includeFooter = true
+    headingLevel = 1
 }) {
     const lines = [];
-    const separator = '='.repeat(80);
-    const thinSeparator = '-'.repeat(80);
-
-    if (includeHeader) {
-        lines.push(separator);
-        lines.push(`  PREFERENCE INSPECTION: ${preferenceId}`);
-        lines.push(separator);
-        lines.push(`Generated: ${new Date().toISOString()}`);
-        lines.push(`Instance Type: ${instanceType}`);
-        lines.push(`Realms: ${realms.join(', ')}`);
-        lines.push('');
-    }
+    const h1 = '#'.repeat(headingLevel);
+    const h2 = '#'.repeat(headingLevel + 1);
+    const h3 = '#'.repeat(headingLevel + 2);
 
     const whitelisted = isWhitelisted(preferenceId);
     const blacklisted = isBlacklisted(preferenceId);
 
-    lines.push(`  Whitelisted: ${whitelisted ? 'YES' : 'no'}`);
-    lines.push(`  Blacklisted: ${blacklisted ? 'YES (protected — will not be deleted)' : 'no'}`);
+    lines.push('| Property | Value |');
+    lines.push('|----------|-------|');
+    lines.push(`| Whitelisted | ${whitelisted ? '**YES**' : 'no'} |`);
+    lines.push(
+        `| Blacklisted | ${blacklisted ? '**YES** (protected — will not be deleted)' : 'no'} |`
+    );
     lines.push('');
 
-    lines.push(separator);
-    lines.push('  PER-REALM DATA');
-    lines.push(separator);
+    lines.push(`${h2} Per-Realm Data`);
+    lines.push('');
 
     for (const realm of realms) {
+        lines.push(`${h3} Realm: ${realm}`);
         lines.push('');
-        lines.push(thinSeparator);
-        lines.push(`  Realm: ${realm}`);
-        lines.push(thinSeparator);
 
         const tier = getTierFromDeletionFile(realm, instanceType, preferenceId);
         const usageFiles = findAllUsageFiles([realm]);
@@ -345,24 +335,31 @@ function buildPreferenceInspectionSections({
             }
 
             usageFound = true;
-            lines.push(`  Type:          ${data.type || 'N/A'}`);
-            lines.push(`  Description:   ${data.description || 'N/A'}`);
-            lines.push(`  Default Value: ${data.defaultValue || 'N/A'}`);
-            lines.push(`  Group:         ${data.groupId || 'N/A'}`);
+
+            lines.push('| Property | Value |');
+            lines.push('|----------|-------|');
+            lines.push(`| Type | \`${data.type || 'N/A'}\` |`);
+            lines.push(`| Description | ${data.description || 'N/A'} |`);
+            lines.push(`| Default Value | ${data.defaultValue ? `\`${data.defaultValue}\`` : 'N/A'} |`);
+            lines.push(`| Group | \`${data.groupId || 'N/A'}\` |`);
             lines.push('');
-            lines.push('  Site Values:');
 
             const siteEntries = Object.entries(data.siteValues);
             if (siteEntries.length === 0) {
-                lines.push('    (no site-level values set)');
+                lines.push('**Site Values:** *(no site-level values set)*');
             } else {
+                lines.push('**Site Values:**');
+                lines.push('');
+                lines.push('| Site | Value |');
+                lines.push('|------|-------|');
                 for (const [site, value] of siteEntries) {
                     const displayValue = value.length > 80
                         ? value.substring(0, 77) + '...'
                         : value;
-                    lines.push(`    ${site}: ${displayValue}`);
+                    lines.push(`| ${site} | \`${displayValue}\` |`);
                 }
             }
+            lines.push('');
         }
 
         if (!usageFound) {
@@ -379,67 +376,68 @@ function buildPreferenceInspectionSections({
 
                 usageFound = true;
                 lines.push(
-                    `  Default Value: ${matrixData.defaultValue || '(none)'}`
+                    `**Default Value:** ${matrixData.defaultValue ? `\`${matrixData.defaultValue}\`` : '*(none)*'}`
                 );
 
                 const siteEntries = Object.entries(matrixData.sitePresence);
                 if (siteEntries.length === 0) {
-                    lines.push('  Site Values:   (no site-level values set)');
+                    lines.push('**Site Values:** *(no site-level values set)*');
                 } else {
-                    lines.push('  Sites with values:');
+                    lines.push('');
+                    lines.push('**Sites with values:**');
+                    lines.push('');
                     for (const [site] of siteEntries) {
-                        lines.push(`    ${site}: (has value)`);
+                        lines.push(`- ${site}`);
                     }
                 }
 
+                lines.push('');
                 lines.push(
-                    '  [Source: matrix CSV — run analyze-preferences'
-                    + ' for full detail]'
+                    '> *Source: matrix CSV — run `analyze-preferences`'
+                    + ' for full detail*'
                 );
             }
+
+            lines.push('');
         }
 
         if (!usageFound) {
             lines.push(
-                '  [No data found in results files'
-                + ' — run analyze-preferences to generate]'
+                '> *No data found in results files'
+                + ' — run `analyze-preferences` to generate*'
             );
+            lines.push('');
         }
 
-        lines.push('');
         if (tier) {
             const desc = TIER_DESCRIPTIONS[tier] || '';
-            lines.push(`  Deletion Tier: [${tier}] ${desc}`);
+            lines.push(`**Deletion Tier:** \`${tier}\` — ${desc}`);
         } else {
             lines.push(
-                '  Deletion Tier: N/A (not a deletion candidate on this realm)'
+                '**Deletion Tier:** N/A *(not a deletion candidate on this realm)*'
             );
         }
+        lines.push('');
     }
 
+    lines.push(`${h2} Code References`);
     lines.push('');
-    lines.push(separator);
-    lines.push('  CODE REFERENCES');
-    lines.push(separator);
 
     const codeData = loadCodeReferences(instanceType, preferenceId);
 
     if (!codeData) {
-        lines.push('');
         lines.push(
-            '  [References file not found'
-            + ' — run analyze-preferences to generate]'
+            '> *References file not found'
+            + ' — run `analyze-preferences` to generate*'
         );
     } else if (codeData.references.length === 0) {
-        lines.push('');
-        lines.push('  Cartridges: (none)');
-        lines.push('  Total matches: 0');
+        lines.push('**Cartridges:** *(none)*');
+        lines.push('**Total matches:** 0');
     } else {
-        lines.push('');
         lines.push(
-            `  Cartridges: ${codeData.cartridges.join(', ') || '(none)'}`
+            `**Cartridges:** ${codeData.cartridges.map((c) => `\`${c}\``).join(', ') || '*(none)*'}`
         );
-        lines.push(`  Total matches: ${codeData.references.length}`);
+        lines.push(`**Total matches:** ${codeData.references.length}`);
         lines.push('');
 
         const byCartridge = new Map();
@@ -453,20 +451,16 @@ function buildPreferenceInspectionSections({
         }
 
         for (const [cartridge, refs] of byCartridge) {
-            lines.push(`  ${cartridge}:`);
+            lines.push(`**\`${cartridge}\`:**`);
+            lines.push('');
             for (const ref of refs) {
-                lines.push(`    ${ref.file}:${ref.line}`);
-                lines.push(`      ${ref.text}`);
+                lines.push(`- \`${ref.file}:${ref.line}\` — \`${ref.text}\``);
             }
             lines.push('');
         }
     }
 
-    if (includeFooter) {
-        lines.push(separator);
-        lines.push('  END OF REPORT');
-        lines.push(separator);
-    }
+    lines.push('');
 
     return lines;
 }
@@ -480,11 +474,26 @@ function buildPreferenceInspectionSections({
  * @returns {string} Formatted report text
  */
 export function buildInspectionReport({ preferenceId, instanceType, realms }) {
-    return buildPreferenceInspectionSections({
-        preferenceId,
-        instanceType,
-        realms
-    }).join('\n');
+    const lines = [];
+
+    lines.push(`# Preference Inspection: \`${preferenceId}\``);
+    lines.push('');
+    lines.push(`> **Generated:** ${new Date().toLocaleString('en-GB', { dateStyle: 'long', timeStyle: 'short' })}`);
+    lines.push(`> **Instance Type:** ${instanceType}`);
+    lines.push(`> **Realms:** ${realms.join(', ')}`);
+    lines.push('');
+    lines.push(
+        ...buildPreferenceInspectionSections({
+            preferenceId,
+            instanceType,
+            realms,
+            headingLevel: 2
+        })
+    );
+    lines.push('---');
+    lines.push('*End of Report*');
+
+    return lines.join('\n');
 }
 
 /**
@@ -501,93 +510,99 @@ export function buildPreferenceGroupInspectionReport({
     realms
 }) {
     const lines = [];
-    const separator = '='.repeat(80);
     const preferenceIds = getInspectablePreferenceIdsForGroup({ groupId, realms });
 
-    lines.push(separator);
-    lines.push(`  PREFERENCE GROUP INSPECTION: ${groupId}`);
-    lines.push(separator);
-    lines.push(`Generated: ${new Date().toISOString()}`);
-    lines.push(`Instance Type: ${instanceType}`);
-    lines.push(`Realms: ${realms.join(', ')}`);
-    lines.push(`Preferences Found: ${preferenceIds.length}`);
+    lines.push(`# Preference Group Inspection: \`${groupId}\``);
+    lines.push('');
+    lines.push(`> **Generated:** ${new Date().toLocaleString('en-GB', { dateStyle: 'long', timeStyle: 'short' })}`);
+    lines.push(`> **Instance Type:** ${instanceType}`);
+    lines.push(`> **Realms:** ${realms.join(', ')}`);
+    lines.push(`> **Preferences Found:** ${preferenceIds.length}`);
     lines.push('');
 
     if (preferenceIds.length === 0) {
-        lines.push('  [No preferences found for this group in the selected results files]');
-        lines.push(separator);
-        lines.push('  END OF GROUP REPORT');
-        lines.push(separator);
+        lines.push(
+            '> *No preferences found for this group'
+            + ' in the selected results files*'
+        );
+        lines.push('');
+        lines.push('---');
+        lines.push('*End of Group Report*');
         return lines.join('\n');
     }
 
-    lines.push('  Preference IDs:');
+    lines.push('## Preference IDs');
+    lines.push('');
     for (const preferenceId of preferenceIds) {
-        lines.push(`    ${preferenceId}`);
+        lines.push(`- \`${preferenceId}\``);
     }
+    lines.push('');
 
     for (const [index, preferenceId] of preferenceIds.entries()) {
+        lines.push('---');
         lines.push('');
-        lines.push(separator);
-        lines.push(`  PREFERENCE ${index + 1} OF ${preferenceIds.length}: ${preferenceId}`);
-        lines.push(separator);
+        lines.push(
+            `## Preference ${index + 1} of ${preferenceIds.length}:`
+            + ` \`${preferenceId}\``
+        );
+        lines.push('');
         lines.push(
             ...buildPreferenceInspectionSections({
                 preferenceId,
                 instanceType,
                 realms,
-                includeHeader: false,
-                includeFooter: false
+                headingLevel: 3
             })
         );
     }
 
-    lines.push('');
-    lines.push(separator);
-    lines.push('  END OF GROUP REPORT');
-    lines.push(separator);
+    lines.push('---');
+    lines.push('*End of Group Report*');
 
     return lines.join('\n');
 }
 
 /**
- * Write a report file to the shared results directory.
+ * Write a report file to the inspections directory.
+ * Clears the directory first so only the latest report remains.
  * @param {string} report - Formatted report text
- * @param {string} instanceType - Instance type
  * @param {string} outputFileName - Output filename
  * @returns {string} Path to the written report file
  */
-function writeReportFile(report, instanceType, outputFileName) {
-    const resultsDir = ensureResultsDir(IDENTIFIERS.ALL_REALMS, instanceType);
-    const outputPath = path.join(resultsDir, outputFileName);
+function writeReportFile(report, outputFileName) {
+    const inspectionsDir = path.join(process.cwd(), 'inspections');
+
+    if (fs.existsSync(inspectionsDir)) {
+        fs.rmSync(inspectionsDir, { recursive: true, force: true });
+    }
+    fs.mkdirSync(inspectionsDir, { recursive: true });
+
+    const outputPath = path.join(inspectionsDir, outputFileName);
 
     fs.writeFileSync(outputPath, report, 'utf-8');
     return outputPath;
 }
 
 /**
- * Write the inspection report to the results directory and open it.
- * Overwrites the previous report file.
+ * Write the inspection report to the inspections directory.
+ * Overwrites any previous inspection files.
  * @param {string} report - Formatted report text
- * @param {string} instanceType - Instance type
  * @returns {string} Path to the written report file
  */
-export function writeInspectionReport(report, instanceType) {
-    return writeReportFile(report, instanceType, INSPECT_OUTPUT_FILE);
+export function writeInspectionReport(report) {
+    return writeReportFile(report, INSPECT_OUTPUT_FILE);
 }
 
 /**
- * Write the group inspection report to the results directory.
+ * Write the group inspection report to the inspections directory.
  * @param {string} report - Formatted report text
- * @param {string} instanceType - Instance type
  * @param {string} groupId - Group ID used to build the report
  * @returns {string} Path to the written report file
  */
-export function writePreferenceGroupInspectionReport(report, instanceType, groupId) {
+export function writePreferenceGroupInspectionReport(report, groupId) {
     const safeGroupId = groupId.replace(/[^a-zA-Z0-9_-]+/g, '_');
     return writeReportFile(
         report,
-        instanceType,
-        `${GROUP_INSPECT_OUTPUT_PREFIX}_${safeGroupId}.txt`
+        `${GROUP_INSPECT_OUTPUT_PREFIX}_${safeGroupId}.md`
     );
 }
