@@ -365,6 +365,7 @@ Test responses are stored in [test-runs/](test-runs/) directory for reference an
 - `restore-preferences` - Restore deleted preferences from backup files
 - `backup-site-preferences` - Trigger backup job and download metadata
 - `inspect-preference` - Show detailed info about a single preference (values, code refs, P-level)
+- `export-ticket-lists` - Export per-realm, per-P-level preference lists as Jira ticket attachment files
 - `test-meta-cleanup` - Preview/execute removal of preference definitions from repo XML
 - `meta-cleanup` - Full git workflow: create branch → remove XML definitions → stage & commit
 - `detect-orphans` - Compare BM metadata backup XML against repo meta XMLs to find orphan preferences
