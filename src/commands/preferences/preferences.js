@@ -4,6 +4,7 @@ import { restorePreferences } from './actions/restorePreferences.js';
 import { backupSitePreferences } from './actions/backupSitePreferences.js';
 import { inspectPreference } from './actions/inspectPreference.js';
 import { inspectPreferenceGroup } from './actions/inspectPreferenceGroup.js';
+import { exportTicketLists } from './actions/exportTicketLists.js';
 
 // ============================================================================
 // PREFERENCE COMMANDS REGISTRATION
@@ -41,4 +42,9 @@ export function registerPreferenceCommands(program) {
         .command('inspect-preference-group')
         .description('Show detailed info for every preference in a selected preference group')
         .action(inspectPreferenceGroup);
+
+    program
+        .command('export-ticket-lists')
+        .description('Export per-realm, per-P-level preference lists as Jira ticket attachments')
+        .action(exportTicketLists);
 }
