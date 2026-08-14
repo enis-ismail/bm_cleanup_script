@@ -109,14 +109,15 @@ export async function loadBackupFile(backupFilePath) {
  * Check backup file status for multiple realms
  * @param {Array<string>} realms - List of realm names
  * @param {string} objectType - Object type (e.g., "SitePreferences")
+ * @param {string} [instanceType] - Instance type filter (e.g. 'production')
  * @returns {Promise<Array<{realm: string, exists: boolean, ageInDays: number, filePath: string}>>}
  */
-export async function checkBackupStatusForRealms(realms, objectType) {
+export async function checkBackupStatusForRealms(realms, objectType, instanceType = null) {
     const { getSandboxConfig } = await import('../config/helpers/helpers.js');
     const results = [];
 
     for (const realm of realms) {
-        const sandbox = getSandboxConfig(realm);
+        const sandbox = getSandboxConfig(realm, instanceType);
         const backupInfo = await checkBackupFileAge(realm, sandbox.instanceType, objectType);
 
         results.push({

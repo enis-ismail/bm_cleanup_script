@@ -5,17 +5,18 @@ import { LOG_PREFIX } from '../../../config/constants.js';
 /**
  * Fetch and transform site data for cartridge information
  * @param {string} realm - Realm name to fetch sites from
+ * @param {string} [instanceType] - Instance type filter (e.g. 'production')
  * @returns {Promise<Array|null>} Array of transformed sites or null on error
  */
-export async function fetchAndTransformSites(realm) {
-    const sites = await getAllSites(realm);
+export async function fetchAndTransformSites(realm, instanceType = null) {
+    const sites = await getAllSites(realm, null, instanceType);
 
     if (sites.length === 0) {
         return null;
     }
 
     const siteDetails = await Promise.all(
-        sites.map((s) => getSiteById(s.id || s.site_id || s.siteId, realm))
+        sites.map((s) => getSiteById(s.id || s.site_id || s.siteId, realm, null, instanceType))
     );
 
     return siteDetails.filter(Boolean).map((site) =>
@@ -26,13 +27,14 @@ export async function fetchAndTransformSites(realm) {
 /**
  * Fetch sites from multiple realms in parallel and aggregate results
  * @param {string[]} realms - Array of realm names to fetch from
+ * @param {string} [instanceType] - Instance type filter (e.g. 'production')
  * @returns {Promise<{allSites: Array, realmSummary: Array}>} Aggregated sites and per-realm summaries
  */
-export async function fetchSitesFromAllRealms(realms) {
+export async function fetchSitesFromAllRealms(realms, instanceType = null) {
     const realmResults = await Promise.all(realms.map(async (realmName) => {
         try {
             console.log(`  [${realmName}] Fetching sites...`);
-            const validSites = await fetchAndTransformSites(realmName);
+            const validSites = await fetchAndTransformSites(realmName, instanceType);
 
             if (!validSites || validSites.length === 0) {
                 console.log(`  [${realmName}] ${LOG_PREFIX.WARNING} No sites found.`);

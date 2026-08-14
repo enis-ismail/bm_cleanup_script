@@ -36,7 +36,7 @@ import { searchCustomObjects } from '../../../api/api.js';
  * @returns {string[]} All existing custom-objects directory paths
  * @private
  */
-function collectAllCustomObjectDirs(repoPath) {
+function collectAllCustomObjectDirs(repoPath, instanceType = null) {
     const dirs = new Set();
     const basePaths = new Set();
 
@@ -47,7 +47,7 @@ function collectAllCustomObjectDirs(repoPath) {
     // Realm-specific paths
     for (const realmName of getAvailableRealms()) {
         try {
-            const realmConfig = getSandboxConfig(realmName);
+            const realmConfig = getSandboxConfig(realmName, instanceType);
             if (realmConfig.siteTemplatesPath) {
                 basePaths.add(path.join(repoPath, realmConfig.siteTemplatesPath));
             }
@@ -211,10 +211,11 @@ function findInstanceFilesForType(customObjectsDir, typeId) {
  *
  * @param {Object} params
  * @param {string} params.repoPath - Absolute path to the sibling repository
- * @param {Map<string, string>} params.singleRealmMap - typeId → target realm name
+ * @param {Map<string, string>} params.singleRealmMap - typeId -> target realm name
+ * @param {string} [params.instanceType] - Instance type filter (e.g. 'production')
  * @returns {MovePlan}
  */
-export function buildMovePlan({ repoPath, singleRealmMap }) {
+export function buildMovePlan({ repoPath, singleRealmMap, instanceType = null }) {
     const actions = [];
     const warnings = [];
     const skipped = [];
@@ -244,7 +245,7 @@ export function buildMovePlan({ repoPath, singleRealmMap }) {
         let targetDir;
         let realmConfig;
         try {
-            realmConfig = getSandboxConfig(targetRealm);
+            realmConfig = getSandboxConfig(targetRealm, instanceType);
             targetDir = path.join(repoPath, realmConfig.siteTemplatesPath, 'meta');
         } catch {
             skipped.push(typeId);
@@ -652,20 +653,36 @@ export function formatMoveResults(results) {
  * Returns a map of typeId → { realm, total } for types that have records.
  * @param {string[]} typeIds - CO type IDs to check
  * @param {string[]} realms - Realms to check against
+ * @param {string} [instanceType] - Instance type filter (e.g. 'production')
  * @returns {Promise<Map<string, Array<{ realm: string, total: number }>>>}
  */
-export async function checkLiveCustomObjectRecords(typeIds, realms) {
+export async function checkLiveCustomObjectRecords(typeIds, realms, instanceType = null) {
     const typesWithRecords = new Map();
 
-    for (const typeId of typeIds) {
-        for (const realm of realms) {
-            const result = await searchCustomObjects(typeId, realm);
-            if (result.exists) {
-                if (!typesWithRecords.has(typeId)) {
-                    typesWithRecords.set(typeId, []);
-                }
-                typesWithRecords.get(typeId).push({ realm, total: result.total });
+    const tasks = realms.flatMap(realm => typeIds.map(typeId => ({ realm, typeId })));
+    const settled = await Promise.all(
+        tasks.map(({ realm, typeId }) =>
+            searchCustomObjects(typeId, realm, instanceType).then(result => ({ realm, typeId, result }))
+        )
+    );
+
+    const realmLogged = new Set();
+    for (const { realm, result } of settled) {
+        if (realmLogged.has(realm)) continue;
+        if (result.error) {
+            console.log(`  ${LOG_PREFIX.ERROR} Could not connect to ${realm}.`);
+            throw new Error(`OCAPI connection failed for realm ${realm}. Aborting.`);
+        }
+        console.log(`  ${LOG_PREFIX.INFO} Connected to ${realm}.`);
+        realmLogged.add(realm);
+    }
+
+    for (const { realm, typeId, result } of settled) {
+        if (result.exists) {
+            if (!typesWithRecords.has(typeId)) {
+                typesWithRecords.set(typeId, []);
             }
+            typesWithRecords.get(typeId).push({ realm, total: result.total });
         }
     }
 
@@ -702,25 +719,45 @@ export function formatLiveRecordWarnings(typesWithRecords) {
  * If a type is marked as PNA-only, checks EU05, APAC, GB etc. for existing records.
  * This detects orphaned records that will remain after moving the definition away.
  *
- * @param {Map<string, string>} singleRealmMap - typeId → targetRealm
+ * @param {Map<string, string>} singleRealmMap - typeId -> targetRealm
  * @param {string[]} allRealms - All realms being processed
+ * @param {string} [instanceType] - Instance type filter (e.g. 'production')
  * @returns {Promise<Map<string, Array<{ realm: string, total: number }>>>}
- *   Map of typeId → array of { realm, total } for non-target realms that have records
+ *   Map of typeId -> array of { realm, total } for non-target realms that have records
  */
-export async function checkOrphanedRecordsForMoves(singleRealmMap, allRealms) {
+export async function checkOrphanedRecordsForMoves(singleRealmMap, allRealms, instanceType = null) {
     const orphanedRecords = new Map();
 
+    const tasks = [];
     for (const [typeId, targetRealm] of singleRealmMap) {
-        const nonTargetRealms = allRealms.filter(r => r !== targetRealm);
+        for (const realm of allRealms) {
+            if (realm !== targetRealm) tasks.push({ typeId, realm });
+        }
+    }
 
-        for (const realm of nonTargetRealms) {
-            const result = await searchCustomObjects(typeId, realm);
-            if (result.exists) {
-                if (!orphanedRecords.has(typeId)) {
-                    orphanedRecords.set(typeId, []);
-                }
-                orphanedRecords.get(typeId).push({ realm, total: result.total });
+    const settled = await Promise.all(
+        tasks.map(({ typeId, realm }) =>
+            searchCustomObjects(typeId, realm, instanceType).then(result => ({ typeId, realm, result }))
+        )
+    );
+
+    const realmLogged = new Set();
+    for (const { realm, result } of settled) {
+        if (realmLogged.has(realm)) continue;
+        if (result.error) {
+            console.log(`  ${LOG_PREFIX.ERROR} Could not connect to ${realm}.`);
+            throw new Error(`OCAPI connection failed for realm ${realm}. Aborting.`);
+        }
+        console.log(`  ${LOG_PREFIX.INFO} Connected to ${realm}.`);
+        realmLogged.add(realm);
+    }
+
+    for (const { typeId, realm, result } of settled) {
+        if (result.exists) {
+            if (!orphanedRecords.has(typeId)) {
+                orphanedRecords.set(typeId, []);
             }
+            orphanedRecords.get(typeId).push({ realm, total: result.total });
         }
     }
 
@@ -777,15 +814,16 @@ export function formatOrphanedRecordWarnings(orphanedRecords) {
  * @param {Object} params
  * @param {string} params.repoPath - Absolute path to the sibling repository
  * @param {string[]} params.unusedTypes - Type IDs to delete from core
+ * @param {string} [params.instanceType] - Instance type filter (e.g. 'production')
  * @returns {DeletePlan}
  */
-export function buildDeletePlan({ repoPath, unusedTypes }) {
+export function buildDeletePlan({ repoPath, unusedTypes, instanceType = null }) {
     const actions = [];
     const warnings = [];
     const skipped = [];
 
     const coreMetaDir = path.join(repoPath, getCoreSiteTemplatePath(), 'meta');
-    const allCustomObjectDirs = collectAllCustomObjectDirs(repoPath);
+    const allCustomObjectDirs = collectAllCustomObjectDirs(repoPath, instanceType);
 
     for (const typeId of unusedTypes) {
         // Find which core meta file contains this type

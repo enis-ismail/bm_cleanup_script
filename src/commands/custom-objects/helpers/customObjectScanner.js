@@ -119,9 +119,10 @@ export function collectCustomTypeIds(metaDir) {
  *
  * @param {string} repoPath - Absolute path to the SFCC repository
  * @param {string[]} realms - Realm names to check
+ * @param {string} [instanceType] - Instance type filter (e.g. 'production')
  * @returns {Object} Result with typeIds (Set), fileMap (Map), and sourceMap (Map)
  */
-export function collectAllCustomTypeIds(repoPath, realms) {
+export function collectAllCustomTypeIds(repoPath, realms, instanceType = null) {
     const typeIds = new Set();
     const fileMap = new Map();
     const sourceMap = new Map();
@@ -152,7 +153,7 @@ export function collectAllCustomTypeIds(repoPath, realms) {
     // 2. Realm-specific site template meta
     for (const realm of realms) {
         try {
-            const config = getSandboxConfig(realm);
+            const config = getSandboxConfig(realm, instanceType);
             const realmMetaDir = path.join(repoPath, config.siteTemplatesPath, 'meta');
 
             // Skip if same as core
@@ -297,80 +298,29 @@ function extractCartridgesFromSiteXml(filePath) {
  *
  * @param {string} repoPath - Absolute path to the SFCC repository (used for fallback)
  * @param {string[]} realms - Realm names to build sets for
+ * @param {string} [instanceType] - Instance type filter (e.g. 'production')
  * @returns {Promise<{ realmCartridges: Map<string, Set<string>>, realmSites: Map<string, Array<{ id: string, cartridges: string[] }>> }>}
  */
-export async function buildRealmCartridgeSets(repoPath, realms) {
+export async function buildRealmCartridgeSets(repoPath, realms, instanceType = null) {
     const realmCartridges = new Map();
     const realmSites = new Map();
 
     for (const realm of realms) {
+        const sites = await fetchAndTransformSites(realm, instanceType);
+
+        if (!sites || sites.length === 0) {
+            console.log(`  ${LOG_PREFIX.ERROR} ${realm}: OCAPI connection failed - no sites returned.`);
+            throw new Error(`OCAPI connection failed for realm ${realm}. Aborting.`);
+        }
+
         const cartridges = new Set();
-
-        try {
-            // Primary: fetch live cartridge data from OCAPI
-            const sites = await fetchAndTransformSites(realm);
-
-            if (sites && sites.length > 0) {
-                realmSites.set(realm, sites.map(s => ({ id: s.id, cartridges: s.cartridges })));
-                for (const site of sites) {
-                    for (const c of site.cartridges) {
-                        cartridges.add(c);
-                    }
-                }
-                console.log(`  ${LOG_PREFIX.INFO} ${realm}: ${cartridges.size} cartridges from OCAPI (${sites.length} site(s))`);
-                realmCartridges.set(realm, cartridges);
-                continue;
-            }
-        } catch {
-            console.log(`  ${LOG_PREFIX.WARNING} ${realm}: OCAPI unavailable, falling back to repo site.xml`);
-        }
-
-        // Fallback: read site.xml files from repo
-        const fallbackSites = [];
-        let templatePaths;
-        try {
-            const config = getSandboxConfig(realm);
-            templatePaths = [config.siteTemplatesPath];
-        } catch {
-            realmCartridges.set(realm, cartridges);
-            continue;
-        }
-
-        for (const templatePath of templatePaths) {
-            const sitesDir = path.join(repoPath, templatePath, 'sites');
-
-            if (!fs.existsSync(sitesDir)) {
-                continue;
-            }
-
-            const siteDirs = fs.readdirSync(sitesDir, { withFileTypes: true })
-                .filter(entry => entry.isDirectory() && !entry.name.startsWith('.'));
-
-            for (const siteDir of siteDirs) {
-                const siteXmlPath = path.join(sitesDir, siteDir.name, 'site.xml');
-
-                if (!fs.existsSync(siteXmlPath)) {
-                    continue;
-                }
-
-                const siteCartridges = extractCartridgesFromSiteXml(siteXmlPath);
-                fallbackSites.push({ id: siteDir.name, cartridges: siteCartridges });
-                for (const c of siteCartridges) {
-                    cartridges.add(c);
-                }
+        realmSites.set(realm, sites.map(s => ({ id: s.id, cartridges: s.cartridges })));
+        for (const site of sites) {
+            for (const c of site.cartridges) {
+                cartridges.add(c);
             }
         }
-
-        if (fallbackSites.length > 0) {
-            realmSites.set(realm, fallbackSites);
-        }
-
-        if (cartridges.size > 0) {
-            console.log(`  ${LOG_PREFIX.INFO} ${realm}: ${cartridges.size} cartridges from repo site.xml (fallback)`);
-        } else {
-            console.log(`  ${LOG_PREFIX.WARNING} ${realm}: no cartridge data found`);
-        }
-
+        console.log(`  ${LOG_PREFIX.INFO} ${realm}: ${cartridges.size} cartridges from OCAPI (${sites.length} site(s))`);
         realmCartridges.set(realm, cartridges);
     }
 
@@ -392,9 +342,10 @@ export async function buildRealmCartridgeSets(repoPath, realms) {
  * @param {Set<string>} params.coreTypeIds - CO type IDs found in core meta
  * @param {Map<string, Array>} params.codeUsageMap - Code usage scan results
  * @param {string[]} params.realms - Realm names to check
+ * @param {string} [params.instanceType] - Instance type filter (e.g. 'production')
  * @returns {Promise<{ analysisMap: Map<string, Object>, realmSites: Map<string, Array<{ id: string, cartridges: string[] }>> }>}
  */
-export async function analyzeCustomObjectUsageByRealm({ repoPath, coreTypeIds, codeUsageMap, realms }) {
+export async function analyzeCustomObjectUsageByRealm({ repoPath, coreTypeIds, codeUsageMap, realms, instanceType = null }) {
     const analysisMap = new Map();
 
     // Initialize for all core type IDs
@@ -421,13 +372,13 @@ export async function analyzeCustomObjectUsageByRealm({ repoPath, coreTypeIds, c
     }
 
     // Build per-realm cartridge sets (OCAPI with repo site.xml fallback)
-    const { realmCartridges: perRealmCartridges, realmSites } = await buildRealmCartridgeSets(repoPath, realms);
+    const { realmCartridges: perRealmCartridges, realmSites } = await buildRealmCartridgeSets(repoPath, realms, instanceType);
 
     // Check each realm's meta directory and BM backup
     for (const realm of realms) {
         let realmMetaDir;
         try {
-            const config = getSandboxConfig(realm);
+            const config = getSandboxConfig(realm, instanceType);
             realmMetaDir = path.join(repoPath, config.siteTemplatesPath, 'meta');
         } catch {
             continue;

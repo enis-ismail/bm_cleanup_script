@@ -139,7 +139,8 @@ export async function moveCustomObjects(options = {}) {
         repoPath,
         coreTypeIds: filteredTypeIdSet,
         codeUsageMap,
-        realms: realmsToProcess
+        realms: realmsToProcess,
+        instanceType
     });
 
     const { unused, singleRealm, multiRealm } = classifyCustomObjectTypes(
@@ -187,7 +188,7 @@ export async function moveCustomObjects(options = {}) {
 
     // --- STEP 5: Build and review move plan ---
     logSectionTitle('STEP 5: Review Move Plan');
-    const plan = buildMovePlan({ repoPath, singleRealmMap: selectedMap });
+    const plan = buildMovePlan({ repoPath, singleRealmMap: selectedMap, instanceType });
 
     console.log(formatMovePlan(plan));
 
@@ -202,7 +203,7 @@ export async function moveCustomObjects(options = {}) {
     if (realmsToProcess.length > 1) {
         logSectionTitle('STEP 6: Check for Orphaned Records (OCAPI)');
         console.log('  Checking non-target realms for existing records...\n');
-        orphanedRecords = await checkOrphanedRecordsForMoves(selectedMap, realmsToProcess);
+        orphanedRecords = await checkOrphanedRecordsForMoves(selectedMap, realmsToProcess, instanceType);
 
         if (orphanedRecords.size > 0) {
             console.log(formatOrphanedRecordWarnings(orphanedRecords));
@@ -286,7 +287,7 @@ async function deleteUnusedTypesPhase({ unused, repoPath, realms, instanceType, 
         return;
     }
 
-    const deletePlan = buildDeletePlan({ repoPath, unusedTypes: selectedTypes });
+    const deletePlan = buildDeletePlan({ repoPath, unusedTypes: selectedTypes, instanceType });
     console.log(formatDeletePlan(deletePlan));
 
     if (deletePlan.actions.length === 0) {
@@ -296,7 +297,7 @@ async function deleteUnusedTypesPhase({ unused, repoPath, realms, instanceType, 
 
     // Check for live records on the instance
     console.log('  Checking SFCC instances for existing records...\n');
-    const typesWithRecords = await checkLiveCustomObjectRecords(selectedTypes, realms);
+    const typesWithRecords = await checkLiveCustomObjectRecords(selectedTypes, realms, instanceType);
 
     if (typesWithRecords.size > 0) {
         console.log(formatLiveRecordWarnings(typesWithRecords));

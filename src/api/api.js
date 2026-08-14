@@ -254,9 +254,9 @@ export async function getOAuthToken(sandbox, progressInfo = null) {
  * @param {string} ocapiVersion - OCAPI version (e.g., "v25_6")
  * @returns {Promise<Object|null>} Job execution response
  */
-export async function triggerJobExecution(jobId, realm, ocapiVersion = 'v25_6') {
+export async function triggerJobExecution(jobId, realm, ocapiVersion = 'v25_6', instanceType = null) {
     try {
-        const sandbox = getSandboxConfig(realm);
+        const sandbox = getSandboxConfig(realm, instanceType);
         const token = await getOAuthToken(sandbox);
         const url = `https://${sandbox.hostname}/s/-/dw/data/${ocapiVersion}/jobs/${encodeURIComponent(jobId)}/executions`;
         const headers = buildApiHeaders(token);
@@ -276,9 +276,9 @@ export async function triggerJobExecution(jobId, realm, ocapiVersion = 'v25_6') 
  * @param {string} ocapiVersion - OCAPI version (e.g., "v25_6")
  * @returns {Promise<Object|null>} Job execution status
  */
-export async function getJobExecutionStatus(jobId, executionId, realm, ocapiVersion = 'v25_6') {
+export async function getJobExecutionStatus(jobId, executionId, realm, ocapiVersion = 'v25_6', instanceType = null) {
     try {
-        const sandbox = getSandboxConfig(realm);
+        const sandbox = getSandboxConfig(realm, instanceType);
         const token = await getOAuthToken(sandbox);
         const url = `https://${sandbox.hostname}/s/-/dw/data/${ocapiVersion}/jobs/${encodeURIComponent(jobId)}/executions/${encodeURIComponent(executionId)}`;
         const headers = buildApiHeaders(token);
@@ -350,9 +350,9 @@ export async function downloadWebdavFile(webdavConfig, outputDir, outputFileName
  * @param {Object} sandbox - Sandbox configuration object
  * @returns {Promise<Array>} Array of site objects
  */
-export async function getAllSites(realm, progressInfo = null) {
+export async function getAllSites(realm, progressInfo = null, instanceType = null) {
     try {
-        const sandbox = getSandboxConfig(realm);
+        const sandbox = getSandboxConfig(realm, instanceType);
         const token = await getOAuthToken(sandbox, progressInfo);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v19_5/sites`;
         const headers = buildApiHeaders(token);
@@ -373,9 +373,9 @@ export async function getAllSites(realm, progressInfo = null) {
  * @param {Object} sandbox - Sandbox configuration object
  * @returns {Promise<Object|null>} Site object with full configuration
  */
-export async function getSiteById(siteId, realm, progressInfo = null) {
+export async function getSiteById(siteId, realm, progressInfo = null, instanceType = null) {
     try {
-        const sandbox = getSandboxConfig(realm);
+        const sandbox = getSandboxConfig(realm, instanceType);
         const token = await getOAuthToken(sandbox, progressInfo);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v19_5/sites/${encodeURIComponent(siteId)}`;
         const headers = buildApiHeaders(token);
@@ -479,10 +479,11 @@ export async function getSitePreferences(
     useCachedBackup = undefined,
     progressCallback = null,
     detailProgressCallback = null,
-    progressInfo = null
+    progressInfo = null,
+    instanceType = null
 ) {
     try {
-        const sandbox = getSandboxConfig(realm);
+        const sandbox = getSandboxConfig(realm, instanceType);
 
         // Try to use cached backup if requested and available
         if (includeDefaults && useCachedBackup === true) {
@@ -538,10 +539,10 @@ export async function getSitePreferences(
  * @returns {Promise<Object|null>} Single attribute definition object with full details including default_value
  */
 export async function getAttributeDefinitionById(
-    objectType, attributeId, realm, progressInfo = null, { silent = false } = {}
+    objectType, attributeId, realm, progressInfo = null, { silent = false } = {}, instanceType = null
 ) {
     try {
-        const sandbox = getSandboxConfig(realm);
+        const sandbox = getSandboxConfig(realm, instanceType);
         const token = await getOAuthToken(sandbox, progressInfo);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_definitions/${encodeURIComponent(attributeId)}`;
         const headers = buildApiHeaders(token);
@@ -573,7 +574,7 @@ export async function updateAttributeDefinitionById(
     const methodLower = method.toLowerCase();
     const resolved = resolveInstanceType(realm, instanceType);
     try {
-        const sandbox = getSandboxConfig(realm);
+        const sandbox = getSandboxConfig(realm, instanceType);
         const token = await getOAuthToken(sandbox);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_definitions/${encodeURIComponent(attributeId)}`;
 
@@ -608,7 +609,7 @@ export async function updateAttributeDefinitionById(
         }
     } catch (error) {
         const status = error.response?.status;
-        const sandbox = getSandboxConfig(realm);
+        const sandbox = getSandboxConfig(realm, instanceType);
 
         if (status === 403) {
             console.log(
@@ -676,9 +677,9 @@ export async function deleteAttributeDefinitionById(objectType, attributeId, rea
  * @param {Object} sandbox - Sandbox configuration object
  * @returns {Promise<Array>} Array of attribute group objects
  */
-export async function getAttributeGroups(objectType, realm, progressCallback = null, progressInfo = null) {
+export async function getAttributeGroups(objectType, realm, progressCallback = null, progressInfo = null, instanceType = null) {
     try {
-        const sandbox = getSandboxConfig(realm);
+        const sandbox = getSandboxConfig(realm, instanceType);
         const token = await getOAuthToken(sandbox, progressInfo);
         const baseUrl = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_groups`;
         const allGroups = await paginatedApiFetch(baseUrl, token, 200, progressCallback);
@@ -697,9 +698,9 @@ export async function getAttributeGroups(objectType, realm, progressCallback = n
  * @param {string} realm - Realm name
  * @returns {Promise<Object|null>} Attribute group object with full details
  */
-export async function getAttributeGroupById(objectType, groupId, realm) {
+export async function getAttributeGroupById(objectType, groupId, realm, instanceType = null) {
     try {
-        const sandbox = getSandboxConfig(realm);
+        const sandbox = getSandboxConfig(realm, instanceType);
         const token = await getOAuthToken(sandbox);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_groups/${encodeURIComponent(groupId)}`;
         const headers = buildApiHeaders(token);
@@ -733,7 +734,7 @@ export async function createOrUpdateAttributeGroup(
 ) {
     const resolved = resolveInstanceType(realm, instanceType);
     try {
-        const sandbox = getSandboxConfig(realm);
+        const sandbox = getSandboxConfig(realm, instanceType);
         const token = await getOAuthToken(sandbox);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_groups/${encodeURIComponent(groupId)}`;
         const headers = buildApiHeaders(token);
@@ -758,7 +759,7 @@ export async function createOrUpdateAttributeGroup(
 export async function assignAttributeToGroup(objectType, groupId, attributeId, realm, instanceType = null) {
     const resolved = resolveInstanceType(realm, instanceType);
     try {
-        const sandbox = getSandboxConfig(realm);
+        const sandbox = getSandboxConfig(realm, instanceType);
         const token = await getOAuthToken(sandbox);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/system_object_definitions/${objectType}/attribute_groups/${encodeURIComponent(groupId)}/attribute_definitions/${encodeURIComponent(attributeId)}`;
         const headers = buildApiHeaders(token);
@@ -766,7 +767,7 @@ export async function assignAttributeToGroup(objectType, groupId, attributeId, r
         return response?.data || true;
     } catch (error) {
         const status = error.response?.status;
-        const sandbox = getSandboxConfig(realm);
+        const sandbox = getSandboxConfig(realm, instanceType);
         const msg = error.response?.data?.message || error.message;
 
         if (status === 403) {
@@ -821,7 +822,7 @@ export async function assignAttributeToGroup(objectType, groupId, attributeId, r
  */
 export async function getSitePreferencesGroup(siteId, groupId, instanceType, realm, progressInfo = null) {
     try {
-        const sandbox = getSandboxConfig(realm);
+        const sandbox = getSandboxConfig(realm, instanceType);
         const token = await getOAuthToken(sandbox, progressInfo);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/sites/${encodeURIComponent(siteId)}/site_preferences/preference_groups/${encodeURIComponent(groupId)}/${encodeURIComponent(instanceType)}`;
         const headers = buildApiHeaders(token);
@@ -845,7 +846,7 @@ export async function getSitePreferencesGroup(siteId, groupId, instanceType, rea
  */
 export async function patchSitePreferencesGroup(siteId, groupId, instanceType, payload, realm) {
     try {
-        const sandbox = getSandboxConfig(realm);
+        const sandbox = getSandboxConfig(realm, instanceType);
         const token = await getOAuthToken(sandbox);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/sites/${encodeURIComponent(siteId)}/site_preferences/preference_groups/${encodeURIComponent(groupId)}/${encodeURIComponent(instanceType)}`;
         const headers = buildApiHeaders(token);
@@ -872,9 +873,9 @@ export async function patchSitePreferencesGroup(siteId, groupId, instanceType, p
  * @param {string} realm - Realm name
  * @returns {Promise<{ exists: boolean, total: number }>} Whether records exist and the total count
  */
-export async function searchCustomObjects(objectType, realm) {
+export async function searchCustomObjects(objectType, realm, instanceType = null) {
     try {
-        const sandbox = getSandboxConfig(realm);
+        const sandbox = getSandboxConfig(realm, instanceType);
         const token = await getOAuthToken(sandbox);
         const url = `https://${sandbox.hostname}/s/-/dw/data/v25_6/custom_objects_search/${encodeURIComponent(objectType)}`;
         const headers = buildApiHeaders(token);

@@ -92,13 +92,17 @@ function saveConfig(config) {
 }
 
 /**
- * Find realm configuration by name
+ * Find realm configuration by name (and optionally instance type)
  * @param {string} realmName - Realm name to find
  * @param {Object} config - Configuration object
+ * @param {string} [instanceType] - Instance type filter (e.g. 'production')
  * @returns {Object|null} Realm configuration or null if not found
  * @private
  */
-function findRealmInConfig(realmName, config) {
+function findRealmInConfig(realmName, config, instanceType) {
+    if (instanceType) {
+        return config.realms.find(r => r.name === realmName && r.instanceType === instanceType) || null;
+    }
     return config.realms.find(r => r.name === realmName) || null;
 }
 
@@ -106,13 +110,15 @@ function findRealmInConfig(realmName, config) {
  * Retrieve sandbox configuration for a specific realm
  * See .github/instructions/function-reference.md for detailed documentation
  * @param {string} realmName - Name of the realm to retrieve
+ * @param {string} [instanceType] - Instance type filter (e.g. 'production')
  * @returns {Object} Sandbox configuration object
  */
-export function getSandboxConfig(realmName) {
+export function getSandboxConfig(realmName, instanceType) {
     const config = loadConfig();
-    const realm = findRealmInConfig(realmName, config);
+    const realm = findRealmInConfig(realmName, config, instanceType);
     if (!realm) {
-        throw new Error(`Realm '${realmName}' not found in config.json`);
+        const suffix = instanceType ? ` with instanceType '${instanceType}'` : '';
+        throw new Error(`Realm '${realmName}'${suffix} not found in config.json`);
     }
     return realm;
 }
@@ -121,10 +127,11 @@ export function getSandboxConfig(realmName) {
  * Retrieve full realm configuration for a specific realm
  * See .github/instructions/function-reference.md for detailed documentation
  * @param {string} realmName - Name of the realm to retrieve
+ * @param {string} [instanceType] - Instance type filter (e.g. 'production')
  * @returns {Object} Full realm configuration object
  */
-export function getRealmConfig(realmName) {
-    return getSandboxConfig(realmName);
+export function getRealmConfig(realmName, instanceType) {
+    return getSandboxConfig(realmName, instanceType);
 }
 
 /**
@@ -161,11 +168,12 @@ export function getCoreSiteDemoPath() {
  * Get the instance type for a specific realm
  * See .github/instructions/function-reference.md for detailed documentation
  * @param {string} realmName - Name of the realm
+ * @param {string} [instanceType] - Instance type filter to disambiguate duplicate names
  * @returns {string} Instance type (sandbox, development, staging, production)
  */
-export function getInstanceType(realmName) {
+export function getInstanceType(realmName, instanceType) {
     const config = loadConfig();
-    const realm = findRealmInConfig(realmName, config);
+    const realm = findRealmInConfig(realmName, config, instanceType);
     if (!realm) {
         throw new Error(`Realm '${realmName}' not found in config.json`);
     }
@@ -216,11 +224,12 @@ export function getBackupConfig() {
 /**
  * Get WebDAV configuration for a realm
  * @param {string} realmName - Name of the realm
+ * @param {string} [instanceType] - Instance type filter (e.g. 'production')
  * @returns {Object} WebDAV configuration
  */
-export function getWebdavConfig(realmName) {
+export function getWebdavConfig(realmName, instanceType) {
     const config = loadConfig();
-    const realm = findRealmInConfig(realmName, config);
+    const realm = findRealmInConfig(realmName, config, instanceType);
 
     if (!realm) {
         throw new Error(`Realm '${realmName}' not found in config.json`);

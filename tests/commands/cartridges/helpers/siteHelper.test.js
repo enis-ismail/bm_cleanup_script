@@ -57,7 +57,7 @@ describe('fetchAndTransformSites', () => {
 
         const result = await fetchAndTransformSites('EU05');
 
-        expect(getAllSites).toHaveBeenCalledWith('EU05');
+        expect(getAllSites).toHaveBeenCalledWith('EU05', null, null);
         expect(getSiteById).toHaveBeenCalledTimes(2);
         expect(transformSiteToCartridgeInfo).toHaveBeenCalledTimes(2);
         expect(result).toHaveLength(2);
@@ -98,7 +98,7 @@ describe('fetchAndTransformSites', () => {
 
         await fetchAndTransformSites('EU05');
 
-        expect(getSiteById).toHaveBeenCalledWith('mySite', 'EU05');
+        expect(getSiteById).toHaveBeenCalledWith('mySite', 'EU05', null, null);
     });
 
     it('uses siteId fallback when id and site_id are missing', async () => {
@@ -108,7 +108,7 @@ describe('fetchAndTransformSites', () => {
 
         await fetchAndTransformSites('EU05');
 
-        expect(getSiteById).toHaveBeenCalledWith('fallbackSite', 'EU05');
+        expect(getSiteById).toHaveBeenCalledWith('fallbackSite', 'EU05', null, null);
     });
 });
 

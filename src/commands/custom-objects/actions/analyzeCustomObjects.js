@@ -82,7 +82,7 @@ export async function analyzeCustomObjects() {
     logSectionTitle('STEP 3: Scan All Meta Sources for Custom Object Types');
 
     const { typeIds: allTypeIds, fileMap: allFileMap, sourceMap } = collectAllCustomTypeIds(
-        repoPath, realmsToProcess
+        repoPath, realmsToProcess, instanceType
     );
 
     if (allTypeIds.size === 0) {
@@ -158,7 +158,8 @@ export async function analyzeCustomObjects() {
         repoPath,
         coreTypeIds: filteredTypeIdSet,
         codeUsageMap,
-        realms: realmsToProcess
+        realms: realmsToProcess,
+        instanceType
     });
 
     for (const [typeId, analysis] of analysisMap) {
@@ -182,7 +183,7 @@ export async function analyzeCustomObjects() {
     if (allCandidateTypes.length > 0) {
         logSectionTitle('STEP 6b: Check for Live Records (OCAPI)');
         console.log('  Checking all realms for existing records...\n');
-        typesWithRecords = await checkLiveCustomObjectRecords(allCandidateTypes, realmsToProcess);
+        typesWithRecords = await checkLiveCustomObjectRecords(allCandidateTypes, realmsToProcess, instanceType);
 
         if (typesWithRecords.size > 0) {
             console.log(formatLiveRecordWarnings(typesWithRecords));
@@ -196,7 +197,7 @@ export async function analyzeCustomObjects() {
     if (singleRealm.size > 0 && realmsToProcess.length > 1) {
         logSectionTitle('STEP 6c: Check for Orphaned Records (OCAPI)');
         console.log('  Checking non-target realms for existing records...\n');
-        orphanedRecords = await checkOrphanedRecordsForMoves(singleRealm, realmsToProcess);
+        orphanedRecords = await checkOrphanedRecordsForMoves(singleRealm, realmsToProcess, instanceType);
 
         if (orphanedRecords.size > 0) {
             console.log(formatOrphanedRecordWarnings(orphanedRecords));

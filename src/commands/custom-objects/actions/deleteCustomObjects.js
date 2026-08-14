@@ -129,7 +129,8 @@ export async function deleteCustomObjects(options = {}) {
         repoPath,
         coreTypeIds: filteredTypeIdSet,
         codeUsageMap,
-        realms: realmsToProcess
+        realms: realmsToProcess,
+        instanceType
     });
 
     const { unused } = classifyCustomObjectTypes(analysisMap, realmsToProcess);
@@ -161,7 +162,7 @@ export async function deleteCustomObjects(options = {}) {
 
     // --- STEP 5: Build and review delete plan ---
     logSectionTitle('STEP 5: Review Delete Plan');
-    const plan = buildDeletePlan({ repoPath, unusedTypes: selectedTypes });
+    const plan = buildDeletePlan({ repoPath, unusedTypes: selectedTypes, instanceType });
 
     console.log(formatDeletePlan(plan));
 
@@ -174,7 +175,7 @@ export async function deleteCustomObjects(options = {}) {
     // --- STEP 6: Check for live records on instance ---
     logSectionTitle('STEP 6: Check for Live Records');
     console.log('  Checking SFCC instances for existing records...\n');
-    const typesWithRecords = await checkLiveCustomObjectRecords(selectedTypes, realmsToProcess);
+    const typesWithRecords = await checkLiveCustomObjectRecords(selectedTypes, realmsToProcess, instanceType);
 
     if (typesWithRecords.size > 0) {
         console.log(formatLiveRecordWarnings(typesWithRecords));

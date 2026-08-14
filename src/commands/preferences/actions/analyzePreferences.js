@@ -96,7 +96,7 @@ export async function analyzePreferences() {
                 let realmHostname;
 
                 try {
-                    const realmConfig = getSandboxConfig(realm);
+                    const realmConfig = getSandboxConfig(realm, instanceType);
                     realmHostname = realmConfig.hostname;
                 } catch (configError) {
                     // Config lookup failed — can't even identify the realm
